@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Pegasus Mission OS theme tokens.
+ * Light editorial theme is the default. A dark theme is provided for viewer
+ * preference. Semantic statuses carry both colour and an icon/label elsewhere
+ * so meaning never relies on colour alone (WCAG 2.2).
+ */
+:root {
+  /* Backgrounds and surfaces */
+  --color-paper: #f5f4f0;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #efede8;
+
+  /* Text */
+  --color-ink: #17191f;
+  --color-ink-muted: #565b66;
+  --color-ink-subtle: #878c96;
+  --color-ink-inverse: #f7f6f3;
+
+  /* Lines */
+  --color-line: #e4e1d9;
+  --color-line-strong: #d3cfc4;
+
+  /* Accent: a calm architectural ink-blue */
+  --color-accent: #21506e;
+  --color-accent-muted: #4f7690;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgba(33, 80, 110, 0.4);
+
+  /* Semantic */
+  --color-success: #2f6f52;
+  --color-success-soft: #e6efe8;
+  --color-warning: #9a6410;
+  --color-warning-soft: #f6ecdb;
+  --color-critical: #a5372f;
+  --color-critical-soft: #f6e4e1;
+  --color-info: #21506e;
+  --color-info-soft: #e5edf1;
+
+  /* Typography stacks (no network font fetch; premium system stacks) */
+  --font-sans: "Inter", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Georgia", ui-serif, serif;
+  --font-mono: "SFMono-Regular", ui-monospace, "JetBrains Mono", "Menlo", "Consolas",
+    monospace;
+
+  --radius: 7px;
+}
+
+:root[data-theme="dark"] {
+  --color-paper: #101215;
+  --color-surface: #171a1f;
+  --color-surface-raised: #1d2127;
+  --color-surface-sunken: #0c0e11;
+  --color-ink: #f0efeb;
+  --color-ink-muted: #a4a9b3;
+  --color-ink-subtle: #767b85;
+  --color-ink-inverse: #17191f;
+  --color-line: #2a2e35;
+  --color-line-strong: #3a3f47;
+  --color-accent: #6ea3c4;
+  --color-accent-muted: #517d99;
+  --color-accent-contrast: #0c0e11;
+  --color-accent-ring: rgba(110, 163, 196, 0.45);
+  --color-success: #6cba90;
+  --color-success-soft: #17281f;
+  --color-warning: #d1a054;
+  --color-warning-soft: #2a2113;
+  --color-critical: #d98177;
+  --color-critical-soft: #2c1815;
+  --color-info: #6ea3c4;
+  --color-info-soft: #14222b;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv05", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Accessible focus: visible ring on keyboard focus */
+:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
+  border-radius: var(--radius);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    @apply font-mono text-eyebrow uppercase text-ink-subtle;
+  }
+
+  .surface-card {
+    @apply rounded-md border border-line bg-surface;
+  }
+
+  .hairline {
+    @apply border-line;
+  }
+
+  /* Loading skeleton shimmer */
+  .skeleton {
+    @apply rounded bg-surface-sunken;
+    position: relative;
+    overflow: hidden;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.35),
+      transparent
+    );
+    animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Subtle architectural grid motif for hero/empty surfaces */
+  .grid-motif {
+    background-image: linear-gradient(var(--color-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: -1px -1px;
+    opacity: 0.5;
+  }
+}

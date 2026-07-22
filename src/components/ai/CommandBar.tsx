@@ -1,0 +1,141 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Command, Loader2, Sparkles } from "lucide-react";
+import { askCommand } from "@/server/actions/ai";
+import { Button } from "@/components/shared/ui";
+import { Modal } from "@/components/shared/Modal";
+
+const SUGGESTIONS = [
+  "Which funding deadlines are approaching?",
+  "Summarise our current funding pipeline.",
+  "What evidence is missing for the Youth Futures report?",
+  "Which programmes are behind on outcome reporting?",
+];
+
+/**
+ * Global command bar for Pegasus Intelligence. Answers questions using the
+ * organisation's approved data via a server action. Every answer is a draft.
+ */
+export function CommandBar() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [open]);
+
+  async function run(q: string) {
+    if (!q.trim()) return;
+    setLoading(true);
+    setAnswer(null);
+    const res = await askCommand(q);
+    setLoading(false);
+    if (res.ok) {
+      setAnswer(res.text);
+      setModel(res.model ?? null);
+    } else {
+      setAnswer("Sorry, I could not answer that. " + (res.error ?? ""));
+    }
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="group flex h-9 w-full items-center gap-2 rounded border border-line-strong bg-surface px-3 text-sm text-ink-subtle transition-colors hover:border-ink-subtle md:w-72"
+      >
+        <Sparkles className="h-4 w-4 text-accent" />
+        <span className="flex-1 text-left">Ask Pegasus Intelligence</span>
+        <kbd className="hidden items-center gap-0.5 rounded border border-line bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.65rem] text-ink-subtle md:inline-flex">
+          <Command className="h-2.5 w-2.5" />K
+        </kbd>
+      </button>
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Pegasus Intelligence"
+        description="Ask about your funding, applications, grants, programmes and evidence. Answers use only your approved data."
+        size="lg"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(query);
+          }}
+        >
+          <div className="flex items-center gap-2 rounded border border-line-strong bg-surface px-3 focus-within:shadow-focus">
+            <Sparkles className="h-4 w-4 text-accent" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ask a question..."
+              className="h-11 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-subtle"
+            />
+            <Button type="submit" size="icon" variant="ghost" disabled={loading} aria-label="Ask">
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </form>
+
+        {!answer && !loading && (
+          <div className="mt-4">
+            <div className="eyebrow mb-2">Try asking</div>
+            <div className="flex flex-col gap-1.5">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setQuery(s);
+                    run(s);
+                  }}
+                  className="rounded border border-line bg-surface px-3 py-2 text-left text-sm text-ink-muted transition-colors hover:border-ink-subtle hover:text-ink"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Reading your approved data...
+          </div>
+        )}
+
+        {answer && (
+          <div className="mt-4 rounded-md border border-line bg-surface-sunken p-4">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{answer}</div>
+            {model && (
+              <div className="mt-3 border-t border-line pt-2 text-xs text-ink-subtle">
+                Generated by {model}. This is a draft. Confirm against your records.
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}
