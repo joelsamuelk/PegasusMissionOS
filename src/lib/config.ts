@@ -4,7 +4,20 @@
  */
 
 export const appConfig = {
+  /**
+   * Where the application runs. Used for absolute links into the product and
+   * for the address shown on marketing product previews.
+   */
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  /**
+   * Where the public marketing site runs. Kept separate from `appUrl` because
+   * the two are different hosts in production, and metadata, canonicals and
+   * the sitemap must point at the marketing origin rather than the app.
+   */
+  marketingUrl:
+    process.env.NEXT_PUBLIC_MARKETING_URL ?? "https://mission.pegasus-studio.co",
+  /** The parent company. Linked from the marketing site and structured data. */
+  studioUrl: process.env.NEXT_PUBLIC_STUDIO_URL ?? "https://www.pegasus-studio.co/",
   supabase: {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",

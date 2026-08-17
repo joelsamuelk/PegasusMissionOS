@@ -27,6 +27,13 @@
   --color-ink-subtle: #9ca3af;
   --color-ink-inverse: #ffffff;
 
+  /* The brand navy as a *fixed* ground, deliberately outside the semantic
+   * palette. `--color-ink` inverts under the dark theme, which is correct for
+   * text and wrong for a surface that is meant to stay navy in both themes:
+   * the Trust section painted itself `bg-ink` and became white-on-white the
+   * moment a reader chose dark. This token never inverts. */
+  --color-navy: #14213d;
+
   /* Lines */
   --color-line: #e9e9e9;
   --color-line-strong: #dfdfdf;
@@ -151,7 +158,10 @@ h6 {
    * are revealed. Zeroing durations alone would leave that content invisible,
    * so the resting state has to be restored explicitly. */
   .reveal,
-  .animate-fade-up {
+  .animate-fade-up,
+  .converge,
+  .converge-arrow,
+  .lifecycle-line {
     opacity: 1 !important;
     transform: none !important;
     animation: none !important;
@@ -244,6 +254,67 @@ h6 {
   .reveal.is-visible {
     opacity: 1;
     transform: none;
+  }
+
+  /* --- Marketing motion ------------------------------------------------
+   * Three effects, all CSS, all one-shot, all driven by the `.is-visible`
+   * class that `<Reveal>` adds when a section enters the viewport. No
+   * animation library, no scroll listener, nothing that loops.
+   *
+   * Each one is listed in the `prefers-reduced-motion` block above so it
+   * resolves to its *final* state rather than its first frame. Reduced motion
+   * must never hide content — the resting state of every effect here is
+   * "invisible or displaced", which is exactly what that block restores.
+   */
+
+  /* Fragmentation: eight scattered fragments travel to one column. The
+   * displacement is per-child rather than uniform, because a grid that
+   * arrives in formation reads as a transition and not as consolidation. */
+  .converge {
+    opacity: 0;
+    transform: translate(var(--converge-x, 0), var(--converge-y, -14px)) scale(0.96);
+    transition:
+      opacity 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .is-visible .converge {
+    opacity: 1;
+    transform: none;
+  }
+
+  .converge-0 { --converge-x: -22px; --converge-y: -18px; transition-delay: 0ms; }
+  .converge-1 { --converge-x: 16px; --converge-y: -26px; transition-delay: 60ms; }
+  .converge-2 { --converge-x: -14px; --converge-y: 20px; transition-delay: 120ms; }
+  .converge-3 { --converge-x: 24px; --converge-y: 14px; transition-delay: 180ms; }
+  .converge-4 { --converge-x: -26px; --converge-y: -10px; transition-delay: 90ms; }
+  .converge-5 { --converge-x: 12px; --converge-y: 24px; transition-delay: 150ms; }
+  .converge-6 { --converge-x: -18px; --converge-y: 16px; transition-delay: 210ms; }
+  .converge-7 { --converge-x: 20px; --converge-y: -20px; transition-delay: 30ms; }
+
+  .converge-arrow {
+    opacity: 0;
+    transform: scaleY(0.2);
+    transform-origin: top;
+    transition:
+      opacity 400ms ease-out 320ms,
+      transform 400ms cubic-bezier(0.22, 1, 0.36, 1) 320ms;
+  }
+
+  .is-visible .converge-arrow {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Lifecycle: the connective line fills once as the rail arrives, so the
+   * direction of the sequence is legible before any label is read. */
+  .lifecycle-line {
+    transform: scaleX(0);
+    transition: transform 1100ms cubic-bezier(0.22, 1, 0.36, 1) 120ms;
+  }
+
+  .is-visible .lifecycle-line {
+    transform: scaleX(1);
   }
 
   /* Both centres sit outside the box horizontally and are fully faded before

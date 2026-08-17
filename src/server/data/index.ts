@@ -25,6 +25,29 @@ export function __resetRepository(): void {
   cached = null;
 }
 
+/**
+ * The seeded demo workspace, whatever the configured adapter happens to be.
+ *
+ * The public marketing site renders previews of the demo — Northstar Community
+ * Foundation, a fictional charity with clearly labelled sample data — and it
+ * must render them for an anonymous visitor with no session and no tenant. It
+ * therefore cannot go through `getRepository()`: once the Supabase adapter is
+ * live, that resolves to a Postgres tenant, and a marketing page asking a
+ * production database for `org-northstar` would either fail or, far worse,
+ * return whatever a real organisation happens to have under that id.
+ *
+ * Pairing this with `createDemoContext()` keeps the marketing site inside the
+ * data boundary — it depends on `MissionRepository` like every other caller —
+ * while making it structurally impossible for a public page to read tenant
+ * data.
+ */
+let demoCached: MissionRepository | null = null;
+
+export function getDemoRepository(): MissionRepository {
+  if (!demoCached) demoCached = createInMemoryRepository(store);
+  return demoCached;
+}
+
 export type RuntimeDataSource = "in-memory" | "supabase";
 
 export interface RuntimeDescriptor {

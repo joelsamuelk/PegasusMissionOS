@@ -19,6 +19,9 @@ const config: Config = {
         "surface-raised": "var(--color-surface-raised)",
         "surface-sunken": "var(--color-surface-sunken)",
         ink: "var(--color-ink)",
+        // Fixed brand navy for surfaces that must stay navy in both themes.
+        // Not a synonym for `ink`, which inverts.
+        navy: "var(--color-navy)",
         "ink-muted": "var(--color-ink-muted)",
         "ink-subtle": "var(--color-ink-subtle)",
         "ink-inverse": "var(--color-ink-inverse)",
