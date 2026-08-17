@@ -46,13 +46,13 @@ export default function SignupPage() {
       </form>
 
       <p className="mt-4 text-xs text-ink-subtle">
-        In this demonstration, creating a workspace opens the onboarding flow. No
+        In this demo, creating a workspace opens the onboarding flow. No
         account is created and no data is stored.
       </p>
 
       <p className="mt-6 text-center text-sm text-ink-muted">
         Already have a workspace?{" "}
-        <Link href="/login" className="font-medium text-accent hover:underline">
+        <Link href="/login" className="font-medium text-info hover:underline">
           Sign in
         </Link>
       </p>

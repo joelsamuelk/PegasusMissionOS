@@ -16,7 +16,13 @@ export function AiSettingToggle({ enabled }: { enabled: boolean }) {
     const next = !on;
     setOn(next);
     start(async () => {
-      await setAiEnabled(next);
+      const result = await setAiEnabled(next);
+      if (!result.ok) {
+        // Roll the optimistic toggle back: the setting did not change.
+        setOn(!next);
+        notify(result.message ?? "That change was not permitted.", "error");
+        return;
+      }
       notify(next ? "AI assistance enabled." : "AI assistance disabled.");
       router.refresh();
     });

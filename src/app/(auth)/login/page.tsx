@@ -16,7 +16,7 @@ export default function LoginPage() {
       <div className="mt-5 flex items-start gap-2.5 rounded-md border border-info/25 bg-info-soft p-3 text-sm text-info">
         <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
         <span>
-          This is a demonstration. Authentication is not required. Continue to explore
+          This is a demo. Authentication is not required. Continue to explore
           the seeded workspace.
         </span>
       </div>
@@ -47,7 +47,7 @@ export default function LoginPage() {
 
       <p className="mt-6 text-center text-sm text-ink-muted">
         New to Pegasus?{" "}
-        <Link href="/signup" className="font-medium text-accent hover:underline">
+        <Link href="/signup" className="font-medium text-info hover:underline">
           Create a workspace
         </Link>
       </p>

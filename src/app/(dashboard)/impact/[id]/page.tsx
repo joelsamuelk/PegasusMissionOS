@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { EvidenceItem, Indicator } from "@/types/domain";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ReportBuilder } from "@/components/impact/ReportBuilder";
 
@@ -11,7 +12,9 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  return { title: q.impactReport(id)?.title ?? "Impact report" };
+  const ctx = await resolveRequestContext();
+  const report = await getRepository().reports.get(ctx, id);
+  return { title: report?.title ?? "Impact report" };
 }
 
 export default async function ImpactReportPage({
@@ -20,16 +23,21 @@ export default async function ImpactReportPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const report = q.impactReport(id);
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+
+  const report = await repo.reports.get(ctx, id);
   if (!report) notFound();
 
-  const programme = report.programmeId ? q.programme(report.programmeId) : undefined;
-  const indicators = report.includedIndicatorIds
-    .map((iid) => q.indicator(iid))
-    .filter((i): i is Indicator => Boolean(i));
-  const evidence = report.includedEvidenceIds
-    .map((eid) => q.evidenceItem(eid))
-    .filter((e): e is EvidenceItem => Boolean(e));
+  const [programme, indicators, evidence] = await Promise.all([
+    report.programmeId ? repo.programmes.get(ctx, report.programmeId) : null,
+    Promise.all(
+      report.includedIndicatorIds.map((iid) => repo.programmes.getIndicator(ctx, iid)),
+    ).then((rows) => rows.filter((i): i is Indicator => Boolean(i))),
+    Promise.all(report.includedEvidenceIds.map((eid) => repo.evidence.get(ctx, eid))).then(
+      (rows) => rows.filter((e): e is EvidenceItem => Boolean(e)),
+    ),
+  ]);
 
   return (
     <div>

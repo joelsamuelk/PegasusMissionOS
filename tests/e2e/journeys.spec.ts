@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
  * These cover the definition-of-done flows end to end.
  */
 
-test("1. sign in to the demonstration workspace", async ({ page }) => {
+test("1. sign in to the demo workspace", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("link", { name: /continue to workspace/i }).click();
   await expect(page).toHaveURL(/\/dashboard/);
@@ -58,6 +58,41 @@ test("8. generate an impact report draft", async ({ page }) => {
   await page.goto("/impact/report-youth-2026");
   await page.getByRole("button", { name: /generate first draft/i }).click();
   await expect(page.getByText(/first draft generated/i)).toBeVisible({ timeout: 30000 });
+});
+
+/**
+ * The relationship slice, end to end:
+ * external organisation → person → relationship → interaction →
+ * commitment → timeline → relationship page.
+ */
+test("9. answer 'what's happening with The Henderson Trust?'", async ({ page }) => {
+  await page.goto("/relationships");
+  await expect(page.getByText(/needs attention/i).first()).toBeVisible();
+
+  await page.getByRole("link", { name: /The Henderson Trust/i }).first().click();
+  await expect(page).toHaveURL(/\/relationships\/xorg-henderson/);
+
+  // Funding history, reporting and commitments are assembled on one page.
+  await expect(page.getByText(/Relationship brief/i)).toBeVisible();
+  await expect(page.getByText(/£170,000/).first()).toBeVisible();
+  await expect(page.getByText(/2026 interim evaluation/i).first()).toBeVisible();
+  await expect(page.getByText(/Grant awarded/i).first()).toBeVisible();
+});
+
+test("10. record an interaction and see it on the timeline", async ({ page }) => {
+  await page.goto("/relationships/xorg-horizon");
+  await page.getByRole("button", { name: /record an interaction/i }).click();
+  await page.getByLabel(/^Subject$/i).fill("Follow-up on the assessment timetable");
+  await page.getByRole("button", { name: /save interaction/i }).click();
+  await expect(
+    page.getByText(/Follow-up on the assessment timetable/i).first(),
+  ).toBeVisible({ timeout: 15000 });
+});
+
+test("11. a grant shows its funder relationship", async ({ page }) => {
+  await page.goto("/grants/grant-henderson");
+  await expect(page.getByText(/Funder relationship/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Daniel Osei/i })).toBeVisible();
 });
 
 test("command bar answers using approved data", async ({ page }) => {

@@ -17,9 +17,18 @@ import {
 
 type OppView = FundingOpportunity & { funderName: string; ownerName?: string };
 
-const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
-
-export function FundingPipeline({ opportunities }: { opportunities: OppView[] }) {
+/**
+ * `now` is supplied by the server parent from the request clock rather than
+ * read from a module constant here, so deadline urgency is computed against the
+ * same instant as every other surface in the request.
+ */
+export function FundingPipeline({
+  opportunities,
+  now,
+}: {
+  opportunities: OppView[];
+  now: Date;
+}) {
   const [view, setView] = useState<"table" | "kanban">("table");
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<string>("all");
@@ -75,7 +84,7 @@ export function FundingPipeline({ opportunities }: { opportunities: OppView[] })
             className={cn(
               "flex h-9 items-center gap-1.5 rounded border px-3 text-sm transition-colors",
               savedOnly
-                ? "border-accent bg-accent/10 text-accent"
+                ? "border-blue bg-blue-soft text-info"
                 : "border-line-strong bg-surface text-ink-muted hover:text-ink",
             )}
           >
@@ -96,9 +105,9 @@ export function FundingPipeline({ opportunities }: { opportunities: OppView[] })
           icon={Search}
         />
       ) : view === "table" ? (
-        <TableView opportunities={filtered} />
+        <TableView opportunities={filtered} now={now} />
       ) : (
-        <KanbanView opportunities={filtered} />
+        <KanbanView opportunities={filtered} now={now} />
       )}
     </div>
   );
@@ -130,7 +139,7 @@ function ViewToggle({
   );
 }
 
-function TableView({ opportunities }: { opportunities: OppView[] }) {
+function TableView({ opportunities, now }: { opportunities: OppView[]; now: Date }) {
   return (
     <div className="overflow-x-auto rounded-md border border-line bg-surface">
       <table className="w-full min-w-[820px] text-sm">
@@ -163,7 +172,7 @@ function TableView({ opportunities }: { opportunities: OppView[] }) {
                 {o.maxAward ? formatCurrencyCompact(o.maxAward) : "-"}
               </td>
               <td className="px-4 py-3">
-                <DeadlineIndicator deadline={o.deadline} now={DEMO_NOW} />
+                <DeadlineIndicator deadline={o.deadline} now={now} />
               </td>
               <td className="px-4 py-3">
                 <StatusBadge tone={STAGE_TONE[o.stage]} label={STAGE_LABELS[o.stage]} />
@@ -178,7 +187,7 @@ function TableView({ opportunities }: { opportunities: OppView[] }) {
   );
 }
 
-function KanbanView({ opportunities }: { opportunities: OppView[] }) {
+function KanbanView({ opportunities, now }: { opportunities: OppView[]; now: Date }) {
   const stages = KANBAN_STAGES.filter((s) => opportunities.some((o) => o.stage === s));
   return (
     <div className="flex gap-3 overflow-x-auto pb-3">
@@ -203,7 +212,7 @@ function KanbanView({ opportunities }: { opportunities: OppView[] }) {
                     <span className="text-xs font-medium text-ink">
                       {o.maxAward ? formatCurrencyCompact(o.maxAward) : ""}
                     </span>
-                    <DeadlineIndicator deadline={o.deadline} now={DEMO_NOW} />
+                    <DeadlineIndicator deadline={o.deadline} now={now} />
                   </div>
                   {o.nextAction && (
                     <div className="mt-2 border-t border-line pt-2 text-xs text-ink-muted">

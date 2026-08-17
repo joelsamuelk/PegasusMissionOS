@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FileText, MapPin, Tag } from "lucide-react";
 import { formatCurrency, formatDate, humanise } from "@/lib/formatting";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button, ButtonLink, Card, CardBody, Pill } from "@/components/shared/ui";
 import { DeadlineIndicator, EmptyState } from "@/components/shared/misc";
@@ -19,11 +20,10 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const opp = q.opportunity(id);
+  const ctx = await resolveRequestContext();
+  const opp = await getRepository().funding.getOpportunity(ctx, id);
   return { title: opp?.programmeName ?? "Opportunity" };
 }
-
-const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
 
 export default async function OpportunityPage({
   params,
@@ -31,14 +31,21 @@ export default async function OpportunityPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const opp = q.opportunity(id);
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const now = ctx.now();
+
+  const opp = await repo.funding.getOpportunity(ctx, id);
   if (!opp) notFound();
 
-  const funder = q.funder(opp.funderId);
-  const questions = q.opportunityQuestions(id);
-  const assessment = q.fitAssessment(id);
-  const owner = q.user(opp.ownerId);
-  const application = q.applications().find((a) => a.opportunityId === id);
+  const [funder, questions, assessment, owner, applications] = await Promise.all([
+    repo.funding.getFunder(ctx, opp.funderId),
+    repo.funding.opportunityQuestions(ctx, id),
+    repo.funding.getFitAssessment(ctx, id),
+    opp.ownerId ? repo.organisations.user(ctx, opp.ownerId) : null,
+    repo.applications.list(ctx),
+  ]);
+  const application = applications.find((a) => a.opportunityId === id);
 
   return (
     <div>
@@ -62,8 +69,8 @@ export default async function OpportunityPage({
       />
 
       {opp.isDemo && (
-        <p className="mb-5 inline-flex rounded-md border border-accent/25 bg-accent/10 px-3 py-1.5 text-xs text-accent">
-          Demonstration opportunity. {funder?.name} is a fictional funder for this sample workspace.
+        <p className="mb-5 inline-flex rounded-md border border-accent/30 bg-accent-soft px-3 py-1.5 text-xs text-accent-ink">
+          Demo opportunity. {funder?.name} is a fictional funder for this sample workspace.
         </p>
       )}
 
@@ -80,7 +87,7 @@ export default async function OpportunityPage({
                 <Fact label="Probability" value={`${opp.probability}%`} />
               </div>
               <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-line pt-4 text-sm">
-                <DeadlineIndicator deadline={opp.deadline} now={DEMO_NOW} />
+                <DeadlineIndicator deadline={opp.deadline} now={now} />
                 <span className="text-ink-subtle">Closes {formatDate(opp.deadline)}</span>
               </div>
             </CardBody>

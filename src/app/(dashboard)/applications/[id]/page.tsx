@@ -3,7 +3,8 @@ import type { EvidenceItem } from "@/types/domain";
 import { notFound } from "next/navigation";
 import { Check, FileText, Users } from "lucide-react";
 import { formatDate } from "@/lib/formatting";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { applicationCompletion, answersNeedingAttention } from "@/lib/logic/progress";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody } from "@/components/shared/ui";
@@ -19,10 +20,10 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  return { title: q.application(id)?.title ?? "Application" };
+  const ctx = await resolveRequestContext();
+  const application = await getRepository().applications.get(ctx, id);
+  return { title: application?.title ?? "Application" };
 }
-
-const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
 
 export default async function ApplicationPage({
   params,
@@ -30,17 +31,34 @@ export default async function ApplicationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const app = q.application(id);
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const now = ctx.now();
+
+  const app = await repo.applications.get(ctx, id);
   if (!app) notFound();
 
-  const opp = q.opportunity(app.opportunityId);
-  const funder = opp ? q.funder(opp.funderId) : undefined;
-  const owner = q.user(app.ownerId);
-  const answers = q.answers(app.id);
+  const [opp, answers, users] = await Promise.all([
+    repo.funding.getOpportunity(ctx, app.opportunityId),
+    repo.applications.answers(ctx, app.id),
+    repo.organisations.users(ctx),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  const funder = opp ? await repo.funding.getFunder(ctx, opp.funderId) : null;
+  const owner = app.ownerId ? userById.get(app.ownerId) : undefined;
   const completion = applicationCompletion(answers);
   const needing = answersNeedingAttention(answers);
-  const contributors = app.contributorIds.map((cid) => q.user(cid)).filter(Boolean);
-  const reviewers = app.reviewerIds.map((rid) => q.user(rid)).filter(Boolean);
+  const contributors = app.contributorIds.map((cid) => userById.get(cid)).filter(Boolean);
+  const reviewers = app.reviewerIds.map((rid) => userById.get(rid)).filter(Boolean);
+
+  // Answer-linked evidence, resolved once for the whole page.
+  const evidenceIds = [...new Set(answers.flatMap((a) => a.evidenceIds))];
+  const evidenceById = new Map(
+    (await Promise.all(evidenceIds.map((eid) => repo.evidence.get(ctx, eid))))
+      .filter((e): e is EvidenceItem => Boolean(e))
+      .map((e) => [e.id, e]),
+  );
 
   return (
     <div>
@@ -65,7 +83,7 @@ export default async function ApplicationPage({
           <CardBody>
             <div className="eyebrow">Deadline</div>
             <div className="mt-2">
-              <DeadlineIndicator deadline={app.deadline} now={DEMO_NOW} />
+              <DeadlineIndicator deadline={app.deadline} now={now} />
             </div>
             <div className="mt-1 text-xs text-ink-subtle">{formatDate(app.deadline)}</div>
           </CardBody>
@@ -106,7 +124,7 @@ export default async function ApplicationPage({
                 answer={answer}
                 evidence={
                   answer.evidenceIds
-                    .map((eid) => q.evidenceItem(eid))
+                    .map((eid) => evidenceById.get(eid))
                     .filter((e): e is EvidenceItem => Boolean(e))
                 }
                 defaultOpen={i === 0}

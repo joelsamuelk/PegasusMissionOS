@@ -2,6 +2,7 @@ import {
   Building2,
   FileText,
   FolderGit2,
+  Handshake,
   Landmark,
   LayoutGrid,
   Library,
@@ -20,6 +21,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Command Centre", href: "/dashboard", icon: LayoutGrid, group: "operate" },
+  { label: "Relationships", href: "/relationships", icon: Handshake, group: "operate" },
   { label: "Funding", href: "/funding", icon: Target, group: "operate" },
   { label: "Applications", href: "/applications", icon: FileText, group: "operate" },
   { label: "Grants", href: "/grants", icon: Landmark, group: "operate" },

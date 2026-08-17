@@ -10,7 +10,7 @@ import {
   Wand2,
 } from "lucide-react";
 import type {
-  AIProvenance,
+  GroundingRecord,
   EvidenceItem,
   ImpactReport,
   Indicator,
@@ -28,7 +28,7 @@ interface SectionState {
   key: string;
   title: string;
   content: string;
-  provenance?: AIProvenance;
+  provenance?: GroundingRecord;
 }
 
 /**
@@ -62,9 +62,14 @@ export function ReportBuilder({
     setSections((prev) => prev.map((s) => (s.key === key ? { ...s, content } : s)));
   }
 
-  function persist(key: string, content: string, provenance?: AIProvenance) {
+  function persist(key: string, content: string, provenance?: GroundingRecord) {
     start(async () => {
-      await saveReportSection(report.id, key, content, provenance);
+      const result = await saveReportSection(report.id, key, content, provenance);
+      if (!result.ok) {
+        // Sections persist on blur, so a silent refusal would lose the writing
+        // without the author ever being told.
+        notify(result.message ?? "That section was not saved.", "error");
+      }
     });
   }
 
@@ -96,7 +101,12 @@ export function ReportBuilder({
               x.key === s.key ? { ...x, content: res.text, provenance: res.provenance } : x,
             ),
           );
-          await saveReportSection(report.id, s.key, res.text, res.provenance);
+          const saved = await saveReportSection(report.id, s.key, res.text, res.provenance);
+          if (!saved.ok) {
+            setBusy(null);
+            notify(saved.message ?? "Those sections were not saved.", "error");
+            return;
+          }
         }
       }
       setBusy(null);
@@ -107,7 +117,11 @@ export function ReportBuilder({
 
   function approve() {
     start(async () => {
-      await setReportStatus(report.id, "approved");
+      const result = await setReportStatus(report.id, "approved");
+      if (!result.ok) {
+        notify(result.message ?? "That approval was not permitted.", "error");
+        return;
+      }
       notify("Report approved.");
       router.refresh();
     });
@@ -122,7 +136,7 @@ export function ReportBuilder({
           <span className="text-sm text-ink-muted">{report.reportingPeriod}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="accent" onClick={generateAll} disabled={pending || busy !== null}>
+          <Button variant="blue" onClick={generateAll} disabled={pending || busy !== null}>
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             Generate first draft
           </Button>

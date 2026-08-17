@@ -19,7 +19,7 @@ const toneClasses: Record<Tone, string> = {
   warning: "bg-warning-soft text-warning border-warning/25",
   critical: "bg-critical-soft text-critical border-critical/25",
   info: "bg-info-soft text-info border-info/25",
-  accent: "bg-accent/10 text-accent border-accent/25",
+  accent: "bg-accent-soft text-accent-ink border-accent/30",
 };
 
 /**
@@ -40,7 +40,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
         toneClasses[tone],
         className,
       )}

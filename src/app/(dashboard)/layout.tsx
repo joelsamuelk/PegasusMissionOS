@@ -1,20 +1,33 @@
-import { q } from "@/features/store";
+import { notFound } from "next/navigation";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { ShellChrome } from "@/components/layout/ShellChrome";
 
 /**
- * Authenticated application shell. In mock mode the current user, organisation
- * and notifications come from the seeded store. With Supabase configured these
- * would be resolved from the session and RLS-scoped queries.
+ * Authenticated application shell.
+ *
+ * The organisation, acting user and role come from the request context and the
+ * repository, never from module constants. When Supabase Auth lands the context
+ * resolves from the session and this file does not change.
  */
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const organisation = q.organisation();
-  const user = q.currentUser();
-  const member = q.currentMember();
-  const notifications = q.notifications();
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+
+  const [organisation, user, member, notifications] = await Promise.all([
+    repo.organisations.get(ctx),
+    repo.organisations.currentUser(ctx),
+    repo.organisations.currentMember(ctx),
+    repo.workspace.notifications(ctx),
+  ]);
+
+  // A context that resolves to no organisation, user or membership is not a
+  // recoverable UI state: it means the caller has no workspace to be in.
+  if (!organisation || !user || !member) notFound();
 
   return (
     <ShellChrome
@@ -22,6 +35,7 @@ export default function DashboardLayout({
       user={user}
       role={member.role}
       notifications={notifications}
+      now={ctx.now()}
     >
       {children}
     </ShellChrome>

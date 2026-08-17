@@ -11,7 +11,7 @@ import {
   Wand2,
 } from "lucide-react";
 import type {
-  AIProvenance,
+  GroundingRecord,
   AnswerStatus,
   ApplicationAnswer,
   EvidenceItem,
@@ -64,7 +64,7 @@ export function AnswerEditor({
   const [text, setText] = useState(answer.draft);
   const [candidate, setCandidate] = useState<{
     text: string;
-    provenance?: AIProvenance;
+    provenance?: GroundingRecord;
     model?: string;
     isReview?: boolean;
   } | null>(null);
@@ -82,7 +82,13 @@ export function AnswerEditor({
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       startSave(async () => {
-        await saveAnswer(answer.id, text);
+        const result = await saveAnswer(answer.id, text);
+        if (!result.ok) {
+          // Never show "Saved" for a write that did not happen.
+          setSavedAt("Not saved");
+          notify(result.message ?? "That edit was not saved.", "error");
+          return;
+        }
         setSavedAt("Saved");
         setTimeout(() => setSavedAt(null), 1500);
       });
@@ -114,7 +120,11 @@ export function AnswerEditor({
     if (!candidate) return;
     setText(candidate.text);
     startSave(async () => {
-      await saveAnswer(answer.id, candidate.text, candidate.provenance);
+      const result = await saveAnswer(answer.id, candidate.text, candidate.provenance);
+      if (!result.ok) {
+        notify(result.message ?? "That draft could not be applied.", "error");
+        return;
+      }
       notify("AI draft applied. Remember to review it before submitting.");
       router.refresh();
     });
@@ -123,7 +133,11 @@ export function AnswerEditor({
 
   function changeStatus(status: AnswerStatus) {
     startSave(async () => {
-      await setAnswerStatus(answer.id, status);
+      const result = await setAnswerStatus(answer.id, status);
+      if (!result.ok) {
+        notify(result.message ?? "That status change was not permitted.", "error");
+        return;
+      }
       notify(status === "approved" ? "Answer approved." : "Status updated.");
       router.refresh();
     });
@@ -211,7 +225,7 @@ export function AnswerEditor({
               {candidate && (
                 <div className="mt-4 rounded-md border border-accent/30 bg-accent/5 p-3">
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="eyebrow text-accent">
+                    <span className="eyebrow text-accent-ink">
                       {candidate.isReview ? "AI review" : "AI draft to review"}
                     </span>
                     {candidate.provenance && (

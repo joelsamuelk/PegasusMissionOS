@@ -18,6 +18,8 @@ interface ShellProps {
   user: User;
   role: MemberRole;
   notifications: Notification[];
+  /** Request clock, supplied by the server layout. Never pinned here. */
+  now: Date;
   children: React.ReactNode;
 }
 
@@ -26,6 +28,7 @@ export function ShellChrome({
   user,
   role,
   notifications,
+  now,
   children,
 }: ShellProps) {
   const pathname = usePathname();
@@ -59,7 +62,7 @@ export function ShellChrome({
               <button
                 onClick={() => setMobileOpen(false)}
                 aria-label="Close menu"
-                className="rounded p-1.5 text-ink-subtle hover:bg-surface-sunken"
+                className="rounded-full p-1.5 text-ink-subtle hover:bg-surface-sunken"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -80,14 +83,14 @@ export function ShellChrome({
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
-            className="rounded p-1.5 text-ink hover:bg-surface-sunken lg:hidden"
+            className="rounded-full p-1.5 text-ink hover:bg-surface-sunken lg:hidden"
           >
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex-1">
             <CommandBar />
           </div>
-          <NotificationsBell notifications={notifications} />
+          <NotificationsBell notifications={notifications} now={now} />
           <div className="hidden items-center gap-2 sm:flex">
             <span
               className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-xs font-medium text-ink-inverse"
@@ -125,9 +128,11 @@ function SidebarContent({
       </div>
 
       <div className="border-b border-line px-5 py-3">
-        <div className="text-sm font-medium text-ink">{organisation.name}</div>
+        <div className="font-heading text-sm font-semibold text-ink">
+          {organisation.name}
+        </div>
         {organisation.isDemo && (
-          <StatusBadge tone="accent" label="Demonstration workspace" className="mt-1.5" />
+          <StatusBadge tone="accent" label="Demo workspace" className="mt-1.5" />
         )}
       </div>
 
@@ -138,7 +143,7 @@ function SidebarContent({
 
       <div className="border-t border-line px-4 py-3">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-surface-sunken text-xs font-medium text-ink">
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-soft text-xs font-semibold text-ink">
             {user.avatarInitials}
           </span>
           <div className="min-w-0">
@@ -175,9 +180,9 @@ function NavGroup({
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2.5 rounded px-2 py-2 text-sm transition-colors",
+                  "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm transition-colors duration-fast",
                   active
-                    ? "bg-surface-sunken font-medium text-ink"
+                    ? "bg-blue-soft font-semibold text-ink"
                     : "text-ink-muted hover:bg-surface-sunken hover:text-ink",
                 )}
               >
@@ -194,7 +199,13 @@ function NavGroup({
   );
 }
 
-function NotificationsBell({ notifications }: { notifications: Notification[] }) {
+function NotificationsBell({
+  notifications,
+  now,
+}: {
+  notifications: Notification[];
+  now: Date;
+}) {
   const [open, setOpen] = useState(false);
   const unread = notifications.filter((n) => !n.read).length;
   return (
@@ -202,11 +213,11 @@ function NotificationsBell({ notifications }: { notifications: Notification[] })
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={`Notifications, ${unread} unread`}
-        className="relative rounded p-1.5 text-ink hover:bg-surface-sunken"
+        className="relative rounded-full p-1.5 text-ink hover:bg-surface-sunken"
       >
         <Bell className="h-5 w-5" />
         {unread > 0 && (
-          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-critical px-1 text-[0.6rem] font-semibold text-white">
+          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.6rem] font-semibold text-accent-contrast">
             {unread}
           </span>
         )}
@@ -214,7 +225,7 @@ function NotificationsBell({ notifications }: { notifications: Notification[] })
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-40 mt-2 w-80 rounded-md border border-line bg-surface shadow-elev-3">
+          <div className="absolute right-0 z-40 mt-2 w-80 overflow-hidden rounded-lg border border-line bg-surface shadow-elev-3">
             <div className="border-b border-line px-4 py-2.5">
               <div className="text-sm font-medium text-ink">Notifications</div>
             </div>
@@ -239,7 +250,7 @@ function NotificationsBell({ notifications }: { notifications: Notification[] })
                         <div className="text-sm font-medium text-ink">{n.title}</div>
                         <div className="text-xs text-ink-muted">{n.body}</div>
                         <div className="mt-1 text-[0.7rem] text-ink-subtle">
-                          {timeAgo(n.createdAt, new Date("2026-07-21T10:00:00Z"))}
+                          {timeAgo(n.createdAt, now)}
                         </div>
                       </div>
                     </div>

@@ -5,6 +5,7 @@ import type { AiFeature } from "./prompts";
 import type { AiContext, AiProvider, AiResult } from "./types";
 
 export type { AiContext, AiResult } from "./types";
+export { offeredItems } from "./types";
 export type { AiFeature } from "./prompts";
 export { FEATURE_LABELS, FEATURE_PROMPTS } from "./prompts";
 
@@ -21,9 +22,17 @@ export function getAiProvider(): AiProvider {
 }
 
 /**
- * Run an AI task. On any provider failure the mock provider is used so the
- * product experience never breaks, and the failure is surfaced in the result
- * model name for transparency.
+ * Run an AI task.
+ *
+ * On any provider failure the deterministic mock answers, so the product never
+ * breaks. The fallback is reported as **structured metadata** — `usedFallback`
+ * plus `fallbackReason` — rather than as a suffix appended to the model string
+ * (audit S7). A suffix is not something a UI can reliably branch on, and the
+ * requirement is that mock output is never displayed as live generation.
+ *
+ * A `GroundingViolationError` reaches here like any other failure: a provider
+ * that fabricated a source id has produced output whose provenance cannot be
+ * trusted, so that output is discarded and the mock answers instead.
  */
 export async function runAi(feature: AiFeature, context: AiContext): Promise<AiResult> {
   const provider = getAiProvider();
@@ -34,7 +43,8 @@ export async function runAi(feature: AiFeature, context: AiContext): Promise<AiR
       const fallback = await new MockAiProvider().generate(feature, context);
       return {
         ...fallback,
-        model: `${fallback.model} (fell back from ${provider.name}: ${(error as Error).message.slice(0, 80)})`,
+        usedFallback: true,
+        fallbackReason: `${provider.name} failed: ${(error as Error).message.slice(0, 160)}`,
       };
     }
     throw error;

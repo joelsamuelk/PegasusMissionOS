@@ -44,6 +44,26 @@ export const FEATURE_LABELS: Record<AiFeature, string> = {
   command: "Answer a question",
 };
 
+/**
+ * Which features produce text a funder will read.
+ *
+ * The distinction is about consequence, not difficulty. A command-bar answer is
+ * read by one person who can immediately see whether it is wrong; a grant
+ * answer or a report section goes to the body deciding whether to fund the
+ * organisation. Only these two justify the more capable tier.
+ *
+ * The editing features are deliberately routine: they transform a draft a human
+ * already wrote and will read again before it goes anywhere.
+ */
+export const FUNDER_FACING_FEATURES: ReadonlySet<AiFeature> = new Set([
+  "draft_answer",
+  "report_section",
+]);
+
+export function isFunderFacing(feature: AiFeature): boolean {
+  return FUNDER_FACING_FEATURES.has(feature);
+}
+
 export interface FeaturePrompt {
   feature: AiFeature;
   version: string;

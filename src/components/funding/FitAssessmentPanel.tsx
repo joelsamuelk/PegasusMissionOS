@@ -169,7 +169,7 @@ function ScoreRing({ score, category }: { score: number; category: string }) {
       }}
     >
       <div className="flex h-[62px] w-[62px] flex-col items-center justify-center rounded-full bg-surface">
-        <span className="font-serif text-xl font-medium text-ink">{score}</span>
+        <span className="font-heading text-xl font-semibold text-ink">{score}</span>
         <span className="text-[0.6rem] text-ink-subtle">of 100</span>
       </div>
     </div>

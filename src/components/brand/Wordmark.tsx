@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Pegasus wordmark rendered as text. No fabricated logo asset is used.
- * The mark pairs a precise geometric glyph with the Pegasus name.
+ * Pegasus wordmark. The glyph is the Pegasus Studio mark — a coral arc with a
+ * rising dot — set alongside the Pegasus name in the brand display face.
  */
 export function Wordmark({
   className,
@@ -14,17 +14,22 @@ export function Wordmark({
   size?: "sm" | "md" | "lg";
 }) {
   const nameSize =
-    size === "lg" ? "text-lg" : size === "sm" ? "text-[0.9rem]" : "text-base";
+    size === "lg" ? "text-xl" : size === "sm" ? "text-[0.95rem]" : "text-[1.0625rem]";
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       <PegasusGlyph
         className={cn(
-          "text-ink",
-          size === "lg" ? "h-7 w-7" : size === "sm" ? "h-5 w-5" : "h-6 w-6",
+          "text-accent",
+          size === "lg" ? "h-7 w-auto" : size === "sm" ? "h-5 w-auto" : "h-6 w-auto",
         )}
       />
       <span className="inline-flex flex-col leading-none">
-        <span className={cn("font-semibold tracking-tight text-ink", nameSize)}>
+        <span
+          className={cn(
+            "font-heading font-semibold tracking-tight text-ink",
+            nameSize,
+          )}
+        >
           Pegasus
         </span>
         {showProduct && (
@@ -35,20 +40,48 @@ export function Wordmark({
   );
 }
 
-/** A restrained, architectural mark: a rising angular form within a frame. */
+/**
+ * The Pegasus mark: a sweeping arc beneath a rising dot, in brand coral.
+ * Drawn in `currentColor` so it can be tinted by context.
+ */
 export function PegasusGlyph({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 264 200"
       fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
       className={className}
       aria-hidden="true"
     >
-      <rect x="2.5" y="2.5" width="19" height="19" rx="2" />
-      <path d="M6 18 L12 6 L18 18" strokeLinejoin="round" strokeLinecap="round" />
-      <path d="M8.5 13 L15.5 13" strokeLinecap="round" />
+      <path
+        d="M28 66 Q130 196 232 66"
+        stroke="currentColor"
+        strokeWidth="34"
+        strokeLinecap="round"
+      />
+      <circle cx="236" cy="30" r="18" fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
+ * The mark used as a large decorative motif, as on the studio site: oversized,
+ * low-opacity and non-interactive. Positioning is supplied by the caller.
+ */
+export function BrandMotif({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 260 190"
+      fill="none"
+      aria-hidden="true"
+      className={cn("pointer-events-none absolute text-accent", className)}
+    >
+      <path
+        d="M28 66 Q130 196 232 66"
+        stroke="currentColor"
+        strokeWidth="34"
+        strokeLinecap="round"
+      />
+      <circle cx="236" cy="30" r="18" fill="currentColor" />
     </svg>
   );
 }

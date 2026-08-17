@@ -3,12 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Activity, Boxes, Target, TrendingUp } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/formatting";
-import { q } from "@/features/store";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody, Pill } from "@/components/shared/ui";
 import { EntityStatusBadge } from "@/components/shared/StatusBadge";
 import { EvidenceReferenceList } from "@/components/evidence/EvidenceReference";
 import { IndicatorEditor } from "@/components/programmes/IndicatorEditor";
+import { ProgrammeEcosystemPanel } from "@/components/relationships/ProgrammeEcosystemPanel";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
+import { buildProgrammeEcosystem } from "@/server/services/relationships";
 
 export async function generateMetadata({
   params,
@@ -16,7 +19,9 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  return { title: q.programme(id)?.name ?? "Programme" };
+  const ctx = await resolveRequestContext();
+  const programme = await getRepository().programmes.get(ctx, id);
+  return { title: programme?.name ?? "Programme" };
 }
 
 export default async function ProgrammePage({
@@ -25,13 +30,31 @@ export default async function ProgrammePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const programme = q.programme(id);
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+
+  const programme = await repo.programmes.get(ctx, id);
   if (!programme) notFound();
 
-  const owner = q.user(programme.ownerId);
-  const grants = q.programmeGrants(programme.id);
-  const outcomes = q.outcomes(programme.id);
-  const evidence = q.evidenceForTarget("programme", programme.id);
+  // The programme's ecosystem, read from relationship links. Each entry is a
+  // real organisation with its own history and commitments, rather than a name
+  // in `programme.deliveryPartners`.
+  const [owner, grants, outcomes, evidence, ecosystem] = await Promise.all([
+    programme.ownerId ? repo.organisations.user(ctx, programme.ownerId) : null,
+    repo.programmes.grantsFor(ctx, programme.id),
+    repo.programmes.outcomes(ctx, programme.id),
+    repo.evidence.forTarget(ctx, "programme", programme.id),
+    buildProgrammeEcosystem(ctx, repo, programme.id),
+  ]);
+
+  const indicatorsByOutcome = new Map(
+    await Promise.all(
+      outcomes.map(
+        async (o) =>
+          [o.id, await repo.programmes.indicatorsForOutcome(ctx, o.id)] as const,
+      ),
+    ),
+  );
 
   return (
     <div>
@@ -85,7 +108,7 @@ export default async function ProgrammePage({
             <h2 className="mb-3 text-title font-semibold text-ink">Outcomes and indicators</h2>
             <div className="flex flex-col gap-5">
               {outcomes.map((outcome) => {
-                const indicators = q.indicators(outcome.id);
+                const indicators = indicatorsByOutcome.get(outcome.id) ?? [];
                 return (
                   <div key={outcome.id}>
                     <div className="mb-2 flex items-center gap-2">
@@ -128,7 +151,7 @@ export default async function ProgrammePage({
               )}
               {grants.map((g) => (
                 <li key={g.id} className="px-4 py-3">
-                  <Link href={`/grants/${g.id}`} className="text-sm text-accent hover:underline">
+                  <Link href={`/grants/${g.id}`} className="text-sm text-info hover:underline">
                     {g.title}
                   </Link>
                   <div className="text-xs text-ink-subtle">{formatCurrency(g.awardValue)}</div>
@@ -137,7 +160,10 @@ export default async function ProgrammePage({
             </ul>
           </Card>
 
-          {programme.deliveryPartners.length > 0 && (
+          <ProgrammeEcosystemPanel entries={ecosystem} />
+
+          {/* Fallback while the string array is migrated onto relationships. */}
+          {ecosystem.length === 0 && programme.deliveryPartners.length > 0 && (
             <Card>
               <div className="border-b border-line px-4 py-3">
                 <h3 className="text-sm font-semibold text-ink">Delivery partners</h3>
