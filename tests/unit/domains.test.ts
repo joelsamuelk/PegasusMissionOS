@@ -15,6 +15,7 @@ const config: DomainConfig = {
   missionAppUrl: "https://app.example.test",
   controlPlaneUrl: "https://control.example.test",
   previewUrl: "https://branch-preview.example.dev",
+  vercelProductionUrl: "https://project.example.vercel.app",
   legacyUrl: "https://legacy.example.test",
 };
 
@@ -24,6 +25,7 @@ describe("Mission OS domain architecture", () => {
     ["app.example.test", "customer_app"],
     ["control.example.test", "control_plane"],
     ["branch-preview.example.dev", "preview"],
+    ["project.example.vercel.app", "preview"],
     ["legacy.example.test", "preview"],
     ["localhost:3000", "preview"],
     ["mission.localhost:3000", "marketing"],
@@ -80,8 +82,22 @@ describe("Mission OS domain architecture", () => {
       missionAppUrl: "https://app.pegasus-studio.co",
       controlPlaneUrl: "https://control.pegasus-studio.co",
       previewUrl: undefined,
+      vercelProductionUrl: undefined,
       legacyUrl: undefined,
     });
+  });
+
+  it("recognises Vercel's stable production alias", () => {
+    const vercelConfig = createDomainConfig({
+      NODE_ENV: "production",
+      VERCEL_URL: "pegasus-mission-os-git-main-example.vercel.app",
+      VERCEL_PROJECT_PRODUCTION_URL: "pegasus-mission-os.vercel.app",
+    });
+
+    expect(resolveSurface("pegasus-mission-os.vercel.app", vercelConfig)).toBe("preview");
+    expect(resolveSurface("pegasus-mission-os-git-main-example.vercel.app", vercelConfig)).toBe(
+      "preview",
+    );
   });
 
   it("does not derive tenant or internal privileges from a host", () => {

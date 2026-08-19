@@ -11,6 +11,7 @@ export interface DomainConfig {
   missionAppUrl: string;
   controlPlaneUrl: string;
   previewUrl?: string;
+  vercelProductionUrl?: string;
   legacyUrl?: string;
 }
 
@@ -51,6 +52,9 @@ export function createDomainConfig(
 ): DomainConfig {
   const production = env.NODE_ENV === "production";
   const vercelPreview = env.VERCEL_URL ? `https://${env.VERCEL_URL}` : undefined;
+  const vercelProduction = env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : undefined;
   return {
     studioUrl: originOrDefault(
       env.NEXT_PUBLIC_STUDIO_URL,
@@ -76,6 +80,10 @@ export function createDomainConfig(
       env.NEXT_PUBLIC_PREVIEW_URL ?? vercelPreview,
       "NEXT_PUBLIC_PREVIEW_URL",
     ),
+    vercelProductionUrl: optionalOrigin(
+      vercelProduction,
+      "VERCEL_PROJECT_PRODUCTION_URL",
+    ),
     legacyUrl: optionalOrigin(env.NEXT_PUBLIC_LEGACY_URL, "NEXT_PUBLIC_LEGACY_URL"),
   };
 }
@@ -94,7 +102,11 @@ export function resolveSurface(host: string | null, config: DomainConfig): Produ
   if (hostname === hostnameOf(config.missionMarketingUrl)) return "marketing";
   if (hostname === hostnameOf(config.missionAppUrl)) return "customer_app";
   if (hostname === hostnameOf(config.controlPlaneUrl)) return "control_plane";
-  if (hostname === hostnameOf(config.previewUrl) || hostname === hostnameOf(config.legacyUrl)) {
+  if (
+    hostname === hostnameOf(config.previewUrl) ||
+    hostname === hostnameOf(config.vercelProductionUrl) ||
+    hostname === hostnameOf(config.legacyUrl)
+  ) {
     return "preview";
   }
 
