@@ -1,6 +1,6 @@
 # Pegasus Control Plane Architecture
 
-**Status:** CONTROL-0 approved architecture; CONTROL-1 foundation implemented.  
+**Status:** CONTROL-0 through CONTROL-11 implemented; production migrations applied through CONTROL-10.  
 **Deployment:** `control.pegasus-studio.co` (configuration: `NEXT_PUBLIC_CONTROL_URL`).  
 **Related surfaces:** Mission OS at `app.pegasus-studio.co`, marketing at `mission.pegasus-studio.co`, studio at `www.pegasus-studio.co`.
 
@@ -105,3 +105,5 @@ Feature flags evaluate server-side for security-sensitive behaviour and fail to 
 ## 11. Current foundation
 
 Implemented now: configuration-driven Control origin, separate route and visual shell, internal roles/capabilities, `ControlRequestContext`, support-session expiry helper, audit contract/reason enforcement, and deny-by-default database foundation. The Command Centre deliberately renders unavailable values instead of invented metrics. Internal authentication, repositories and consequential actions remain disabled until CONTROL-1 persistence is connected.
+
+CONTROL-2 adds Pegasus-owned prospect organisations and people plus research sources and facts. It reuses Organisation Intelligence extraction semantics without placing prospect records in a customer tenant. Every extracted fact retains source URL, locator, authority, confidence, method and verification state; conflicts remain grouped and injection-shaped content is forced to review. Research never promotes a fact to verified.

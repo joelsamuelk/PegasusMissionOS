@@ -16,7 +16,11 @@ export const CONTROL_CAPABILITIES = [
   "organisation:view_metadata",
   "organisation:suspend",
   "prospect:create",
+  "prospect:view",
   "prospect:update",
+  "prospect:research",
+  "pipeline:manage",
+  "task:manage",
   "outreach:send",
   "support:request_access",
   "support:read_customer_data",
@@ -26,12 +30,15 @@ export const CONTROL_CAPABILITIES = [
   "feature_flag:manage",
   "ai_trace:view",
   "audit:view",
+  "usage:manage",
+  "feedback:manage",
 ] as const;
 
 export type ControlCapability = (typeof CONTROL_CAPABILITIES)[number];
 
 const all = new Set<ControlCapability>(CONTROL_CAPABILITIES);
 const metadata: ControlCapability[] = ["control:access", "organisation:view_metadata"];
+const prospectRead: ControlCapability[] = ["prospect:view"];
 
 const ROLE_CAPABILITIES: Record<InternalRole, ReadonlySet<ControlCapability>> = {
   super_admin: all,
@@ -40,30 +47,46 @@ const ROLE_CAPABILITIES: Record<InternalRole, ReadonlySet<ControlCapability>> = 
     "organisation:create",
     "organisation:suspend",
     "prospect:create",
+    ...prospectRead,
     "prospect:update",
+    "prospect:research",
+    "pipeline:manage",
+    "task:manage",
     "support:request_access",
     "feature_flag:manage",
     "audit:view",
+    "usage:manage",
+    "feedback:manage",
   ]),
   sales: new Set([
     ...metadata,
     "prospect:create",
+    ...prospectRead,
     "prospect:update",
+    "prospect:research",
+    "pipeline:manage",
+    "task:manage",
     "outreach:send",
   ]),
   customer_success: new Set([
     ...metadata,
+    ...prospectRead,
     "prospect:update",
     "support:request_access",
+    "pipeline:manage",
+    "task:manage",
+    "usage:manage",
+    "feedback:manage",
   ]),
   support: new Set([
     ...metadata,
     "support:request_access",
     "support:read_customer_data",
+    "feedback:manage",
   ]),
-  product: new Set([...metadata, "ai_trace:view", "feature_flag:manage"]),
-  finance: new Set([...metadata, "billing:view", "billing:manage"]),
-  read_only: new Set(metadata),
+  product: new Set([...metadata, ...prospectRead, "ai_trace:view", "feature_flag:manage", "usage:manage", "feedback:manage"]),
+  finance: new Set([...metadata, ...prospectRead, "billing:view", "billing:manage"]),
+  read_only: new Set([...metadata, ...prospectRead]),
 };
 
 export function controlCapabilitiesFor(role: InternalRole): ControlCapability[] {

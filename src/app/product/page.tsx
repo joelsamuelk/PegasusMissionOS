@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
 import { appConfig } from "@/lib/config";
+import { domainPaths } from "@/lib/domains";
 import { loadMarketingPreview } from "@/lib/marketing/preview";
 import { Section, SectionHeader } from "@/components/marketing/primitives";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
@@ -111,7 +112,7 @@ export default async function ProductPage() {
               instead of generating, and live previews from the demo workspace.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="/dashboard" variant="blue">
+              <ButtonLink href={domainPaths.app("/dashboard")} variant="blue">
                 Explore the demo
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </ButtonLink>

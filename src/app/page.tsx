@@ -1,17 +1,10 @@
 import type { Metadata } from "next";
-import { ArrowRight } from "lucide-react";
 import { appConfig } from "@/lib/config";
-import { FAQS } from "@/lib/marketing/content";
-import { Section, SectionHeader } from "@/components/marketing/primitives";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { Hero } from "@/components/marketing/Hero";
-import { ProductScreens } from "@/components/marketing/ProductScreens";
-import { HomeStory } from "@/components/marketing/HomeStory";
-import { TrustSection } from "@/components/marketing/TrustSection";
-import { FAQ } from "@/components/marketing/FAQ";
+import { MissionHome } from "@/components/marketing/MissionHome";
 import { FinalCTA } from "@/components/marketing/FinalCTA";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
-import { ButtonLink } from "@/components/shared/ui";
 
 const TITLE = "Pegasus Mission OS: the operating system for mission-driven organisations";
 const DESCRIPTION =
@@ -102,15 +95,6 @@ export default function LandingPage() {
           audienceType: "Charities, NGOs, foundations and social enterprises",
         },
       },
-      {
-        "@type": "FAQPage",
-        "@id": `${appConfig.marketingUrl}#faq`,
-        mainEntity: FAQS.map((faq) => ({
-          "@type": "Question",
-          name: faq.q,
-          acceptedAnswer: { "@type": "Answer", text: faq.a },
-        })),
-      },
     ],
   };
 
@@ -134,42 +118,9 @@ export default function LandingPage() {
       <main id="main">
         <Hero />
 
-        {/* The proof. One composition of real seeded records, not five demos
-            of the same claim. The deeper walkthroughs are on /product.
+        <MissionHome />
 
-            The dot lattice sits behind it because the preview is a white panel
-            on near-white paper: without a ground, the panel's only separation
-            from the page was its shadow. */}
-        <Section id="see-it" className="relative overflow-hidden">
-          <div className="dot-grid absolute inset-0" aria-hidden />
-          {/* Positioned, so it paints above the lattice. An absolutely
-              positioned sibling outranks static content whatever the DOM
-              order, so the content has to opt into the same layer. */}
-          <div className="relative">
-            <SectionHeader
-              id="see-it"
-              eyebrow="See it working"
-              title="One clear view of the work that matters."
-              lead="Funding, deadlines and evidence meet in the same workspace. Every figure below comes from the product's demo data, so you can follow it into the application and inspect where it came from."
-            />
-            <ProductScreens />
-            <div className="flex flex-wrap items-center gap-3">
-              <ButtonLink href="/dashboard" variant="blue">
-                Explore the demo
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </ButtonLink>
-              <ButtonLink href="/product" variant="secondary">
-                How it works
-              </ButtonLink>
-            </div>
-          </div>
-        </Section>
-
-        <HomeStory />
-
-        <TrustSection />
-        <FAQ />
-        <FinalCTA />
+        <FinalCTA compact />
       </main>
 
       <MarketingFooter />

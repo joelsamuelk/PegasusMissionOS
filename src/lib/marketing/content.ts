@@ -42,18 +42,18 @@ export const STATUS_LABEL: Record<ProductStatus, string> = {
  */
 export const NAV_LINKS = [
   { label: "Product", href: "/product" },
-  { label: "Who it's for", href: "/#personas" },
-  { label: "Trust", href: "/#trust" },
-  { label: "Questions", href: "/#faq" },
+  { label: "How it works", href: "/#context" },
+  { label: "Intelligence", href: "/#intelligence" },
+  { label: "Contact", href: "/#contact" },
 ] as const;
 
 // --- Hero ---------------------------------------------------------------
 
 export const HERO = {
-  eyebrow: "For charities, NGOs, foundations and social enterprises",
-  headline: "Every mission deserves world-class technology.",
-  body: "Pegasus keeps your funding, programmes, finances, relationships, evidence and reporting in one place. Enter something once, and it is there everywhere you need it.",
-  refrain: ["One organisation.", "One source of truth.", "One intelligence layer."],
+  eyebrow: "The intelligent operating system for mission-driven organisations",
+  headline: "Run your whole mission from one place.",
+  body: "Funding. Programmes. Finance. Relationships. Evidence. Impact. Reporting. Pegasus brings the work behind your mission together, with intelligence that understands your organisation.",
+  refrain: ["One organisation.", "One trusted context.", "Every part connected."],
   note: "No sign-up needed. The demo runs on Northstar Community Foundation, a fictional UK charity, and every record in it is labelled as sample data.",
 } as const;
 
@@ -556,16 +556,17 @@ export const FAQS = [
 // --- Final CTA -----------------------------------------------------------
 
 export const FINAL_CTA = {
-  headline: "Give your mission the system it deserves.",
-  body: "Bring your funding, programmes, finances, relationships, evidence and impact together, and give your team intelligence that actually understands the work.",
+  headline:
+    "Spend less time running the organisation. More time moving the mission forward.",
+  body: "Bring funding, programmes, finance, relationships, evidence, impact and reporting into one intelligent operating system built for mission-driven work.",
 } as const;
 
 // --- Footer --------------------------------------------------------------
 
 export const FOOTER_PRODUCT = [
   { label: "How it works", href: "/product" },
-  { label: "Trust", href: "/#trust" },
-  { label: "Questions", href: "/#faq" },
+  { label: "Intelligence", href: "/#intelligence" },
+  { label: "Contact", href: "/#contact" },
   { label: "Demo", href: "/dashboard" },
 ] as const;
 

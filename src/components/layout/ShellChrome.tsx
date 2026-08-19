@@ -12,6 +12,7 @@ import { CommandBar } from "@/components/ai/CommandBar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/formatting";
+import { domainPaths, domainUrls } from "@/lib/domains";
 
 interface ShellProps {
   organisation: Organisation;
@@ -150,6 +151,14 @@ function SidebarContent({
             <div className="truncate text-sm font-medium text-ink">{user.name}</div>
             <div className="truncate text-xs text-ink-subtle">{ROLE_LABELS[role]}</div>
           </div>
+        </div>
+        <div className="mt-3 flex gap-3 text-xs text-ink-subtle">
+          <a href={domainPaths.marketing("/product")} className="hover:text-ink hover:underline">
+            Mission OS
+          </a>
+          <a href={domainUrls.studio()} className="hover:text-ink hover:underline">
+            Pegasus Studio
+          </a>
         </div>
       </div>
     </>

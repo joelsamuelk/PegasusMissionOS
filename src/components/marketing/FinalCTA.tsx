@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { FINAL_CTA } from "@/lib/marketing/content";
 import { BrandMotif } from "@/components/brand/Wordmark";
 import { ButtonLink } from "@/components/shared/ui";
+import { domainPaths } from "@/lib/domains";
 import { ContactForm } from "@/components/marketing/ContactForm";
 
 /**
@@ -13,7 +14,45 @@ import { ContactForm } from "@/components/marketing/ContactForm";
  * and rate-limited server-side — and stays four fields. Turning it into a
  * qualification form would contradict the sentence above it.
  */
-export function FinalCTA() {
+export function FinalCTA({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <section
+        id="contact"
+        aria-labelledby="cta-heading"
+        className="relative scroll-mt-24 overflow-hidden border-t border-line"
+      >
+        <div className="absolute inset-0 brand-wash" aria-hidden />
+        <div className="relative mx-auto grid w-full max-w-6xl gap-12 px-5 py-20 sm:px-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-center lg:py-28">
+          <div>
+            <span className="eyebrow text-accent-ink">Start with Pegasus</span>
+            <h2
+              id="cta-heading"
+              className="mt-4 max-w-3xl text-balance font-heading text-[2rem] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[2.6rem]"
+            >
+              {FINAL_CTA.headline}
+            </h2>
+            <p className="mt-6 max-w-xl text-[1.0625rem] leading-relaxed text-ink-muted">
+              {FINAL_CTA.body}
+            </p>
+            <p className="mt-7 text-sm text-ink-muted">
+              Prefer email?{" "}
+              <a
+                href="mailto:joel@pegasus-studio.co"
+                className="font-semibold text-info hover:underline"
+              >
+                joel@pegasus-studio.co
+              </a>
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-surface p-6 shadow-elev-2 sm:p-8">
+            <ContactForm />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <>
       <section
@@ -33,7 +72,7 @@ export function FinalCTA() {
             {FINAL_CTA.body}
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-3">
-            <ButtonLink href="/dashboard" size="lg" variant="blue">
+            <ButtonLink href={domainPaths.app("/dashboard")} size="lg" variant="blue">
               Explore the demo
               <ArrowRight className="h-4 w-4" aria-hidden />
             </ButtonLink>
@@ -57,16 +96,16 @@ export function FinalCTA() {
               </h2>
               <p className="mt-5 max-w-md text-[0.9375rem] leading-relaxed text-ink-muted">
                 Whether you want a guided walkthrough, a second opinion on your funding
-                pipeline, or a route off a decade of spreadsheets, start here and a
-                person will read it.
+                pipeline, or a route off a decade of spreadsheets, start here and a person
+                will read it.
               </p>
               <p className="mt-7 text-[0.9375rem] text-ink-muted">
                 Prefer email?{" "}
                 <a
-                  href="mailto:hello@pegasus-studio.co"
+                  href="mailto:joel@pegasus-studio.co"
                   className="rounded font-medium text-info hover:underline"
                 >
-                  hello@pegasus-studio.co
+                  joel@pegasus-studio.co
                 </a>
               </p>
               <p className="mt-2 text-xs text-ink-subtle">
