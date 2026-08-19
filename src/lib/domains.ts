@@ -47,6 +47,19 @@ function originOrDefault(value: string | undefined, fallback: string, name: stri
   return normaliseOrigin(value?.trim() || fallback, name);
 }
 
+function productionOrigin(
+  value: string | undefined,
+  fallback: string,
+  name: string,
+  production: boolean,
+): string {
+  const origin = originOrDefault(value, fallback, name);
+  if (production && new URL(origin).hostname.endsWith("localhost")) {
+    throw new Error(`${name} must not use localhost in production.`);
+  }
+  return origin;
+}
+
 export function createDomainConfig(
   env: Record<string, string | undefined> = process.env,
 ): DomainConfig {
@@ -66,10 +79,11 @@ export function createDomainConfig(
       production ? PRODUCTION_DEFAULTS.missionMarketingUrl : "http://mission.localhost:3000",
       "NEXT_PUBLIC_MARKETING_URL",
     ),
-    missionAppUrl: originOrDefault(
+    missionAppUrl: productionOrigin(
       env.NEXT_PUBLIC_APP_URL,
       production ? PRODUCTION_DEFAULTS.missionAppUrl : "http://app.localhost:3000",
       "NEXT_PUBLIC_APP_URL",
+      production,
     ),
     controlPlaneUrl: originOrDefault(
       env.NEXT_PUBLIC_CONTROL_URL,

@@ -66,6 +66,18 @@ describe("Mission OS domain architecture", () => {
         NEXT_PUBLIC_APP_URL: "https://app.example.test/unexpected-path",
       }),
     ).toThrow(/must be an origin/);
+    expect(() =>
+      createDomainConfig({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+      }),
+    ).toThrow(/must not use localhost in production/);
+    expect(() =>
+      createDomainConfig({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_APP_URL: "http://app.localhost:3000",
+      }),
+    ).toThrow(/must not use localhost in production/);
   });
 
   it("uses production defaults when deployment URL variables are empty", () => {
