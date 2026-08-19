@@ -6,6 +6,7 @@ import { rateLimit } from "@/server/rate-limit";
 import { createAnonClient } from "@/server/data/supabase/client";
 type State = { status: "idle" | "success" | "error"; message?: string };
 const schema = z.string().trim().email().max(254);
+// @public-action The login request must be reachable before an internal session exists.
 export async function requestControlMagicLink(
   _state: State,
   formData: FormData,
