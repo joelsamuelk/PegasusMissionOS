@@ -42,6 +42,9 @@ describe("Mission OS domain architecture", () => {
     const urls = createDomainUrls(config);
     expect(urls.marketing("/product")).toBe("https://mission.example.test/product");
     expect(urls.app("/login")).toBe("https://app.example.test/login");
+    expect(urls.app("/auth/confirm?token_hash=secret&type=email")).toBe(
+      "https://app.example.test/auth/confirm?token_hash=secret&type=email",
+    );
     expect(urls.control("/organisations/org-1")).toBe(
       "https://control.example.test/organisations/org-1",
     );

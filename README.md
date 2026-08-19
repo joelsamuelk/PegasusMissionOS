@@ -68,14 +68,15 @@ Open `http://localhost:3000` and choose **Enter demonstration** (or sign in at
 
 See `.env.example`. All are optional in mock mode.
 
-| Variable | Purpose |
-| --- | --- |
-| `NEXT_PUBLIC_APP_URL` | Absolute app URL for links and redirects. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL. Unset ⇒ mock data. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key. Unset ⇒ mock data. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only. Admin/seed operations. Never exposed to the browser. |
-| `AI_PROVIDER` | `mock` (default) or `anthropic`. |
-| `ANTHROPIC_API_KEY` | Server-only. Required when `AI_PROVIDER=anthropic`. |
+| Variable                               | Purpose                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_APP_URL`                  | Absolute app URL for links and redirects.                                       |
+| `NEXT_PUBLIC_SUPABASE_URL`             | Supabase project URL. Unset ⇒ mock data.                                        |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase public browser/server key. Unset with the legacy anon key ⇒ mock data. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`        | Legacy public-key fallback.                                                     |
+| `SUPABASE_SERVICE_ROLE_KEY`            | Server-only. Admin/seed operations. Never exposed to the browser.               |
+| `AI_PROVIDER`                          | `mock` (default) or `anthropic`.                                                |
+| `ANTHROPIC_API_KEY`                    | Server-only. Required when `AI_PROVIDER=anthropic`.                             |
 
 **When Supabase variables are unset, the app runs in mock mode**: an in-memory
 seeded workspace with real interactivity (mutations persist for the lifetime of
@@ -95,8 +96,11 @@ the server process).
    ```bash
    psql "$DATABASE_URL" -f supabase/seed.sql
    ```
-4. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (and
+4. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (and
    `SUPABASE_SERVICE_ROLE_KEY` for server-side/admin operations).
+
+For passwordless sign-in, callback template configuration and account
+provisioning, follow [`docs/AUTHENTICATION.md`](docs/AUTHENTICATION.md).
 
 Row Level Security is enabled on every organisation-owned table. See
 `docs/DATA_MODEL.md` and `docs/SECURITY_AND_PRIVACY.md`.

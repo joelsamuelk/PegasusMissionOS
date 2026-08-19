@@ -1,5 +1,9 @@
 import { domainConfig } from "@/lib/domains";
 
+function firstConfigured(...values: Array<string | undefined>): string {
+  return values.find((value) => value?.trim())?.trim() ?? "";
+}
+
 /**
  * Runtime configuration. Determines whether the app runs against a live
  * Supabase project or the in-memory mock store, and which AI provider is used.
@@ -26,8 +30,11 @@ export const appConfig = {
   /** The parent company. Linked from the marketing site and structured data. */
   studioUrl: domainConfig.studioUrl,
   supabase: {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    url: firstConfigured(process.env.NEXT_PUBLIC_SUPABASE_URL),
+    anonKey: firstConfigured(
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    ),
   },
   /** True when no Supabase project is configured: use the seeded mock store. */
   get isMockData(): boolean {

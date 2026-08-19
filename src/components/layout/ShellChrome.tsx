@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, Menu, X } from "lucide-react";
+import { Bell, LogOut, Menu, X } from "lucide-react";
 import type { MemberRole, Notification, Organisation, User } from "@/types/domain";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { NAV_ITEMS } from "@/components/navigation/nav-items";
@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/formatting";
 import { domainPaths, domainUrls } from "@/lib/domains";
+import { signOut } from "@/server/actions/auth";
 
 interface ShellProps {
   organisation: Organisation;
@@ -21,6 +22,7 @@ interface ShellProps {
   notifications: Notification[];
   /** Request clock, supplied by the server layout. Never pinned here. */
   now: Date;
+  authenticationEnabled: boolean;
   children: React.ReactNode;
 }
 
@@ -30,6 +32,7 @@ export function ShellChrome({
   role,
   notifications,
   now,
+  authenticationEnabled,
   children,
 }: ShellProps) {
   const pathname = usePathname();
@@ -48,6 +51,7 @@ export function ShellChrome({
           user={user}
           role={role}
           pathname={pathname}
+          authenticationEnabled={authenticationEnabled}
         />
       </aside>
 
@@ -73,6 +77,7 @@ export function ShellChrome({
               user={user}
               role={role}
               pathname={pathname}
+              authenticationEnabled={authenticationEnabled}
             />
           </aside>
         </div>
@@ -114,11 +119,13 @@ function SidebarContent({
   user,
   role,
   pathname,
+  authenticationEnabled,
 }: {
   organisation: Organisation;
   user: User;
   role: MemberRole;
   pathname: string;
+  authenticationEnabled: boolean;
 }) {
   return (
     <>
@@ -153,12 +160,26 @@ function SidebarContent({
           </div>
         </div>
         <div className="mt-3 flex gap-3 text-xs text-ink-subtle">
-          <a href={domainPaths.marketing("/product")} className="hover:text-ink hover:underline">
+          <a
+            href={domainPaths.marketing("/product")}
+            className="hover:text-ink hover:underline"
+          >
             Mission OS
           </a>
           <a href={domainUrls.studio()} className="hover:text-ink hover:underline">
             Pegasus Studio
           </a>
+          {authenticationEnabled && (
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1 hover:text-ink hover:underline"
+              >
+                <LogOut className="h-3 w-3" />
+                Sign out
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </>
@@ -180,8 +201,7 @@ function NavGroup({
       <div className="eyebrow mb-2 px-2">{label}</div>
       <ul className="flex flex-col gap-0.5">
         {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(item.href + "/");
+          const active = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
           return (
             <li key={item.href}>
