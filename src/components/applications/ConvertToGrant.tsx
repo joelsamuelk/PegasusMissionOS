@@ -47,9 +47,13 @@ export function ConvertToGrant({
         confirmLabel="Create grant"
         onConfirm={() =>
           start(async () => {
-            const grantId = await convertApplicationToGrant(applicationId);
+            const result = await convertApplicationToGrant(applicationId);
+            if (!result.ok) {
+              notify(result.message ?? "That conversion was not permitted.", "error");
+              return;
+            }
             notify("Grant created. Track deliverables, payments and reports from the grant page.");
-            if (grantId) router.push(`/grants/${grantId}`);
+            if (result.grantId) router.push(`/grants/${result.grantId}`);
             else router.refresh();
           })
         }

@@ -4,19 +4,23 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
+  AlertTriangle,
+  ArrowRight,
   FileDown,
   Loader2,
   Sparkles,
   Wand2,
 } from "lucide-react";
 import type {
-  AIProvenance,
+  GroundingRecord,
   EvidenceItem,
   ImpactReport,
   Indicator,
+  ReportStatus,
 } from "@/types/domain";
+import type { ReportReadiness } from "@/lib/reporting";
 import { indicatorProgress } from "@/lib/logic/progress";
-import { generateReportSection } from "@/server/actions/ai";
+import { generateAllReportSections, generateReportSection } from "@/server/actions/ai";
 import { saveReportSection, setReportStatus } from "@/server/actions/mutations";
 import { Button } from "@/components/shared/ui";
 import { EntityStatusBadge } from "@/components/shared/StatusBadge";
@@ -28,7 +32,7 @@ interface SectionState {
   key: string;
   title: string;
   content: string;
-  provenance?: AIProvenance;
+  provenance?: GroundingRecord;
 }
 
 /**
@@ -40,10 +44,12 @@ export function ReportBuilder({
   report,
   indicators,
   evidence,
+  readiness,
 }: {
   report: ImpactReport;
   indicators: Indicator[];
   evidence: EvidenceItem[];
+  readiness: ReportReadiness;
 }) {
   const router = useRouter();
   const { notify } = useToast();
@@ -62,9 +68,14 @@ export function ReportBuilder({
     setSections((prev) => prev.map((s) => (s.key === key ? { ...s, content } : s)));
   }
 
-  function persist(key: string, content: string, provenance?: AIProvenance) {
+  function persist(key: string, content: string, provenance?: GroundingRecord) {
     start(async () => {
-      await saveReportSection(report.id, key, content, provenance);
+      const result = await saveReportSection(report.id, key, content, provenance);
+      if (!result.ok) {
+        // Sections persist on blur, so a silent refusal would lose the writing
+        // without the author ever being told.
+        notify(result.message ?? "That section was not saved.", "error");
+      }
     });
   }
 
@@ -87,31 +98,50 @@ export function ReportBuilder({
 
   function generateAll() {
     start(async () => {
-      for (const s of sections) {
-        setBusy(s.key);
-        const res = await generateReportSection(report.id, s.key);
-        if (res.ok) {
-          setSections((prev) =>
-            prev.map((x) =>
-              x.key === s.key ? { ...x, content: res.text, provenance: res.provenance } : x,
-            ),
-          );
-          await saveReportSection(report.id, s.key, res.text, res.provenance);
-        }
+      setBusy("all");
+      const result = await generateAllReportSections(report.id);
+      if (!result.ok) {
+        setBusy(null);
+        notify(result.error ?? "The first draft could not be generated.", "error");
+        return;
       }
+      setSections((previous) =>
+        previous.map((section) => {
+          const generated = result.sections.find((item) => item.key === section.key);
+          return generated
+            ? { ...section, content: generated.text, provenance: generated.provenance }
+            : section;
+        }),
+      );
       setBusy(null);
       notify("First draft generated for all sections.");
       router.refresh();
     });
   }
 
-  function approve() {
+  function transition(status: ReportStatus) {
     start(async () => {
-      await setReportStatus(report.id, "approved");
-      notify("Report approved.");
+      const result = await setReportStatus(report.id, status);
+      if (!result.ok) {
+        notify(result.message ?? "That report transition was not permitted.", "error");
+        return;
+      }
+      notify(`Report moved to ${status.replace(/_/g, " ")}.`);
       router.refresh();
     });
   }
+
+  const nextAction: Partial<Record<ReportStatus, { status: ReportStatus; label: string }>> = {
+    draft: { status: "drafting", label: "Start drafting" },
+    collecting_evidence: { status: "drafting", label: "Start drafting" },
+    drafting: { status: "internal_review", label: "Send to review" },
+    internal_review: { status: "ready_for_approval", label: "Ready for approval" },
+    changes_requested: { status: "drafting", label: "Resume drafting" },
+    ready_for_approval: { status: "approved", label: "Approve report" },
+    approved: { status: "submitted", label: "Mark submitted" },
+    submitted: { status: "archived", label: "Archive" },
+  };
+  const action = nextAction[report.status];
 
   return (
     <div>
@@ -122,16 +152,21 @@ export function ReportBuilder({
           <span className="text-sm text-ink-muted">{report.reportingPeriod}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="accent" onClick={generateAll} disabled={pending || busy !== null}>
+          <Button variant="blue" onClick={generateAll} disabled={pending || busy !== null}>
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             Generate first draft
           </Button>
           <Button variant="secondary" onClick={() => window.print()}>
             <FileDown className="h-4 w-4" /> Export to PDF
           </Button>
-          {report.status !== "approved" && (
-            <Button variant="primary" onClick={approve} disabled={pending}>
-              <Check className="h-4 w-4" /> Mark approved
+          {action && (
+            <Button
+              variant="primary"
+              onClick={() => transition(action.status)}
+              disabled={pending || (action.status === "ready_for_approval" && !readiness.readyForApproval)}
+            >
+              {action.status === "approved" ? <Check className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+              {action.label}
             </Button>
           )}
         </div>
@@ -175,6 +210,27 @@ export function ReportBuilder({
 
         {/* Included data */}
         <div className="flex flex-col gap-5 print:hidden">
+          <div className="surface-card">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h4 className="text-sm font-semibold text-ink">Report readiness</h4>
+              <span className={`font-heading text-lg font-semibold ${readiness.readyForApproval ? "text-success" : "text-warning"}`}>
+                {readiness.score}%
+              </span>
+            </div>
+            {readiness.issues.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-success">No readiness issues found.</p>
+            ) : (
+              <ul className="max-h-64 divide-y divide-line overflow-auto">
+                {readiness.issues.slice(0, 8).map((issue, index) => (
+                  <li key={`${issue.kind}-${issue.sectionKey ?? issue.claimId ?? index}`} className="flex gap-2 px-4 py-2.5 text-xs leading-relaxed text-ink-muted">
+                    <AlertTriangle className={`mt-0.5 h-3.5 w-3.5 flex-none ${issue.severity === "blocker" ? "text-critical" : "text-warning"}`} aria-hidden />
+                    {issue.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div className="surface-card">
             <div className="border-b border-line px-4 py-3">
               <h4 className="text-sm font-semibold text-ink">Included indicators</h4>

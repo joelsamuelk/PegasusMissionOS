@@ -1,126 +1,178 @@
-import Link from "next/link";
-import { ArrowRight, Check } from "lucide-react";
-import { Wordmark } from "@/components/brand/Wordmark";
+import type { Metadata } from "next";
+import { ArrowRight } from "lucide-react";
+import { appConfig } from "@/lib/config";
+import { FAQS } from "@/lib/marketing/content";
+import { Section, SectionHeader } from "@/components/marketing/primitives";
+import { MarketingNav } from "@/components/marketing/MarketingNav";
+import { Hero } from "@/components/marketing/Hero";
+import { ProductScreens } from "@/components/marketing/ProductScreens";
+import { HomeStory } from "@/components/marketing/HomeStory";
+import { TrustSection } from "@/components/marketing/TrustSection";
+import { FAQ } from "@/components/marketing/FAQ";
+import { FinalCTA } from "@/components/marketing/FinalCTA";
+import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { ButtonLink } from "@/components/shared/ui";
 
-const CAPABILITIES = [
-  "Discover and qualify funding opportunities",
-  "Assess eligibility and fit with transparent reasoning",
-  "Draft grant applications with organisation-aware AI",
-  "Run funded programmes and track outcomes",
-  "Generate funder-ready impact reports",
-];
+const TITLE = "Pegasus Mission OS: the operating system for mission-driven organisations";
+const DESCRIPTION =
+  "Pegasus Mission OS keeps funding, programmes, finances, relationships, evidence and reporting in one place for charities, NGOs, foundations and social enterprises. Enter something once and it is there everywhere you need it.";
 
-const MODULES = [
-  { name: "Command Centre", detail: "Your organisation's position at a glance." },
-  { name: "Funding Pipeline", detail: "Table and Kanban views of every opportunity." },
-  { name: "Applications", detail: "A structured workspace for every submission." },
-  { name: "Grants", detail: "Health, deliverables, payments and reports." },
-  { name: "Programmes", detail: "Activities, outputs, outcomes and indicators." },
-  { name: "Impact", detail: "Evidence-based reports from real programme data." },
-];
+export const metadata: Metadata = {
+  title: {
+    absolute: TITLE,
+  },
+  description: DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    locale: "en_GB",
+    url: appConfig.marketingUrl,
+    siteName: "Pegasus Mission OS",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Pegasus Mission OS. Every mission deserves world-class technology.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og.png"],
+  },
+};
 
+/**
+ * The public home page.
+ *
+ * Five core sections, and that restraint is the design. The previous version ran to
+ * eighteen: it made the same argument — the domains are connected, the figures
+ * are traceable — five separate times through five separate demos, and a
+ * visitor had to scroll past all of it to reach the FAQ. Everything cut is on
+ * `/product`, which this page links to twice.
+ *
+ * The order answers a visitor's questions in the order they ask them: what is
+ * it (hero), is it real (product screens), how does it improve the work
+ * (benefit chapters), is it for my team (roles), can I trust it (trust), and
+ * what about X (FAQ), then how do I start (CTA).
+ *
+ * Two things about the shape are deliberate and unchanged:
+ *
+ * 1. **It is a server component and stays one.** The nav and scroll reveals
+ *    are the only client-side behaviour; the product story, screenshots and
+ *    everything else renders to HTML. The LCP element is the hero `<h1>`, in a
+ *    local font, with no image request above it.
+ *
+ * 2. **The product imagery is real.** Both captures come from the seeded demo
+ *    workspace and the page links directly to that workspace, rather than
+ *    presenting a fabricated UI or an uncheckable marketing number.
+ *
+ * Structured data claims only what is true: an Organisation, a
+ * SoftwareApplication and the FAQ this page actually renders. No ratings, no
+ * reviews, no fabricated price.
+ */
 export default function LandingPage() {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${appConfig.marketingUrl}#organisation`,
+        name: "Pegasus Information Studio",
+        url: appConfig.studioUrl,
+        sameAs: [appConfig.studioUrl],
+        email: "hello@pegasus-studio.co",
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": `${appConfig.marketingUrl}#product`,
+        name: "Pegasus Mission OS",
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Web",
+        url: appConfig.marketingUrl,
+        description: DESCRIPTION,
+        publisher: { "@id": `${appConfig.marketingUrl}#organisation` },
+        audience: {
+          "@type": "Audience",
+          audienceType: "Charities, NGOs, foundations and social enterprises",
+        },
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${appConfig.marketingUrl}#faq`,
+        mainEntity: FAQS.map((faq) => ({
+          "@type": "Question",
+          name: faq.q,
+          acceptedAnswer: { "@type": "Answer", text: faq.a },
+        })),
+      },
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-paper">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Wordmark showProduct />
-        <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="text-sm font-medium text-ink-muted hover:text-ink"
-          >
-            Sign in
-          </Link>
-          <ButtonLink href="/dashboard" size="sm" variant="primary">
-            Enter demonstration
-          </ButtonLink>
-        </div>
-      </header>
+      <script
+        type="application/ld+json"
+        // Content is a literal object built above, not user input.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
 
-      <main>
-        {/* Hero */}
-        <section className="relative overflow-hidden border-b border-line">
-          <div className="absolute inset-0 grid-motif" aria-hidden />
-          <div className="relative mx-auto max-w-6xl px-6 py-24">
-            <div className="eyebrow mb-5">The operating system for mission-driven organisations</div>
-            <h1 className="max-w-3xl font-serif text-display-lg font-medium tracking-tight text-ink">
-              Every mission deserves world-class technology.
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-ink-muted">
-              Pegasus Mission OS gives charities, NGOs and social enterprises one
-              intelligent place to discover funding, manage applications, run
-              programmes and demonstrate impact.
-            </p>
-            <div className="mt-9 flex flex-wrap items-center gap-3">
-              <ButtonLink href="/dashboard" size="lg" variant="primary">
-                Explore the demonstration workspace
-                <ArrowRight className="h-4 w-4" />
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:text-ink-inverse"
+      >
+        Skip to content
+      </a>
+
+      <MarketingNav />
+
+      <main id="main">
+        <Hero />
+
+        {/* The proof. One composition of real seeded records, not five demos
+            of the same claim. The deeper walkthroughs are on /product.
+
+            The dot lattice sits behind it because the preview is a white panel
+            on near-white paper: without a ground, the panel's only separation
+            from the page was its shadow. */}
+        <Section id="see-it" className="relative overflow-hidden">
+          <div className="dot-grid absolute inset-0" aria-hidden />
+          {/* Positioned, so it paints above the lattice. An absolutely
+              positioned sibling outranks static content whatever the DOM
+              order, so the content has to opt into the same layer. */}
+          <div className="relative">
+            <SectionHeader
+              id="see-it"
+              eyebrow="See it working"
+              title="One clear view of the work that matters."
+              lead="Funding, deadlines and evidence meet in the same workspace. Every figure below comes from the product's demo data, so you can follow it into the application and inspect where it came from."
+            />
+            <ProductScreens />
+            <div className="flex flex-wrap items-center gap-3">
+              <ButtonLink href="/dashboard" variant="blue">
+                Explore the demo
+                <ArrowRight className="h-4 w-4" aria-hidden />
               </ButtonLink>
-              <ButtonLink href="/signup" size="lg" variant="secondary">
-                Create a workspace
+              <ButtonLink href="/product" variant="secondary">
+                How it works
               </ButtonLink>
             </div>
-            <p className="mt-4 text-xs text-ink-subtle">
-              The demonstration uses Northstar Community Foundation, a fictional UK
-              charity, with clearly labelled sample data.
-            </p>
           </div>
-        </section>
+        </Section>
 
-        {/* Capabilities */}
-        <section className="mx-auto max-w-6xl px-6 py-20">
-          <div className="grid gap-12 lg:grid-cols-2">
-            <div>
-              <div className="eyebrow mb-4">What it does</div>
-              <h2 className="max-w-md font-serif text-heading-lg font-medium tracking-tight text-ink">
-                An integrated operating system, not a collection of tools.
-              </h2>
-              <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-muted">
-                Pegasus connects funding, delivery and evidence so your team spends
-                less time on administration and more time on the mission. AI reduces
-                the manual work. It never makes decisions for you, and every output is
-                editable, explainable and reviewable.
-              </p>
-            </div>
-            <ul className="flex flex-col gap-3">
-              {CAPABILITIES.map((c) => (
-                <li
-                  key={c}
-                  className="flex items-start gap-3 border-b border-line pb-3 text-ink"
-                >
-                  <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-                  <span className="text-sm">{c}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
+        <HomeStory />
 
-        {/* Modules */}
-        <section className="border-t border-line bg-surface">
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <div className="eyebrow mb-8">Modules</div>
-            <div className="grid gap-px overflow-hidden rounded-md border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
-              {MODULES.map((m) => (
-                <div key={m.name} className="bg-surface p-6">
-                  <div className="text-title font-semibold text-ink">{m.name}</div>
-                  <div className="mt-1.5 text-sm text-ink-muted">{m.detail}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+        <TrustSection />
+        <FAQ />
+        <FinalCTA />
       </main>
 
-      <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-6 py-8 sm:flex-row sm:items-center">
-          <Wordmark />
-          <p className="text-xs text-ink-subtle">
-            Pegasus builds the operating system for mission-driven organisations.
-          </p>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }

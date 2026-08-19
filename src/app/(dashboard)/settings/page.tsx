@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Database, ShieldCheck, Sparkles } from "lucide-react";
-import { q } from "@/features/store";
-import { appConfig, resolveAiProvider } from "@/lib/config";
+import { resolveAiProvider } from "@/lib/config";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { describeRuntime, getRepository } from "@/server/data";
 import { humanise } from "@/lib/formatting";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody } from "@/components/shared/ui";
@@ -10,9 +11,13 @@ import { AiSettingToggle } from "@/components/settings/AiSettingToggle";
 
 export const metadata: Metadata = { title: "Settings" };
 
-export default function SettingsPage() {
-  const org = q.organisation();
+export default async function SettingsPage() {
+  const ctx = await resolveRequestContext();
+  const org = await getRepository().organisations.get(ctx);
   const provider = resolveAiProvider();
+  const runtime = describeRuntime();
+
+  if (!org) return null;
 
   return (
     <div>
@@ -74,16 +79,17 @@ export default function SettingsPage() {
               label="Data source"
               value={
                 <StatusBadge
-                  tone={appConfig.isMockData ? "info" : "success"}
-                  label={appConfig.isMockData ? "In-memory demonstration data" : "Supabase (live)"}
+                  tone={runtime.source === "supabase" ? "success" : "info"}
+                  label={runtime.label}
                 />
               }
             />
+            <p className="-mt-1 text-xs text-ink-subtle">{runtime.detail}</p>
             <Row label="Workspace" value={org.name} />
             <Row label="Organisation type" value={humanise(org.type)} />
             <Row label="Charity number" value={org.charityNumber ?? "-"} />
             <Row
-              label="Demonstration workspace"
+              label="Demo workspace"
               value={<StatusBadge tone="accent" label={org.isDemo ? "Yes" : "No"} />}
             />
           </CardBody>

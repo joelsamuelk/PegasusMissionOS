@@ -39,7 +39,11 @@ export function IndicatorEditor({ indicator }: { indicator: Indicator }) {
       return;
     }
     start(async () => {
-      await updateIndicator(indicator.id, parsed, "Manual update");
+      const result = await updateIndicator(indicator.id, parsed, "Manual update");
+      if (!result.ok) {
+        notify(result.message ?? "That update was not permitted.", "error");
+        return;
+      }
       notify(`${indicator.name} updated.`);
       setEditing(false);
       router.refresh();
@@ -83,7 +87,7 @@ export function IndicatorEditor({ indicator }: { indicator: Indicator }) {
           </div>
         ) : (
           <div className="flex items-baseline gap-2">
-            <span className="font-serif text-heading font-medium text-ink">
+            <span className="font-heading text-heading font-semibold text-ink">
               {indicator.currentValue}
               {indicator.unit === "%" ? "%" : ""}
             </span>

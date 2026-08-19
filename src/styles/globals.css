@@ -4,76 +4,103 @@
 
 /*
  * Pegasus Mission OS theme tokens.
- * Light editorial theme is the default. A dark theme is provided for viewer
- * preference. Semantic statuses carry both colour and an icon/label elsewhere
- * so meaning never relies on colour alone (WCAG 2.2).
+ *
+ * The palette, typography and shapes are taken from the Pegasus Studio brand
+ * (pegasus-studio.co): warm off-white paper, deep navy ink, a coral primary
+ * and a studio blue secondary, set in Quicksand over Nunito Sans with soft,
+ * generous radii and low, warm shadows.
+ *
+ * Light is the default. A dark theme is provided for viewer preference.
+ * Semantic statuses carry both colour and an icon/label elsewhere so meaning
+ * never relies on colour alone (WCAG 2.2).
  */
 :root {
   /* Backgrounds and surfaces */
-  --color-paper: #f5f4f0;
+  --color-paper: #fffcfa;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-surface-sunken: #efede8;
+  --color-surface-sunken: #f7f7f7;
 
-  /* Text */
-  --color-ink: #17191f;
-  --color-ink-muted: #565b66;
-  --color-ink-subtle: #878c96;
-  --color-ink-inverse: #f7f6f3;
+  /* Text — Pegasus navy */
+  --color-ink: #14213d;
+  --color-ink-muted: #6b7280;
+  --color-ink-subtle: #9ca3af;
+  --color-ink-inverse: #ffffff;
+
+  /* The brand navy as a *fixed* ground, deliberately outside the semantic
+   * palette. `--color-ink` inverts under the dark theme, which is correct for
+   * text and wrong for a surface that is meant to stay navy in both themes:
+   * the Trust section painted itself `bg-ink` and became white-on-white the
+   * moment a reader chose dark. This token never inverts. */
+  --color-navy: #14213d;
 
   /* Lines */
-  --color-line: #e4e1d9;
-  --color-line-strong: #d3cfc4;
+  --color-line: #e9e9e9;
+  --color-line-strong: #dfdfdf;
 
-  /* Accent: a calm architectural ink-blue */
-  --color-accent: #21506e;
-  --color-accent-muted: #4f7690;
+  /* Accent: Pegasus coral. `accent` is the brand fill used on buttons, marks
+   * and icons; `accent-ink` is the deepened variant reserved for coral *text*
+   * on light surfaces, where the brand coral alone would not reach 4.5:1. */
+  --color-accent: #ff5757;
+  --color-accent-muted: #ff8f8f;
+  --color-accent-soft: #fff0ef;
+  --color-accent-ink: #c62f2b;
   --color-accent-contrast: #ffffff;
-  --color-accent-ring: rgba(33, 80, 110, 0.4);
+  --color-accent-ring: rgba(48, 121, 216, 0.45);
+
+  /* Secondary: studio blue */
+  --color-blue: #3079d8;
+  --color-blue-soft: #ecf3fc;
 
   /* Semantic */
-  --color-success: #2f6f52;
-  --color-success-soft: #e6efe8;
-  --color-warning: #9a6410;
-  --color-warning-soft: #f6ecdb;
-  --color-critical: #a5372f;
-  --color-critical-soft: #f6e4e1;
-  --color-info: #21506e;
-  --color-info-soft: #e5edf1;
+  --color-success: #0f7a5a;
+  --color-success-soft: #e6f5ef;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf1e3;
+  --color-critical: #d92030;
+  --color-critical-soft: #fdecec;
+  --color-info: #2c66b8;
+  --color-info-soft: #ecf3fc;
 
-  /* Typography stacks (no network font fetch; premium system stacks) */
-  --font-sans: "Inter", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, Arial, sans-serif;
-  --font-serif: "Iowan Old Style", "Palatino Linotype", "Georgia", ui-serif, serif;
+  /* Typography: brand typefaces, self-hosted (see src/app/fonts.ts) */
+  --font-sans: var(--font-nunito-sans), "Nunito Sans", system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: var(--font-quicksand), "Quicksand", ui-rounded, "Avenir Next",
+    var(--font-nunito-sans), system-ui, sans-serif;
   --font-mono: "SFMono-Regular", ui-monospace, "JetBrains Mono", "Menlo", "Consolas",
     monospace;
 
-  --radius: 7px;
+  --radius: 10px;
 }
 
 :root[data-theme="dark"] {
-  --color-paper: #101215;
-  --color-surface: #171a1f;
-  --color-surface-raised: #1d2127;
-  --color-surface-sunken: #0c0e11;
-  --color-ink: #f0efeb;
-  --color-ink-muted: #a4a9b3;
-  --color-ink-subtle: #767b85;
-  --color-ink-inverse: #17191f;
-  --color-line: #2a2e35;
-  --color-line-strong: #3a3f47;
-  --color-accent: #6ea3c4;
-  --color-accent-muted: #517d99;
-  --color-accent-contrast: #0c0e11;
-  --color-accent-ring: rgba(110, 163, 196, 0.45);
-  --color-success: #6cba90;
-  --color-success-soft: #17281f;
-  --color-warning: #d1a054;
-  --color-warning-soft: #2a2113;
-  --color-critical: #d98177;
-  --color-critical-soft: #2c1815;
-  --color-info: #6ea3c4;
-  --color-info-soft: #14222b;
+  /* Deep navy ground, drawn from the brand navy rather than neutral black. */
+  --color-paper: #0b1020;
+  --color-surface: #121a2e;
+  --color-surface-raised: #172038;
+  --color-surface-sunken: #0d1424;
+  --color-ink: #eef2f8;
+  --color-ink-muted: #a2acc0;
+  --color-ink-subtle: #7a8499;
+  --color-ink-inverse: #0b1020;
+  --color-line: #23304c;
+  --color-line-strong: #33415f;
+  --color-accent: #ff6f6f;
+  --color-accent-muted: #ff9a9a;
+  --color-accent-soft: #2b1a20;
+  --color-accent-ink: #ff9a97;
+  --color-accent-contrast: #1a0f12;
+  --color-accent-ring: rgba(120, 168, 236, 0.5);
+  --color-blue: #6ea3e8;
+  --color-blue-soft: #16233d;
+  --color-success: #4fbf95;
+  --color-success-soft: #10261f;
+  --color-warning: #e0a458;
+  --color-warning-soft: #2a2013;
+  --color-critical: #f5717d;
+  --color-critical-soft: #2c1519;
+  --color-info: #6ea3e8;
+  --color-info-soft: #16233d;
 }
 
 * {
@@ -83,15 +110,26 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
 }
 
 body {
   background-color: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  font-feature-settings: "cv05", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings carry the brand display face. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
 }
 
 /* Accessible focus: visible ring on keyboard focus */
@@ -104,6 +142,10 @@ body {
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
   *,
   *::before,
   *::after {
@@ -111,15 +153,29 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+
+  /* Motion utilities below park content at opacity 0 until they animate or
+   * are revealed. Zeroing durations alone would leave that content invisible,
+   * so the resting state has to be restored explicitly. */
+  .reveal,
+  .animate-fade-up,
+  .converge,
+  .converge-arrow,
+  .lifecycle-line,
+  .node-pulse {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
 }
 
 @layer components {
   .eyebrow {
-    @apply font-mono text-eyebrow uppercase text-ink-subtle;
+    @apply font-heading text-eyebrow font-semibold uppercase text-ink-subtle;
   }
 
   .surface-card {
-    @apply rounded-md border border-line bg-surface;
+    @apply rounded-xl border border-line bg-surface;
   }
 
   .hairline {
@@ -128,7 +184,7 @@ body {
 
   /* Loading skeleton shimmer */
   .skeleton {
-    @apply rounded bg-surface-sunken;
+    @apply rounded-md bg-surface-sunken;
     position: relative;
     overflow: hidden;
   }
@@ -151,12 +207,182 @@ body {
     }
   }
 
-  /* Subtle architectural grid motif for hero/empty surfaces */
-  .grid-motif {
-    background-image: linear-gradient(var(--color-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
-    background-size: 28px 28px;
-    background-position: -1px -1px;
-    opacity: 0.5;
+  /* Brand wash: the soft coral/blue glow the studio site uses behind hero and
+   * feature surfaces, in place of a hard grid. */
+  /* --- Motion ---------------------------------------------------------
+   * Entrance animations run on load; `.reveal` is driven by an
+   * IntersectionObserver in `<Reveal>`. Both resting states are restored
+   * under `prefers-reduced-motion` above, and `.reveal` is additionally
+   * unhidden for no-JS readers by a <noscript> style in the root layout.
+   */
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* The hero graphic's nodes settle onto the ring in sequence, once, on load.
+   * Scaling from the node's own centre rather than the SVG origin is why this
+   * sets `transform-box: fill-box`: without it every node flies in from the
+   * top-left corner of the viewBox. */
+  @keyframes node-settle {
+    from {
+      opacity: 0;
+      transform: scale(0.72);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .node-pulse {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    animation: node-settle 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  @keyframes float-slow {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-16px);
+    }
+  }
+
+  .animate-fade-up {
+    animation: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-float {
+    animation: float-slow 9s ease-in-out infinite;
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition:
+      opacity 700ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* --- Marketing motion ------------------------------------------------
+   * Three effects, all CSS, all one-shot, all driven by the `.is-visible`
+   * class that `<Reveal>` adds when a section enters the viewport. No
+   * animation library, no scroll listener, nothing that loops.
+   *
+   * Each one is listed in the `prefers-reduced-motion` block above so it
+   * resolves to its *final* state rather than its first frame. Reduced motion
+   * must never hide content — the resting state of every effect here is
+   * "invisible or displaced", which is exactly what that block restores.
+   */
+
+  /* Fragmentation: eight scattered fragments travel to one column. The
+   * displacement is per-child rather than uniform, because a grid that
+   * arrives in formation reads as a transition and not as consolidation. */
+  .converge {
+    opacity: 0;
+    transform: translate(var(--converge-x, 0), var(--converge-y, -14px)) scale(0.96);
+    transition:
+      opacity 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .is-visible .converge {
+    opacity: 1;
+    transform: none;
+  }
+
+  .converge-0 { --converge-x: -22px; --converge-y: -18px; transition-delay: 0ms; }
+  .converge-1 { --converge-x: 16px; --converge-y: -26px; transition-delay: 60ms; }
+  .converge-2 { --converge-x: -14px; --converge-y: 20px; transition-delay: 120ms; }
+  .converge-3 { --converge-x: 24px; --converge-y: 14px; transition-delay: 180ms; }
+  .converge-4 { --converge-x: -26px; --converge-y: -10px; transition-delay: 90ms; }
+  .converge-5 { --converge-x: 12px; --converge-y: 24px; transition-delay: 150ms; }
+  .converge-6 { --converge-x: -18px; --converge-y: 16px; transition-delay: 210ms; }
+  .converge-7 { --converge-x: 20px; --converge-y: -20px; transition-delay: 30ms; }
+
+  .converge-arrow {
+    opacity: 0;
+    transform: scaleY(0.2);
+    transform-origin: top;
+    transition:
+      opacity 400ms ease-out 320ms,
+      transform 400ms cubic-bezier(0.22, 1, 0.36, 1) 320ms;
+  }
+
+  .is-visible .converge-arrow {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Lifecycle: the connective line fills once as the rail arrives, so the
+   * direction of the sequence is legible before any label is read. */
+  .lifecycle-line {
+    transform: scaleX(0);
+    transition: transform 1100ms cubic-bezier(0.22, 1, 0.36, 1) 120ms;
+  }
+
+  .is-visible .lifecycle-line {
+    transform: scaleX(1);
+  }
+
+  /* Both centres sit outside the box horizontally and are fully faded before
+   * its lower edge, so the wash never leaves a visible seam where a section
+   * ends. */
+  .brand-wash {
+    background-image:
+      radial-gradient(
+        56rem 32rem at 94% -20%,
+        rgba(255, 87, 87, 0.12),
+        transparent 62%
+      ),
+      radial-gradient(
+        38rem 26rem at -10% 42%,
+        rgba(48, 121, 216, 0.09),
+        transparent 64%
+      );
+  }
+
+  /*
+   * A dot lattice, for the one section that frames a product preview.
+   *
+   * The preview is a white panel on a white-ish page, and its shadow was doing
+   * all the work of separating the two. The lattice gives the panel a ground
+   * to sit on. It is drawn from `--color-line-strong`, so it re-tints with the
+   * theme instead of being a grey that only works in light mode, and it is
+   * masked to fade out before the section edges so it reads as texture rather
+   * than as a pattern that got clipped.
+   */
+  .dot-grid {
+    background-image: radial-gradient(
+      var(--color-line-strong) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(
+      ellipse 78% 62% at 50% 42%,
+      #000 38%,
+      transparent 78%
+    );
+    mask-image: radial-gradient(
+      ellipse 78% 62% at 50% 42%,
+      #000 38%,
+      transparent 78%
+    );
+    opacity: 0.55;
   }
 }

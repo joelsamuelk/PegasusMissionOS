@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { UserPlus } from "lucide-react";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { ROLE_LABELS, capabilitiesFor } from "@/lib/permissions";
 import { formatDate } from "@/lib/formatting";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -9,8 +10,16 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 
 export const metadata: Metadata = { title: "Team" };
 
-export default function TeamPage() {
-  const members = q.members();
+export default async function TeamPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const [members, users] = await Promise.all([
+    repo.organisations.members(ctx),
+    repo.organisations.users(ctx),
+  ]);
+  // Resolved up front: the table renders synchronously, and one pass over the
+  // membership is cheaper than a lookup per row.
+  const usersById = new Map(users.map((u) => [u.id, u]));
 
   return (
     <div>
@@ -39,7 +48,7 @@ export default function TeamPage() {
             </thead>
             <tbody>
               {members.map((m) => {
-                const user = q.user(m.userId);
+                const user = usersById.get(m.userId);
                 const caps = capabilitiesFor(m.role).filter((c) => c !== "read");
                 return (
                   <tr key={m.id} className="border-b border-line last:border-0">

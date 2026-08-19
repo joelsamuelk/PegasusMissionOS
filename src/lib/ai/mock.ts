@@ -1,32 +1,21 @@
-import type { AIProvenance } from "@/types/domain";
+import { itemsMentionedIn, observeGrounding } from "@/lib/knowledge";
 import { countWords } from "@/lib/utils";
 import { FEATURE_PROMPTS, PROMPT_VERSION, type AiFeature } from "./prompts";
-import type { AiContext, AiProvider, AiResult } from "./types";
+import { offeredItems, type AiContext, type AiProvider, type AiResult } from "./types";
 
 /**
  * Deterministic mock AI provider.
  *
- * Produces grounded, useful drafts by composing the structured context that is
- * passed in. It never introduces figures or claims that are not present in the
- * context, which mirrors the policy the live provider is instructed to follow.
- * Because it is deterministic it is also straightforward to test.
+ * Produces grounded, useful drafts by composing the structured context passed
+ * in. It never introduces figures or claims absent from that context, which
+ * mirrors the policy the live provider is instructed to follow.
+ *
+ * Because it composes its output from known values, it can report **observed**
+ * grounding: the references it reports are the ones whose content actually
+ * reached the text. That makes the mock the reference implementation of honest
+ * provenance, and lets the whole S2 contract be tested with no network and no
+ * key.
  */
-
-function buildProvenance(context: AiContext, opts: { assumptions?: string[] } = {}): AIProvenance {
-  const couldNotVerify: string[] = [];
-  if (context.evidence.length === 0) {
-    couldNotVerify.push("No specific evidence was selected for this generation.");
-  }
-  return {
-    profileFieldsUsed: context.profileFields.map((f) => f.label),
-    documentsUsed: context.evidence.map((e) => e.title),
-    programmeDataUsed: context.programmeData.map((d) => d.label),
-    assumptions: opts.assumptions ?? [
-      "This is a first draft. Confirm every figure and claim before submitting.",
-    ],
-    couldNotVerify,
-  };
-}
 
 function shortenToWords(text: string, limit?: number): string {
   if (!limit || countWords(text) <= limit) return text;
@@ -45,13 +34,17 @@ function shortenToWords(text: string, limit?: number): string {
   return out.join(" ");
 }
 
+function field(context: AiContext, label: string): string | undefined {
+  return context.profileFields.find((f) => f.label === label)?.value;
+}
+
 function draftAnswer(context: AiContext): string {
-  const mission = context.profileFields.find((f) => f.label === "Mission statement")?.value;
-  const communities = context.profileFields.find((f) => f.label === "Communities served")?.value;
-  const activities = context.profileFields.find((f) => f.label === "Core activities")?.value;
+  const mission = field(context, "Mission statement");
+  const communities = field(context, "Communities served");
+  const activities = field(context, "Core activities");
   const evidenceLine =
     context.evidence.length > 0
-      ? ` This is supported by ${context.evidence.map((e) => e.title.toLowerCase()).join(" and ")}.`
+      ? ` This is supported by ${context.evidence.map((e) => e.label.toLowerCase()).join(" and ")}.`
       : " Supporting evidence has not yet been selected for this answer.";
 
   const parts: string[] = [];
@@ -74,7 +67,6 @@ function draftAnswer(context: AiContext): string {
 
 function improveClarity(context: AiContext): string {
   const draft = context.draft ?? "";
-  // Simple, deterministic clarity pass: split into short sentences and tidy.
   const sentences = (draft.match(/[^.!?]+[.!?]+/g) ?? [draft])
     .map((s) => s.trim())
     .filter(Boolean);
@@ -83,9 +75,7 @@ function improveClarity(context: AiContext): string {
 
 function makeSpecific(context: AiContext): string {
   const draft = context.draft ?? "";
-  const figures = context.programmeData
-    .concat(context.evidence.map((e) => ({ label: e.title, value: e.summary })))
-    .slice(0, 3);
+  const figures = [...context.programmeData, ...context.evidence].slice(0, 3);
   const addition =
     figures.length > 0
       ? " Specifically: " + figures.map((f) => `${f.label} (${f.value})`).join("; ") + "."
@@ -100,7 +90,7 @@ function strengthenEvidence(context: AiContext): string {
   }
   const evidenceSentence =
     " Our approach is evidenced by " +
-    context.evidence.map((e) => `${e.title} (${e.summary})`).join(", ") +
+    context.evidence.map((e) => `${e.label} (${e.value})`).join(", ") +
     ".";
   return shortenToWords(draft + evidenceSentence, context.wordLimit);
 }
@@ -142,16 +132,14 @@ function reportSection(context: AiContext): string {
   const data = context.programmeData;
   const evidence = context.evidence;
 
-  const dataLine = data.length
-    ? data.map((d) => `${d.label}: ${d.value}`).join(". ") + "."
-    : "";
+  const dataLine = data.length ? data.map((d) => `${d.label}: ${d.value}`).join(". ") + "." : "";
 
   switch (key) {
     case "executive_summary":
       return shortenToWords(
         `This report covers ${org}'s delivery for the period. ${dataLine} ${
           evidence.length
-            ? `The findings draw on ${evidence.map((e) => e.title.toLowerCase()).join(", ")}.`
+            ? `The findings draw on ${evidence.map((e) => e.label.toLowerCase()).join(", ")}.`
             : "Supporting evidence should be added before this report is shared."
         }`.trim(),
         context.wordLimit,
@@ -165,14 +153,20 @@ function reportSection(context: AiContext): string {
         ? `Outputs delivered in the period:\n${data.map((d) => `- ${d.label}: ${d.value}`).join("\n")}`
         : "No output data has been selected for this report.";
     case "beneficiary_stories":
-      return evidence.some((e) => e.summary.toLowerCase().includes("quote") || e.summary.toLowerCase().includes("testimonial") || e.title.toLowerCase().includes("testimonial") || e.title.toLowerCase().includes("case"))
-        ? `The following approved qualitative evidence illustrates the difference made:\n${evidence.map((e) => `- ${e.title}: ${e.summary}`).join("\n")}`
+      return evidence.some(
+        (e) =>
+          e.value.toLowerCase().includes("quote") ||
+          e.value.toLowerCase().includes("testimonial") ||
+          e.label.toLowerCase().includes("testimonial") ||
+          e.label.toLowerCase().includes("case"),
+      )
+        ? `The following approved qualitative evidence illustrates the difference made:\n${evidence.map((e) => `- ${e.label}: ${e.value}`).join("\n")}`
         : "No approved beneficiary stories or testimonials have been added for this period. Add qualitative evidence to include stories here. No quotes have been invented.";
     default:
       return shortenToWords(
         `${title} for ${org}. ${dataLine} ${
           evidence.length
-            ? `Supporting evidence: ${evidence.map((e) => e.title).join(", ")}.`
+            ? `Supporting evidence: ${evidence.map((e) => e.label).join(", ")}.`
             : "Supporting evidence has not yet been added for this section."
         }`.trim(),
         context.wordLimit,
@@ -188,7 +182,9 @@ function command(context: AiContext): string {
   const query = (context.query ?? "").toLowerCase();
   const facts = context.programmeData;
   const find = (needle: string) =>
-    facts.filter((f) => f.label.toLowerCase().includes(needle) || f.value.toLowerCase().includes(needle));
+    facts.filter(
+      (f) => f.label.toLowerCase().includes(needle) || f.value.toLowerCase().includes(needle),
+    );
 
   if (query.includes("deadline")) {
     const deadlines = find("deadline").concat(find("due"));
@@ -211,7 +207,6 @@ function command(context: AiContext): string {
       ? "Reporting status:\n" + facts.map((d) => `- ${d.label}: ${d.value}`).join("\n")
       : "No reporting risks were found.";
   }
-  // Default: reflect the grounded facts.
   return facts.length
     ? "Here is what I can see in your approved data:\n" +
         facts.map((d) => `- ${d.label}: ${d.value}`).join("\n") +
@@ -236,11 +231,25 @@ export class MockAiProvider implements AiProvider {
 
   async generate(feature: AiFeature, context: AiContext): Promise<AiResult> {
     const text = GENERATORS[feature](context);
+    const offered = offeredItems(context);
+
+    // Observation, not assertion: the references reported are the ones whose
+    // content actually reached the output. A value dropped by the word limit is
+    // correctly reported as unused.
+    const usedKeys = itemsMentionedIn(text, offered);
+
     return {
       text,
-      provenance: buildProvenance(context),
+      grounding: observeGrounding({
+        offered,
+        usedKeys,
+        assumptions: [
+          "This is a first draft. Confirm every figure and claim before submitting.",
+        ],
+      }),
       model: "pegasus-mock-1",
       promptVersion: FEATURE_PROMPTS[feature]?.version ?? PROMPT_VERSION,
+      usedFallback: false,
     };
   }
 }

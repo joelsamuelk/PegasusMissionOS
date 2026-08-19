@@ -4,7 +4,27 @@
  */
 
 export const appConfig = {
+  /**
+   * Where the application runs. Used for absolute links into the product and
+   * for the address shown on marketing product previews.
+   */
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  /** Separate internal application origin. Never use `appUrl` as its auth boundary. */
+  controlUrl:
+    process.env.NEXT_PUBLIC_CONTROL_URL ?? "http://control.localhost:3000",
+  control: {
+    /** Explicit opt-in: an unconfigured production deployment must fail closed. */
+    mockEnabled: process.env.CONTROL_PLANE_MOCK === "true",
+  },
+  /**
+   * Where the public marketing site runs. Kept separate from `appUrl` because
+   * the two are different hosts in production, and metadata, canonicals and
+   * the sitemap must point at the marketing origin rather than the app.
+   */
+  marketingUrl:
+    process.env.NEXT_PUBLIC_MARKETING_URL ?? "https://mission.pegasus-studio.co",
+  /** The parent company. Linked from the marketing site and structured data. */
+  studioUrl: process.env.NEXT_PUBLIC_STUDIO_URL ?? "https://www.pegasus-studio.co/",
   supabase: {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
@@ -16,6 +36,21 @@ export const appConfig = {
   ai: {
     provider: (process.env.AI_PROVIDER ?? "mock") as "mock" | "anthropic",
     hasAnthropicKey: Boolean(process.env.ANTHROPIC_API_KEY),
+    /**
+     * Model tiers.
+     *
+     * Pegasus deliberately keeps AI on a short leash: fit, grant health,
+     * relationship health, evidence strength and every finance figure are
+     * deterministic. What is left for a model is constrained generation over
+     * facts that were assembled for it — a low bar, so the routine tier is a
+     * small model and most features use it.
+     *
+     * The high tier exists for the two features whose output a funder reads.
+     * Both are configurable without a code change so the tradeoff can be tuned
+     * against real usage rather than guessed at now.
+     */
+    routineModel: process.env.AI_MODEL_ROUTINE ?? "claude-haiku-4-5",
+    fundingFacingModel: process.env.AI_MODEL_FUNDER_FACING ?? "claude-sonnet-5",
   },
 } as const;
 

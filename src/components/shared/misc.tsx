@@ -142,7 +142,7 @@ export function MetricPanel({
         {Icon && <Icon className="h-4 w-4 text-ink-subtle" />}
       </div>
       <div className="mt-4">
-        <div className="font-serif text-heading-lg font-medium tracking-tight text-ink">
+        <div className="font-heading text-heading-lg font-semibold tracking-tight text-ink">
           {value}
         </div>
         {hint && (

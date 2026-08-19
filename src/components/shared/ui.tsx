@@ -4,21 +4,31 @@ import { cn } from "@/lib/utils";
 
 // --- Button -------------------------------------------------------------
 
+/**
+ * Buttons follow the Pegasus Studio brand: fully rounded pills, with the blue
+ * and coral variants carrying the studio's inner highlight over a coloured
+ * halo. `blue` is the call to action, `primary` navy is the workhorse inside
+ * the application chrome, and coral (`accent`) is held back for the brand mark
+ * and small non-interactive accents.
+ */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded font-medium transition-colors duration-fast disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-all duration-fast ease-calm disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none",
   {
     variants: {
       variant: {
         primary: "bg-ink text-ink-inverse hover:bg-ink/90",
-        accent: "bg-accent text-accent-contrast hover:bg-accent/90",
-        secondary: "border border-line-strong bg-surface text-ink hover:bg-surface-sunken",
+        accent:
+          "border border-accent/45 bg-accent text-accent-contrast shadow-coral hover:shadow-coral-hover",
+        blue: "border border-blue/45 bg-blue text-white shadow-brand-blue hover:shadow-brand-blue-hover",
+        secondary:
+          "border border-line-strong bg-surface text-ink hover:border-blue hover:text-blue",
         ghost: "text-ink hover:bg-surface-sunken",
         subtle: "bg-surface-sunken text-ink hover:bg-line",
         danger: "border border-critical/40 bg-critical-soft text-critical hover:bg-critical/15",
-        link: "text-accent underline-offset-4 hover:underline p-0 h-auto",
+        link: "text-info underline-offset-4 hover:underline p-0 h-auto",
       },
       size: {
-        sm: "h-8 px-3 text-[0.8125rem]",
+        sm: "h-8 px-3.5 text-[0.8125rem]",
         md: "h-9 px-4 text-sm",
         lg: "h-11 px-6 text-[0.9375rem]",
         icon: "h-9 w-9",
@@ -63,7 +73,10 @@ export function Card({
   ...props
 }: React.HTMLAttributes<HTMLElement> & { as?: React.ElementType }) {
   return (
-    <Tag className={cn("surface-card shadow-elev-1", className)} {...props} />
+    <Tag
+      className={cn("surface-card shadow-elev-1 transition-shadow ease-calm", className)}
+      {...props}
+    />
   );
 }
 
@@ -100,7 +113,7 @@ export function SectionTitle({
 }) {
   return (
     <div className={cn("mb-4 flex items-end justify-between gap-4", className)}>
-      <h2 className="text-title font-semibold text-ink">{children}</h2>
+      <h2 className="font-heading text-title font-semibold text-ink">{children}</h2>
       {action}
     </div>
   );
@@ -115,7 +128,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-0.5 text-xs text-ink-muted",
+        "inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-0.5 text-xs text-ink-muted",
         className,
       )}
       {...props}

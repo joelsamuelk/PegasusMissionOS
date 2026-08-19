@@ -3,13 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check } from "lucide-react";
 import { formatCurrency, formatDate, humanise } from "@/lib/formatting";
-import { q } from "@/features/store";
 import { computeGrantHealth } from "@/lib/logic/grant-health";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody } from "@/components/shared/ui";
 import { EntityStatusBadge } from "@/components/shared/StatusBadge";
 import { DeadlineIndicator } from "@/components/shared/misc";
 import { GrantHealthSummary } from "@/components/grants/GrantHealthSummary";
+import { FunderRelationshipPanel } from "@/components/relationships/FunderRelationshipPanel";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
+import { buildRelationshipView } from "@/server/services/relationships";
 import { cn } from "@/lib/utils";
 
 export async function generateMetadata({
@@ -18,10 +21,10 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  return { title: q.grant(id)?.title ?? "Grant" };
+  const ctx = await resolveRequestContext();
+  const grant = await getRepository().grants.get(ctx, id);
+  return { title: grant?.title ?? "Grant" };
 }
-
-const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
 
 export default async function GrantPage({
   params,
@@ -29,25 +32,54 @@ export default async function GrantPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const grant = q.grant(id);
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const now = ctx.now();
+
+  const grant = await repo.grants.get(ctx, id);
   if (!grant) notFound();
 
-  const funder = q.funder(grant.funderId);
-  const manager = q.user(grant.grantManagerId);
-  const payments = q.grantPayments(grant.id);
-  const deliverables = q.grantDeliverables(grant.id);
-  const reports = q.grantReports(grant.id);
-  const programme = q
-    .programmes()
-    .find((p) => q.programmeGrants(p.id).some((g) => g.id === grant.id));
+  const [funder, manager, payments, deliverables, reports, evidence, programmes] =
+    await Promise.all([
+      repo.funding.getFunder(ctx, grant.funderId),
+      grant.grantManagerId ? repo.organisations.user(ctx, grant.grantManagerId) : null,
+      repo.grants.payments(ctx, grant.id),
+      repo.grants.deliverables(ctx, grant.id),
+      repo.grants.reports(ctx, grant.id),
+      repo.evidence.forTarget(ctx, "grant", grant.id),
+      repo.programmes.list(ctx),
+    ]);
+
+  // Which programme this grant funds, resolved through the programme→grant links.
+  const programmeGrants = await Promise.all(
+    programmes.map(async (p) => ({
+      programme: p,
+      grants: await repo.programmes.grantsFor(ctx, p.id),
+    })),
+  );
+  const programme = programmeGrants.find((pg) =>
+    pg.grants.some((g) => g.id === grant.id),
+  )?.programme;
+
   const health = computeGrantHealth({
     grant,
     deliverables,
     reports,
-    linkedEvidenceCount: q.evidenceForTarget("grant", grant.id).length,
-    now: DEMO_NOW,
+    linkedEvidenceCount: evidence.length,
+    now,
   });
   const remaining = grant.awardValue - grant.spentToDate;
+
+  // The funder relationship comes from the shared relationship layer rather
+  // than from `grant.funderContact`, which is a free-text string that cannot
+  // tell you when you last spoke or what you owe.
+  const funderOrganisation = await repo.relationships.organisationForFunder(
+    ctx,
+    grant.funderId,
+  );
+  const relationshipView = funderOrganisation
+    ? await buildRelationshipView(ctx, repo, funderOrganisation.id)
+    : null;
 
   return (
     <div>
@@ -84,7 +116,7 @@ export default async function GrantPage({
                   <div>
                     <div className="text-sm font-medium text-ink">{d.title}</div>
                     <div className="mt-0.5">
-                      <DeadlineIndicator deadline={d.dueDate} now={DEMO_NOW} />
+                      <DeadlineIndicator deadline={d.dueDate} now={now} />
                     </div>
                   </div>
                   <EntityStatusBadge status={d.status === "overdue" ? "at_risk" : d.status === "complete" ? "approved" : "in_progress"} />
@@ -104,7 +136,7 @@ export default async function GrantPage({
                   <div>
                     <div className="text-sm font-medium text-ink">{r.title}</div>
                     <div className="mt-0.5">
-                      <DeadlineIndicator deadline={r.dueDate} now={DEMO_NOW} />
+                      <DeadlineIndicator deadline={r.dueDate} now={now} />
                     </div>
                   </div>
                   <span className="text-xs capitalize text-ink-muted">
@@ -118,18 +150,19 @@ export default async function GrantPage({
 
         {/* Sidebar */}
         <div className="flex flex-col gap-5">
+          {relationshipView && <FunderRelationshipPanel view={relationshipView} />}
+
           <Card>
             <CardBody className="flex flex-col gap-3 text-sm">
               <Row label="Status" value={<EntityStatusBadge status={health.state} />} />
               <Row label="Grant manager" value={manager?.name ?? "-"} />
-              <Row label="Funder contact" value={grant.funderContact ?? "-"} />
               <Row label="Start date" value={formatDate(grant.startDate)} />
               <Row label="End date" value={formatDate(grant.endDate)} />
               {programme && (
                 <Row
                   label="Programme"
                   value={
-                    <Link href={`/programmes/${programme.id}`} className="text-accent hover:underline">
+                    <Link href={`/programmes/${programme.id}`} className="text-info hover:underline">
                       {programme.name}
                     </Link>
                   }
@@ -192,7 +225,7 @@ function MetricCard({ label, value, small }: { label: string; value: string; sma
         <div
           className={cn(
             "mt-1.5 font-medium text-ink",
-            small ? "text-sm" : "font-serif text-heading",
+            small ? "text-sm" : "font-heading text-heading",
           )}
         >
           {value}

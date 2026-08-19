@@ -197,7 +197,7 @@ function ReviewStep() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="surface-card p-5">
           <div className="eyebrow">Profile completeness</div>
-          <div className="mt-2 font-serif text-display font-medium text-ink">82%</div>
+          <div className="mt-2 font-heading text-display font-semibold text-ink">82%</div>
           <ProgressMeter className="mt-2" value={82} tone="success" />
           <p className="mt-2 text-xs text-ink-muted">
             Strong start. A few governance fields could be reviewed.

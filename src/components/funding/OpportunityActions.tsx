@@ -29,7 +29,11 @@ export function GenerateFitButton({
       variant={hasAssessment ? "secondary" : "accent"}
       onClick={() =>
         start(async () => {
-          await generateFitAssessment(oppId);
+          const result = await generateFitAssessment(oppId);
+          if (!result.ok) {
+            notify(result.message ?? "That action was not permitted.", "error");
+            return;
+          }
           notify("Fit assessment generated. Review the reasoning below.");
           router.refresh();
         })
@@ -51,6 +55,7 @@ export function GenerateFitButton({
 export function SaveToggle({ oppId, saved }: { oppId: string; saved: boolean }) {
   const [pending, start] = useTransition();
   const router = useRouter();
+  const { notify } = useToast();
   return (
     <Button
       variant="ghost"
@@ -58,7 +63,11 @@ export function SaveToggle({ oppId, saved }: { oppId: string; saved: boolean }) 
       aria-label={saved ? "Remove from saved" : "Save opportunity"}
       onClick={() =>
         start(async () => {
-          await toggleSavedOpportunity(oppId);
+          const result = await toggleSavedOpportunity(oppId);
+          if (!result.ok) {
+            notify(result.message ?? "That change was not permitted.", "error");
+            return;
+          }
           router.refresh();
         })
       }
@@ -82,7 +91,11 @@ export function StageSelect({ oppId, stage }: { oppId: string; stage: PipelineSt
         const next = e.target.value as PipelineStage;
         setValue(next);
         start(async () => {
-          await moveOpportunityStage(oppId, next);
+          const result = await moveOpportunityStage(oppId, next);
+          if (!result.ok) {
+            notify(result.message ?? "That change was not permitted.", "error");
+            return;
+          }
           notify(`Moved to ${STAGE_LABELS[next]}.`);
           router.refresh();
         });

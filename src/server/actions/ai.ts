@@ -1,8 +1,11 @@
 "use server";
 
 import { runAi, type AiFeature } from "@/lib/ai";
-import type { AIProvenance } from "@/types/domain";
-import { CURRENT_USER_ID, recordAiGeneration } from "@/features/store";
+import { refKey } from "@/lib/knowledge";
+import type { GroundingRecord } from "@/types/domain";
+import type { AiResult } from "@/lib/ai";
+import { getRepository } from "@/server/data";
+import { authoriseAi } from "./authorise";
 import {
   buildAnswerContext,
   buildCommandContext,
@@ -10,12 +13,43 @@ import {
   buildReportSectionContext,
 } from "@/server/services/context";
 
+/**
+ * Every entry point here is gated on `ai:use`.
+ *
+ * That capability is deliberately absent from `trustee_reviewer`: a trustee
+ * reviews and approves what the organisation produced, and generating new
+ * material on the organisation's behalf is not part of that role.
+ */
 export interface AiActionResult {
   ok: boolean;
   text: string;
-  provenance?: AIProvenance;
+  provenance?: GroundingRecord;
   model?: string;
+  /** Surfaced so the UI never presents fallback output as live generation. */
+  usedFallback?: boolean;
   error?: string;
+}
+
+/**
+ * Turn an AI result into the record that gets persisted alongside the output.
+ *
+ * Everything here is observed: `used` contains only references the generation
+ * reported and that were validated against what it was offered. Execution
+ * metadata travels with it, so a section can always answer which model and
+ * prompt version produced it, and whether it was live or fallback.
+ */
+function groundingRecord(result: AiResult, at: Date): GroundingRecord {
+  return {
+    used: result.grounding.used,
+    unused: result.grounding.unused,
+    assumptions: result.grounding.assumptions,
+    couldNotVerify: result.grounding.couldNotVerify,
+    model: result.model,
+    promptVersion: result.promptVersion,
+    usedFallback: result.usedFallback,
+    ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {}),
+    generatedAt: at.toISOString(),
+  };
 }
 
 /** Generate or transform an application answer. Returns a candidate to review. */
@@ -24,18 +58,31 @@ export async function generateAnswer(
   feature: AiFeature,
 ): Promise<AiActionResult> {
   try {
-    const context = buildAnswerContext(answerId);
+    const auth = await authoriseAi();
+    if (!auth.ok) return { ok: false, text: "", error: auth.result.message };
+    const { ctx } = auth;
+    const repo = getRepository();
+    const context = await buildAnswerContext(ctx, repo, answerId);
     const result = await runAi(feature, context);
-    recordAiGeneration({
+    const provenance = groundingRecord(result, ctx.now());
+
+    await repo.audit.recordAiGeneration(ctx, {
       feature,
       model: result.model,
       promptVersion: result.promptVersion,
-      userId: CURRENT_USER_ID,
-      inputRefs: [answerId],
+      // The references actually drawn on, not everything that was available.
+      inputRefs: [`application_answer:${answerId}`, ...provenance.used.map(refKey)],
       outputPreview: result.text.slice(0, 200),
       approvalStatus: "pending",
     });
-    return { ok: true, text: result.text, provenance: result.provenance, model: result.model };
+
+    return {
+      ok: true,
+      text: result.text,
+      provenance,
+      model: result.model,
+      usedFallback: result.usedFallback,
+    };
   } catch (error) {
     return { ok: false, text: "", error: (error as Error).message };
   }
@@ -47,38 +94,135 @@ export async function generateReportSection(
   sectionKey: string,
 ): Promise<AiActionResult> {
   try {
-    const context = buildReportSectionContext(reportId, sectionKey);
+    const auth = await authoriseAi();
+    if (!auth.ok) return { ok: false, text: "", error: auth.result.message };
+    const { ctx } = auth;
+    const repo = getRepository();
+    const context = await buildReportSectionContext(ctx, repo, reportId, sectionKey);
     const result = await runAi("report_section", context);
-    recordAiGeneration({
+    const provenance = groundingRecord(result, ctx.now());
+
+    await repo.audit.recordAiGeneration(ctx, {
       feature: "report_section",
       model: result.model,
       promptVersion: result.promptVersion,
-      userId: CURRENT_USER_ID,
-      inputRefs: [reportId, sectionKey],
+      inputRefs: [`impact_report:${reportId}`, sectionKey, ...provenance.used.map(refKey)],
       outputPreview: result.text.slice(0, 200),
       approvalStatus: "pending",
     });
-    return { ok: true, text: result.text, provenance: result.provenance, model: result.model };
+
+    // Record where each claim was used, so the figure can be traced back from
+    // the report as well as forward from the claim.
+    await Promise.all(
+      provenance.used
+        .filter((ref) => ref.type === "claim")
+        .map((ref) =>
+          repo.claims.recordUsage(ctx, {
+            claimId: ref.id,
+            usedIn: { type: "impact_report", id: reportId },
+            context: `report section: ${sectionKey}`,
+          }),
+        ),
+    );
+
+    return {
+      ok: true,
+      text: result.text,
+      provenance,
+      model: result.model,
+      usedFallback: result.usedFallback,
+    };
   } catch (error) {
     return { ok: false, text: "", error: (error as Error).message };
+  }
+}
+
+export interface GeneratedReportSection {
+  key: string;
+  text: string;
+  provenance: GroundingRecord;
+}
+
+/**
+ * Generate and persist a complete first draft in one authorised server call.
+ * The previous client loop crossed the network twice per section, which made a
+ * nine-section report slow even when the deterministic mock provider was used.
+ */
+export async function generateAllReportSections(
+  reportId: string,
+): Promise<{ ok: boolean; sections: GeneratedReportSection[]; error?: string }> {
+  try {
+    const auth = await authoriseAi();
+    if (!auth.ok) return { ok: false, sections: [], error: auth.result.message };
+    const { ctx } = auth;
+    const repo = getRepository();
+    const report = await repo.reports.get(ctx, reportId);
+    if (!report) return { ok: false, sections: [], error: "That report could not be found." };
+
+    const sections: GeneratedReportSection[] = [];
+    for (const section of report.sections) {
+      const context = await buildReportSectionContext(ctx, repo, reportId, section.key);
+      const result = await runAi("report_section", context);
+      const provenance = groundingRecord(result, ctx.now());
+
+      await repo.reports.saveSection(ctx, reportId, section.key, result.text, provenance);
+      await repo.audit.recordAiGeneration(ctx, {
+        feature: "report_section",
+        model: result.model,
+        promptVersion: result.promptVersion,
+        inputRefs: [`impact_report:${reportId}`, section.key, ...provenance.used.map(refKey)],
+        outputPreview: result.text.slice(0, 200),
+        approvalStatus: "pending",
+      });
+      await Promise.all(
+        provenance.used
+          .filter((ref) => ref.type === "claim")
+          .map((ref) =>
+            repo.claims.recordUsage(ctx, {
+              claimId: ref.id,
+              usedIn: { type: "impact_report", id: reportId },
+              context: `report section: ${section.key}`,
+            }),
+          ),
+      );
+      sections.push({ key: section.key, text: result.text, provenance });
+    }
+
+    return { ok: true, sections };
+  } catch (error) {
+    return { ok: false, sections: [], error: (error as Error).message };
   }
 }
 
 /** Answer a command-bar question using approved organisation data. */
 export async function askCommand(query: string): Promise<AiActionResult> {
   try {
-    const context = buildCommandContext(query);
+    const auth = await authoriseAi();
+    if (!auth.ok) return { ok: false, text: "", error: auth.result.message };
+    const { ctx } = auth;
+    const repo = getRepository();
+    const context = await buildCommandContext(ctx, repo, query);
     const result = await runAi("command", context);
-    recordAiGeneration({
+    const provenance = groundingRecord(result, ctx.now());
+
+    await repo.audit.recordAiGeneration(ctx, {
       feature: "command",
       model: result.model,
       promptVersion: result.promptVersion,
-      userId: CURRENT_USER_ID,
-      inputRefs: [],
+      inputRefs: provenance.used.map(refKey),
       outputPreview: result.text.slice(0, 200),
-      approvalStatus: "approved",
+      // A read-only answer is still an AI generation awaiting human judgement.
+      // It is not "approved" simply because nobody had to click anything.
+      approvalStatus: "pending",
     });
-    return { ok: true, text: result.text, provenance: result.provenance, model: result.model };
+
+    return {
+      ok: true,
+      text: result.text,
+      provenance,
+      model: result.model,
+      usedFallback: result.usedFallback,
+    };
   } catch (error) {
     return { ok: false, text: "", error: (error as Error).message };
   }
@@ -87,9 +231,19 @@ export async function askCommand(query: string): Promise<AiActionResult> {
 /** Summarise the funding pipeline. */
 export async function summarisePipeline(): Promise<AiActionResult> {
   try {
-    const context = buildPipelineContext();
+    const auth = await authoriseAi();
+    if (!auth.ok) return { ok: false, text: "", error: auth.result.message };
+    const { ctx } = auth;
+    const repo = getRepository();
+    const context = await buildPipelineContext(ctx, repo);
     const result = await runAi("summarise_pipeline", context);
-    return { ok: true, text: result.text, provenance: result.provenance, model: result.model };
+    return {
+      ok: true,
+      text: result.text,
+      provenance: groundingRecord(result, ctx.now()),
+      model: result.model,
+      usedFallback: result.usedFallback,
+    };
   } catch (error) {
     return { ok: false, text: "", error: (error as Error).message };
   }

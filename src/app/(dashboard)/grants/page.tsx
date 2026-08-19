@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Landmark } from "lucide-react";
 import { formatCurrency } from "@/lib/formatting";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { computeGrantHealth } from "@/lib/logic/grant-health";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody } from "@/components/shared/ui";
@@ -10,10 +11,40 @@ import { EntityStatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState, ProgressMeter } from "@/components/shared/misc";
 
 export const metadata: Metadata = { title: "Grants" };
-const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
 
-export default function GrantsPage() {
-  const grants = q.grants();
+export default async function GrantsPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const now = ctx.now();
+
+  const [grants, funders] = await Promise.all([
+    repo.grants.list(ctx),
+    repo.funding.listFunders(ctx),
+  ]);
+  const funderById = new Map(funders.map((f) => [f.id, f]));
+
+  // Health is deterministic but needs three related collections per grant.
+  const rows = await Promise.all(
+    grants.map(async (g) => {
+      const [deliverables, reports, evidence] = await Promise.all([
+        repo.grants.deliverables(ctx, g.id),
+        repo.grants.reports(ctx, g.id),
+        repo.evidence.forTarget(ctx, "grant", g.id),
+      ]);
+      return {
+        grant: g,
+        funder: funderById.get(g.funderId),
+        health: computeGrantHealth({
+          grant: g,
+          deliverables,
+          reports,
+          linkedEvidenceCount: evidence.length,
+          now,
+        }),
+      };
+    }),
+  );
+
   const totalActive = grants
     .filter((g) => g.status === "active")
     .reduce((s, g) => s + g.awardValue, 0);
@@ -41,15 +72,7 @@ export default function GrantsPage() {
         />
       ) : (
         <div className="grid gap-3">
-          {grants.map((g) => {
-            const health = computeGrantHealth({
-              grant: g,
-              deliverables: q.grantDeliverables(g.id),
-              reports: q.grantReports(g.id),
-              linkedEvidenceCount: q.evidenceForTarget("grant", g.id).length,
-              now: DEMO_NOW,
-            });
-            const funder = q.funder(g.funderId);
+          {rows.map(({ grant: g, funder, health }) => {
             return (
               <Card key={g.id} className="transition-shadow hover:shadow-elev-2">
                 <Link href={`/grants/${g.id}`}>
@@ -92,7 +115,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="eyebrow">{label}</div>
-      <div className="mt-1 font-serif text-heading font-medium text-ink">{value}</div>
+      <div className="mt-1 font-heading text-heading font-semibold text-ink">{value}</div>
     </div>
   );
 }

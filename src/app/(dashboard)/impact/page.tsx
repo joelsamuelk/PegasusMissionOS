@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TrendingUp } from "lucide-react";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody } from "@/components/shared/ui";
 import { EntityStatusBadge } from "@/components/shared/StatusBadge";
@@ -9,8 +10,14 @@ import { EmptyState } from "@/components/shared/misc";
 
 export const metadata: Metadata = { title: "Impact" };
 
-export default function ImpactPage() {
-  const reports = q.impactReports();
+export default async function ImpactPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const [reports, programmes] = await Promise.all([
+    repo.reports.list(ctx),
+    repo.programmes.list(ctx),
+  ]);
+  const programmesById = new Map(programmes.map((p) => [p.id, p]));
 
   return (
     <div>
@@ -29,7 +36,7 @@ export default function ImpactPage() {
       ) : (
         <div className="grid gap-3">
           {reports.map((r) => {
-            const programme = r.programmeId ? q.programme(r.programmeId) : undefined;
+            const programme = r.programmeId ? programmesById.get(r.programmeId) : undefined;
             const filled = r.sections.filter((s) => s.content.trim()).length;
             return (
               <Card key={r.id} className="transition-shadow hover:shadow-elev-2">

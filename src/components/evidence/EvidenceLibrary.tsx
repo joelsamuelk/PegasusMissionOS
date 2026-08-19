@@ -95,7 +95,7 @@ export function EvidenceLibrary({ items }: { items: EvidenceItem[] }) {
               </div>
               <h3 className="mt-3 text-sm font-semibold text-ink">{item.title}</h3>
               {item.statValue && (
-                <div className="mt-1 font-serif text-heading font-medium text-accent">
+                <div className="mt-1 font-heading text-heading font-semibold text-accent-ink">
                   {item.statValue}
                 </div>
               )}
@@ -143,7 +143,7 @@ function AddEvidenceModal({ open, onClose }: { open: boolean; onClose: () => voi
       return;
     }
     start(async () => {
-      await addEvidence({
+      const result = await addEvidence({
         title,
         type,
         description,
@@ -152,6 +152,12 @@ function AddEvidenceModal({ open, onClose }: { open: boolean; onClose: () => voi
           .map((t) => t.trim())
           .filter(Boolean),
       });
+      if (!result.ok) {
+        // Keep the form populated and the dialog open: the work is not saved,
+        // and discarding what they typed would compound the refusal.
+        notify(result.message ?? "That evidence was not added.", "error");
+        return;
+      }
       notify("Evidence added to the library.");
       setTitle("");
       setDescription("");
@@ -166,7 +172,7 @@ function AddEvidenceModal({ open, onClose }: { open: boolean; onClose: () => voi
       open={open}
       onClose={onClose}
       title="Add evidence"
-      description="Add a document, statistic, testimonial or other evidence. In this demonstration, file contents are represented by a description."
+      description="Add a document, statistic, testimonial or other evidence. In this demo, file contents are represented by a description."
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>

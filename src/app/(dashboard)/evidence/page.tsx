@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EvidenceLibrary } from "@/components/evidence/EvidenceLibrary";
 
 export const metadata: Metadata = { title: "Evidence" };
 
-export default function EvidencePage() {
-  const items = q.evidence();
+export default async function EvidencePage() {
+  const ctx = await resolveRequestContext();
+  const items = await getRepository().evidence.list(ctx);
   return (
     <div>
       <PageHeader

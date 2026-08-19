@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Building2 } from "lucide-react";
 import type { Attested, VerificationState } from "@/types/domain";
 import { humanise } from "@/lib/formatting";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { profileCompleteness } from "@/lib/logic/progress";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody } from "@/components/shared/ui";
@@ -10,9 +11,16 @@ import { ProgressMeter, VerificationBadge } from "@/components/shared/misc";
 
 export const metadata: Metadata = { title: "Organisation" };
 
-export default function OrganisationPage() {
-  const org = q.organisation();
-  const p = q.profile();
+export default async function OrganisationPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const [org, p] = await Promise.all([
+    repo.organisations.get(ctx),
+    repo.organisations.profile(ctx),
+  ]);
+
+  if (!org || !p) return null;
+
   const { score, missing } = profileCompleteness(p);
 
   return (
@@ -74,7 +82,7 @@ export default function OrganisationPage() {
                 <Building2 className="h-4 w-4 text-ink-subtle" />
                 <span className="eyebrow">Completeness</span>
               </div>
-              <div className="mt-3 font-serif text-display font-medium text-ink">{score}%</div>
+              <div className="mt-3 font-heading text-display font-semibold text-ink">{score}%</div>
               <ProgressMeter className="mt-2" value={score} tone={score >= 80 ? "success" : "accent"} />
               <p className="mt-3 text-sm text-ink-muted">
                 A more complete profile means stronger fit assessments and better AI drafts.

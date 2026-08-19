@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   CalendarClock,
   FileText,
+  Handshake,
   Landmark,
   Library,
   Sparkles,
@@ -12,9 +13,7 @@ import {
 } from "lucide-react";
 import { formatCurrencyCompact } from "@/lib/formatting";
 import { profileCompleteness } from "@/lib/logic/progress";
-import { q } from "@/features/store";
 import {
-  DEMO_NOW,
   dashboardMetrics,
   upcomingDeadlines,
   weeklyPriorities,
@@ -24,6 +23,10 @@ import { Card, CardBody } from "@/components/shared/ui";
 import { DeadlineIndicator, MetricPanel, ProgressMeter } from "@/components/shared/misc";
 import { ActivityFeed } from "@/components/shared/ActivityFeed";
 import { TaskListWidget } from "@/components/shared/TaskListWidget";
+import { RelationshipHealthBadge } from "@/components/relationships/RelationshipBadges";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
+import { buildRelationshipPortfolio } from "@/server/services/relationships";
 
 export const metadata: Metadata = { title: "Command Centre" };
 
@@ -33,14 +36,31 @@ const TONE_DOT: Record<string, string> = {
   info: "bg-accent",
 };
 
-export default function DashboardPage() {
-  const org = q.organisation();
-  const m = dashboardMetrics();
-  const priorities = weeklyPriorities();
-  const deadlines = upcomingDeadlines().slice(0, 5);
-  const tasks = q.openTasks();
-  const users = q.users();
-  const activity = q.activity();
+export default async function DashboardPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const now = ctx.now();
+
+  // Relationship attention feeds Mission Control. Only relationships with an
+  // overdue commitment, a missed next action or live work that has gone quiet
+  // appear — nothing is surfaced merely to generate activity.
+  const [org, profile, m, priorities, allDeadlines, tasks, users, activity, portfolio] =
+    await Promise.all([
+      repo.organisations.get(ctx),
+      repo.organisations.profile(ctx),
+      dashboardMetrics(ctx, repo),
+      weeklyPriorities(ctx, repo),
+      upcomingDeadlines(ctx, repo),
+      repo.workspace.openTasks(ctx),
+      repo.organisations.users(ctx),
+      repo.workspace.activity(ctx),
+      buildRelationshipPortfolio(ctx, repo),
+    ]);
+
+  if (!org || !profile) return null;
+
+  const deadlines = allDeadlines.slice(0, 5);
+  const needsAttention = portfolio.needsAttention.slice(0, 4);
 
   return (
     <div>
@@ -131,7 +151,7 @@ export default function DashboardPage() {
                 <CalendarClock className="h-4 w-4 text-ink-subtle" />
                 <h2 className="text-title font-semibold text-ink">Upcoming deadlines</h2>
               </div>
-              <Link href="/funding" className="text-xs font-medium text-accent hover:underline">
+              <Link href="/funding" className="text-xs font-medium text-info hover:underline">
                 View all
               </Link>
             </div>
@@ -146,7 +166,7 @@ export default function DashboardPage() {
                       <div className="truncate text-sm font-medium text-ink">{d.label}</div>
                       <div className="truncate text-xs text-ink-subtle">{d.sublabel}</div>
                     </div>
-                    <DeadlineIndicator deadline={d.deadline} now={DEMO_NOW} />
+                    <DeadlineIndicator deadline={d.deadline} now={now} />
                   </Link>
                 </li>
               ))}
@@ -154,14 +174,51 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Right: tasks + activity */}
+        {/* Right: relationships + tasks + activity */}
         <div className="flex flex-col gap-6">
+          {needsAttention.length > 0 && (
+            <Card>
+              <div className="flex items-center justify-between border-b border-line px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <Handshake className="h-4 w-4 text-ink-subtle" />
+                  <h2 className="text-title font-semibold text-ink">
+                    Relationships needing attention
+                  </h2>
+                </div>
+                <Link
+                  href="/relationships"
+                  className="text-xs font-medium text-info hover:underline"
+                >
+                  View all
+                </Link>
+              </div>
+              <ul>
+                {needsAttention.map((s) => (
+                  <li key={s.relationship.id} className="border-b border-line last:border-0">
+                    <Link
+                      href={`/relationships/${s.organisation.id}`}
+                      className="block px-5 py-3 hover:bg-surface-sunken/50"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-ink">
+                          {s.organisation.name}
+                        </span>
+                        <RelationshipHealthBadge state={s.health.state} />
+                      </div>
+                      <p className="mt-0.5 text-sm text-ink-muted">{s.health.reason}</p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           <Card>
             <div className="border-b border-line px-5 py-4">
               <h2 className="text-title font-semibold text-ink">Your tasks</h2>
             </div>
             <CardBody className="py-2">
-              <TaskListWidget tasks={tasks} users={users} now={DEMO_NOW} />
+              <TaskListWidget tasks={tasks} users={users} now={now} />
             </CardBody>
           </Card>
 
@@ -170,7 +227,7 @@ export default function DashboardPage() {
               <h2 className="text-title font-semibold text-ink">Recent activity</h2>
             </div>
             <CardBody className="py-2">
-              <ActivityFeed events={activity} now={DEMO_NOW} limit={6} />
+              <ActivityFeed events={activity} now={now} limit={6} />
             </CardBody>
           </Card>
 
@@ -182,13 +239,13 @@ export default function DashboardPage() {
               </div>
               <ProgressMeter
                 className="mt-3"
-                value={profileCompleteness(q.profile()).score}
+                value={profileCompleteness(profile).score}
                 label="Profile completeness"
                 tone="accent"
               />
               <Link
                 href="/organisation"
-                className="mt-3 inline-block text-xs font-medium text-accent hover:underline"
+                className="mt-3 inline-block text-xs font-medium text-info hover:underline"
               >
                 Complete your organisation profile
               </Link>

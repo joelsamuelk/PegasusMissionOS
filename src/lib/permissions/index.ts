@@ -24,6 +24,20 @@ export type Capability =
   | "evidence:manage"
   | "reports:manage"
   | "reports:approve"
+  // Relationship layer. Unlike the capabilities above — which the architecture
+  // audit correctly called decorative — these are enforced in the server
+  // actions that ship with them.
+  | "relationships:view"
+  | "relationships:manage"
+  | "communications:view"
+  | "communications:send"
+  | "commitments:manage"
+  | "meetings:manage"
+  // Donor records are the most sensitive personal data in the product, so they
+  // carry their own capability rather than riding on `relationships:*`.
+  | "donors:view"
+  | "donors:manage"
+  | "partnerships:manage"
   | "ai:use"
   | "read";
 
@@ -45,6 +59,15 @@ const ALL: Capability[] = [
   "evidence:manage",
   "reports:manage",
   "reports:approve",
+  "relationships:view",
+  "relationships:manage",
+  "communications:view",
+  "communications:send",
+  "commitments:manage",
+  "meetings:manage",
+  "donors:view",
+  "donors:manage",
+  "partnerships:manage",
   "ai:use",
   "read",
 ];
@@ -64,6 +87,15 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
     "grants:manage",
     "evidence:manage",
     "reports:manage",
+    "relationships:view",
+    "relationships:manage",
+    "communications:view",
+    "communications:send",
+    "commitments:manage",
+    "meetings:manage",
+    "donors:view",
+    "donors:manage",
+    "partnerships:manage",
   ],
   programme_lead: [
     "read",
@@ -72,15 +104,40 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
     "outcomes:manage",
     "evidence:manage",
     "reports:manage",
+    "relationships:view",
+    "relationships:manage",
+    "communications:view",
+    "communications:send",
+    "commitments:manage",
+    "meetings:manage",
+    "partnerships:manage",
   ],
   finance_contributor: [
     "read",
     "finance:manage",
     "grants:manage",
     "reports:manage",
+    "relationships:view",
+    "commitments:manage",
   ],
-  trustee_reviewer: ["read", "applications:review", "applications:approve", "reports:approve"],
-  contributor: ["read", "ai:use", "evidence:manage"],
+  // Read and approve only, in the relationship layer as everywhere else.
+  trustee_reviewer: [
+    "read",
+    "applications:review",
+    "applications:approve",
+    "reports:approve",
+    "relationships:view",
+    "communications:view",
+  ],
+  // Contributors can see relationships and record what happened, but cannot
+  // restructure them or send anything externally.
+  contributor: [
+    "read",
+    "ai:use",
+    "evidence:manage",
+    "relationships:view",
+    "communications:view",
+  ],
 };
 
 export function capabilitiesFor(role: MemberRole): Capability[] {

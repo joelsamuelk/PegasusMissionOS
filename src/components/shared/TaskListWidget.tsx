@@ -41,7 +41,11 @@ export function TaskListWidget({
             className="flex items-center gap-3 border-b border-line py-2.5 last:border-0"
           >
             <button
-              onClick={() => start(() => toggleTask(task.id))}
+              onClick={() =>
+                start(async () => {
+                  await toggleTask(task.id);
+                })
+              }
               aria-label={done ? "Mark as not done" : "Mark as done"}
               className={cn(
                 "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors",

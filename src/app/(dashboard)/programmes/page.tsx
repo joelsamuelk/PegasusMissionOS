@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FolderGit2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/formatting";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { indicatorProgress } from "@/lib/logic/progress";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardBody, Pill } from "@/components/shared/ui";
@@ -11,8 +12,22 @@ import { EmptyState, ProgressMeter } from "@/components/shared/misc";
 
 export const metadata: Metadata = { title: "Programmes" };
 
-export default function ProgrammesPage() {
-  const programmes = q.programmes();
+export default async function ProgrammesPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const programmes = await repo.programmes.list(ctx);
+
+  // Indicators and grants resolved per programme up front, so the card grid
+  // below renders without further data access.
+  const rows = await Promise.all(
+    programmes.map(async (p) => {
+      const [indicators, grants] = await Promise.all([
+        repo.programmes.indicatorsForProgramme(ctx, p.id),
+        repo.programmes.grantsFor(ctx, p.id),
+      ]);
+      return { programme: p, indicators, grants };
+    }),
+  );
 
   return (
     <div>
@@ -26,15 +41,13 @@ export default function ProgrammesPage() {
         <EmptyState icon={FolderGit2} title="No programmes yet" description="Create a programme to track delivery and outcomes." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {programmes.map((p) => {
-            const indicators = q.programmeIndicators(p.id);
+          {rows.map(({ programme: p, indicators, grants }) => {
             const avg =
               indicators.length > 0
                 ? Math.round(
                     indicators.reduce((s, i) => s + indicatorProgress(i), 0) / indicators.length,
                   )
                 : 0;
-            const grants = q.programmeGrants(p.id);
             return (
               <Card key={p.id} className="flex flex-col transition-shadow hover:shadow-elev-2">
                 <Link href={`/programmes/${p.id}`} className="flex flex-1 flex-col">

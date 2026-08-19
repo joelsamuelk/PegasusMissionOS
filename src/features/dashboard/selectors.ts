@@ -1,15 +1,27 @@
 import { deadlineInfo } from "@/lib/formatting";
 import { computeGrantHealth } from "@/lib/logic/grant-health";
 import { applicationCompletion, answersNeedingAttention } from "@/lib/logic/progress";
-import { q } from "@/features/store";
+import type { RequestContext } from "@/server/context/request-context";
+import type { MissionRepository } from "@/server/data";
 
-/** "Today" for the demonstration workspace. */
-export const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
+/**
+ * Command Centre selectors.
+ *
+ * Every selector takes the request context and the repository rather than
+ * reading a process-global store, so the figures on the dashboard are scoped to
+ * the caller's organisation and dated by the request clock. "Now" is
+ * `ctx.now()` — these selectors previously pinned a module constant, which made
+ * every deadline calculation independent of the request.
+ */
 
-export function dashboardMetrics() {
-  const opps = q.opportunities();
-  const applications = q.applications();
-  const grants = q.grants();
+export async function dashboardMetrics(ctx: RequestContext, repo: MissionRepository) {
+  const [opps, applications, grants, grantReports, indicators] = await Promise.all([
+    repo.funding.listOpportunities(ctx),
+    repo.applications.list(ctx),
+    repo.grants.list(ctx),
+    repo.grants.allReports(ctx),
+    repo.programmes.allIndicators(ctx),
+  ]);
 
   const activePipeline = opps.filter(
     (o) => !["successful", "unsuccessful", "archived"].includes(o.stage),
@@ -25,14 +37,23 @@ export function dashboardMetrics() {
     .filter((g) => g.startDate >= "2025-04-01")
     .reduce((s, g) => s + g.awardValue, 0);
 
-  const reportsDue = q
-    .allGrantReports()
-    .filter((r) => r.status !== "submitted").length;
+  const reportsDue = grantReports.filter((r) => r.status !== "submitted").length;
 
-  // Outcomes awaiting evidence: indicators with no linked evidence via outcome.
-  const outcomesAwaitingEvidence = q
-    .allIndicators()
-    .filter((i) => q.evidenceForTarget("outcome", i.outcomeId).length === 0).length;
+  // Outcomes awaiting evidence: indicators whose outcome has no linked evidence.
+  // Resolved once per distinct outcome rather than once per indicator.
+  const outcomeIds = [...new Set(indicators.map((i) => i.outcomeId))];
+  const evidenceByOutcome = await Promise.all(
+    outcomeIds.map(async (outcomeId) => ({
+      outcomeId,
+      count: (await repo.evidence.forTarget(ctx, "outcome", outcomeId)).length,
+    })),
+  );
+  const outcomesWithoutEvidence = new Set(
+    evidenceByOutcome.filter((e) => e.count === 0).map((e) => e.outcomeId),
+  );
+  const outcomesAwaitingEvidence = indicators.filter((i) =>
+    outcomesWithoutEvidence.has(i.outcomeId),
+  ).length;
 
   return {
     pipelineValue,
@@ -53,32 +74,46 @@ export interface DeadlineRow {
   href: string;
 }
 
-export function upcomingDeadlines(): DeadlineRow[] {
+export async function upcomingDeadlines(
+  ctx: RequestContext,
+  repo: MissionRepository,
+): Promise<DeadlineRow[]> {
+  const [opportunities, funders, grantReports, grants] = await Promise.all([
+    repo.funding.listOpportunities(ctx),
+    repo.funding.listFunders(ctx),
+    repo.grants.allReports(ctx),
+    repo.grants.list(ctx),
+  ]);
+  const funderById = new Map(funders.map((f) => [f.id, f]));
+  const grantById = new Map(grants.map((g) => [g.id, g]));
+
   const rows: DeadlineRow[] = [];
-  q.opportunities()
-    .filter((o) => o.deadline)
-    .forEach((o) =>
-      rows.push({
-        id: o.id,
-        label: o.programmeName,
-        sublabel: q.funder(o.funderId)?.name ?? "Funder",
-        deadline: o.deadline!,
-        href: `/funding/${o.id}`,
-      }),
-    );
-  q.allGrantReports()
-    .filter((r) => r.status !== "submitted")
-    .forEach((r) =>
-      rows.push({
-        id: r.id,
-        label: r.title,
-        sublabel: q.grant(r.grantId)?.title ?? "Grant",
-        deadline: r.dueDate,
-        href: `/grants/${r.grantId}`,
-      }),
-    );
+
+  for (const o of opportunities) {
+    if (!o.deadline) continue;
+    rows.push({
+      id: o.id,
+      label: o.programmeName,
+      sublabel: funderById.get(o.funderId)?.name ?? "Funder",
+      deadline: o.deadline,
+      href: `/funding/${o.id}`,
+    });
+  }
+
+  for (const r of grantReports) {
+    if (r.status === "submitted") continue;
+    rows.push({
+      id: r.id,
+      label: r.title,
+      sublabel: grantById.get(r.grantId)?.title ?? "Grant",
+      deadline: r.dueDate,
+      href: `/grants/${r.grantId}`,
+    });
+  }
+
+  const now = ctx.now();
   return rows
-    .map((r) => ({ r, info: deadlineInfo(r.deadline, DEMO_NOW) }))
+    .map((r) => ({ r, info: deadlineInfo(r.deadline, now) }))
     .filter((x) => x.info.days <= 60)
     .sort((a, b) => a.info.days - b.info.days)
     .map((x) => x.r);
@@ -92,16 +127,20 @@ export interface Priority {
 }
 
 /**
- * AI-generated priorities for the week. These are derived deterministically
- * from the organisation's real data (deadlines, review states, grant health)
- * rather than invented, in keeping with the trust model.
+ * Priorities for the week, derived deterministically from the organisation's
+ * real data (deadlines, review states, grant health) rather than generated.
  */
-export function weeklyPriorities(): Priority[] {
+export async function weeklyPriorities(
+  ctx: RequestContext,
+  repo: MissionRepository,
+): Promise<Priority[]> {
+  const now = ctx.now();
   const priorities: Priority[] = [];
 
   // Imminent funding deadlines.
-  upcomingDeadlines()
-    .map((r) => ({ r, info: deadlineInfo(r.deadline, DEMO_NOW) }))
+  const deadlines = await upcomingDeadlines(ctx, repo);
+  deadlines
+    .map((r) => ({ r, info: deadlineInfo(r.deadline, now) }))
     .filter((x) => x.info.days >= 0 && x.info.days <= 14)
     .slice(0, 2)
     .forEach((x) =>
@@ -114,8 +153,14 @@ export function weeklyPriorities(): Priority[] {
     );
 
   // Applications with answers needing review.
-  q.applications().forEach((app) => {
-    const answers = q.answers(app.id);
+  const applications = await repo.applications.list(ctx);
+  const applicationAnswers = await Promise.all(
+    applications.map(async (app) => ({
+      app,
+      answers: await repo.applications.answers(ctx, app.id),
+    })),
+  );
+  for (const { app, answers } of applicationAnswers) {
     const needing = answersNeedingAttention(answers);
     const ready = answers.filter((a) => a.status === "ready_for_review").length;
     if (ready > 0) {
@@ -126,35 +171,60 @@ export function weeklyPriorities(): Priority[] {
         tone: "info",
       });
     }
-  });
+  }
 
   // Grants needing attention.
-  q.grants().forEach((g) => {
-    const health = computeGrantHealth({
-      grant: g,
-      deliverables: q.grantDeliverables(g.id),
-      reports: q.grantReports(g.id),
-      linkedEvidenceCount: q.evidenceForTarget("grant", g.id).length,
-      now: DEMO_NOW,
-    });
+  const grants = await repo.grants.list(ctx);
+  const grantHealth = await Promise.all(
+    grants.map(async (g) => {
+      const [deliverables, reports, evidence] = await Promise.all([
+        repo.grants.deliverables(ctx, g.id),
+        repo.grants.reports(ctx, g.id),
+        repo.evidence.forTarget(ctx, "grant", g.id),
+      ]);
+      return {
+        grant: g,
+        health: computeGrantHealth({
+          grant: g,
+          deliverables,
+          reports,
+          linkedEvidenceCount: evidence.length,
+          now,
+        }),
+      };
+    }),
+  );
+  for (const { grant, health } of grantHealth) {
     if (health.state === "at_risk" || health.state === "attention") {
       priorities.push({
-        title: `${g.title}: ${health.state === "at_risk" ? "at risk" : "needs attention"}`,
+        title: `${grant.title}: ${health.state === "at_risk" ? "at risk" : "needs attention"}`,
         detail: health.reasons[0] ?? "",
-        href: `/grants/${g.id}`,
+        href: `/grants/${grant.id}`,
         tone: health.state === "at_risk" ? "critical" : "warning",
       });
     }
-  });
+  }
 
   return priorities.slice(0, 5);
 }
 
-export function applicationsWithProgress() {
-  return q.applications().map((app) => ({
-    app,
-    completion: applicationCompletion(q.answers(app.id)),
-    needing: answersNeedingAttention(q.answers(app.id)),
-    opportunity: q.opportunity(app.opportunityId),
-  }));
+export async function applicationsWithProgress(
+  ctx: RequestContext,
+  repo: MissionRepository,
+) {
+  const applications = await repo.applications.list(ctx);
+  return Promise.all(
+    applications.map(async (app) => {
+      const [answers, opportunity] = await Promise.all([
+        repo.applications.answers(ctx, app.id),
+        repo.funding.getOpportunity(ctx, app.opportunityId),
+      ]);
+      return {
+        app,
+        completion: applicationCompletion(answers),
+        needing: answersNeedingAttention(answers),
+        opportunity: opportunity ?? undefined,
+      };
+    }),
+  );
 }

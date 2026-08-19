@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FileText } from "lucide-react";
-import { q } from "@/features/store";
+import { resolveRequestContext } from "@/server/context/request-context";
+import { getRepository } from "@/server/data";
 import { applicationCompletion } from "@/lib/logic/progress";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card } from "@/components/shared/ui";
@@ -9,10 +10,31 @@ import { EntityStatusBadge } from "@/components/shared/StatusBadge";
 import { DeadlineIndicator, EmptyState, ProgressMeter } from "@/components/shared/misc";
 
 export const metadata: Metadata = { title: "Applications" };
-const DEMO_NOW = new Date("2026-07-21T10:00:00Z");
 
-export default function ApplicationsPage() {
-  const applications = q.applications();
+export default async function ApplicationsPage() {
+  const ctx = await resolveRequestContext();
+  const repo = getRepository();
+  const now = ctx.now();
+
+  const [applications, funders] = await Promise.all([
+    repo.applications.list(ctx),
+    repo.funding.listFunders(ctx),
+  ]);
+  const funderById = new Map(funders.map((f) => [f.id, f]));
+
+  const rows = await Promise.all(
+    applications.map(async (app) => {
+      const [answers, opp] = await Promise.all([
+        repo.applications.answers(ctx, app.id),
+        repo.funding.getOpportunity(ctx, app.opportunityId),
+      ]);
+      return {
+        app,
+        answers,
+        funder: opp ? funderById.get(opp.funderId) : undefined,
+      };
+    }),
+  );
 
   return (
     <div>
@@ -30,11 +52,8 @@ export default function ApplicationsPage() {
         />
       ) : (
         <div className="grid gap-3">
-          {applications.map((app) => {
-            const answers = q.answers(app.id);
+          {rows.map(({ app, answers, funder }) => {
             const completion = applicationCompletion(answers);
-            const opp = q.opportunity(app.opportunityId);
-            const funder = opp ? q.funder(opp.funderId) : undefined;
             return (
               <Card key={app.id} className="transition-shadow hover:shadow-elev-2">
                 <Link href={`/applications/${app.id}`} className="block p-5">
@@ -49,7 +68,7 @@ export default function ApplicationsPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-6">
-                      <DeadlineIndicator deadline={app.deadline} now={DEMO_NOW} />
+                      <DeadlineIndicator deadline={app.deadline} now={now} />
                       <div className="w-32">
                         <ProgressMeter
                           value={completion}

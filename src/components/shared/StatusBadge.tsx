@@ -19,7 +19,7 @@ const toneClasses: Record<Tone, string> = {
   warning: "bg-warning-soft text-warning border-warning/25",
   critical: "bg-critical-soft text-critical border-critical/25",
   info: "bg-info-soft text-info border-info/25",
-  accent: "bg-accent/10 text-accent border-accent/25",
+  accent: "bg-accent-soft text-accent-ink border-accent/30",
 };
 
 /**
@@ -40,7 +40,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
         toneClasses[tone],
         className,
       )}
@@ -79,7 +79,10 @@ const STATUS_MAP: Record<string, Mapping> = {
   paused: { tone: "warning", label: "Paused", icon: Minus },
   // Report
   draft: { tone: "neutral", label: "Draft", icon: FileText },
+  collecting_evidence: { tone: "warning", label: "Collecting evidence", icon: CircleDashed },
+  ready_for_approval: { tone: "accent", label: "Ready for approval", icon: Clock },
   in_review: { tone: "accent", label: "In review", icon: Clock },
+  archived: { tone: "neutral", label: "Archived", icon: FileText },
 };
 
 export function EntityStatusBadge({

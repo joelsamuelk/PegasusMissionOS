@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+
 /**
  * Playwright config for the critical user journeys. Runs against a local
  * production server. Chromium is provided by the environment
@@ -12,7 +14,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [
@@ -31,7 +33,7 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run build && npm run start",
-    url: "http://localhost:3000",
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
   },

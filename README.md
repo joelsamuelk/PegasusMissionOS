@@ -151,6 +151,18 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run test:e2e
 - `docs/DECISIONS.md` — key decisions and their rationale
 - `docs/IMPLEMENTATION_PLAN.md` — build plan and status
 
+### Platform evolution
+
+- `docs/PEGASUS_PRODUCTION_BUILD_SPEC.md` — **the plan of record**: six foundational systems, the
+  Knowledge/Claims layer, and the ordered slices from demonstration to production
+- `docs/PEGASUS_ARCHITECTURE_AUDIT.md` — full repository audit, weaknesses and security findings
+- `docs/PEGASUS_TARGET_ARCHITECTURE.md` — the architecture being built toward
+- `docs/PEGASUS_IMPLEMENTATION_PLAN.md` — superseded by the build spec; retained for its
+  verification records
+- `docs/FINANCE_INTELLIGENCE.md` — impact economics and funding need intelligence
+- `docs/ORGANISATION_INTELLIGENCE.md` — onboarding, discovery and extraction
+- `docs/RELATIONSHIPS_COMMUNICATIONS_ARCHITECTURE.md` — relationships, communications, collaboration
+
 ## Repository layout
 
 ```

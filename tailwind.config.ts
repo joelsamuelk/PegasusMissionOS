@@ -5,8 +5,9 @@ import type { Config } from "tailwindcss";
  *
  * Colours are exposed as CSS custom properties in `src/styles/globals.css`
  * (see `:root`) and referenced here so the palette can be themed at runtime
- * without recompiling. The system is deliberately restrained: a warm editorial
- * paper, near-black ink, precise borders, and a single architectural accent.
+ * without recompiling. The system follows the Pegasus Studio brand
+ * (pegasus-studio.co): warm off-white paper, deep navy ink, a coral primary
+ * and a studio blue secondary, generous radii and low, warm shadows.
  */
 const config: Config = {
   content: ["./src/**/*.{ts,tsx,mdx}"],
@@ -18,6 +19,9 @@ const config: Config = {
         "surface-raised": "var(--color-surface-raised)",
         "surface-sunken": "var(--color-surface-sunken)",
         ink: "var(--color-ink)",
+        // Fixed brand navy for surfaces that must stay navy in both themes.
+        // Not a synonym for `ink`, which inverts.
+        navy: "var(--color-navy)",
         "ink-muted": "var(--color-ink-muted)",
         "ink-subtle": "var(--color-ink-subtle)",
         "ink-inverse": "var(--color-ink-inverse)",
@@ -25,7 +29,12 @@ const config: Config = {
         "line-strong": "var(--color-line-strong)",
         accent: "var(--color-accent)",
         "accent-muted": "var(--color-accent-muted)",
+        "accent-soft": "var(--color-accent-soft)",
+        // Deepened coral for coral *text* on light surfaces (AA contrast).
+        "accent-ink": "var(--color-accent-ink)",
         "accent-contrast": "var(--color-accent-contrast)",
+        blue: "var(--color-blue)",
+        "blue-soft": "var(--color-blue-soft)",
         success: "var(--color-success)",
         "success-soft": "var(--color-success-soft)",
         warning: "var(--color-warning)",
@@ -37,32 +46,48 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
-        serif: ["var(--font-serif)"],
+        heading: ["var(--font-heading)"],
+        // Alias kept so any lingering `font-serif` still renders in the brand
+        // display face rather than falling back to a system serif.
+        serif: ["var(--font-heading)"],
         mono: ["var(--font-mono)"],
       },
       fontSize: {
-        eyebrow: ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.12em" }],
-        "display-lg": ["3.25rem", { lineHeight: "1.04", letterSpacing: "-0.02em" }],
-        display: ["2.5rem", { lineHeight: "1.08", letterSpacing: "-0.02em" }],
-        "heading-lg": ["1.75rem", { lineHeight: "1.15", letterSpacing: "-0.015em" }],
-        heading: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.01em" }],
-        title: ["1.0625rem", { lineHeight: "1.35", letterSpacing: "-0.005em" }],
+        eyebrow: ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.14em" }],
+        "display-lg": ["3.5rem", { lineHeight: "1.04", letterSpacing: "-0.03em" }],
+        display: ["2.5rem", { lineHeight: "1.08", letterSpacing: "-0.025em" }],
+        "heading-lg": ["1.75rem", { lineHeight: "1.15", letterSpacing: "-0.02em" }],
+        heading: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.015em" }],
+        title: ["1.0625rem", { lineHeight: "1.35", letterSpacing: "-0.01em" }],
       },
       spacing: {
         gutter: "1.5rem",
         section: "2.5rem",
       },
       borderRadius: {
-        xs: "3px",
-        sm: "5px",
-        DEFAULT: "7px",
-        md: "9px",
-        lg: "12px",
+        xs: "6px",
+        sm: "8px",
+        DEFAULT: "10px",
+        md: "14px",
+        lg: "18px",
+        xl: "24px",
+        "2xl": "28px",
       },
       boxShadow: {
-        "elev-1": "0 1px 2px 0 rgba(20, 22, 27, 0.04), 0 1px 1px 0 rgba(20, 22, 27, 0.03)",
-        "elev-2": "0 2px 4px -1px rgba(20, 22, 27, 0.06), 0 1px 2px -1px rgba(20, 22, 27, 0.04)",
-        "elev-3": "0 12px 32px -12px rgba(20, 22, 27, 0.18), 0 2px 6px -2px rgba(20, 22, 27, 0.08)",
+        "elev-1": "0 1px 2px 0 rgba(20, 33, 61, 0.04), 0 1px 3px 0 rgba(20, 33, 61, 0.03)",
+        "elev-2": "0 8px 20px -8px rgba(20, 33, 61, 0.10), 0 2px 6px -2px rgba(20, 33, 61, 0.06)",
+        "elev-3": "0 18px 44px -16px rgba(20, 33, 61, 0.22), 0 4px 12px -4px rgba(20, 33, 61, 0.10)",
+        // The studio's card lift on hover.
+        card: "0 14px 32px rgba(20, 33, 61, 0.08)",
+        // The studio's pill-button glows: an inner highlight over a coloured halo.
+        coral:
+          "inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 1px 1px rgba(20, 33, 61, 0.14), 0 10px 22px rgba(255, 87, 87, 0.24), 0 16px 40px -14px rgba(255, 87, 87, 0.42)",
+        "coral-hover":
+          "inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 1px 1px rgba(20, 33, 61, 0.16), 0 12px 26px rgba(255, 87, 87, 0.30), 0 20px 46px -14px rgba(255, 87, 87, 0.5)",
+        "brand-blue":
+          "inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 1px 1px rgba(20, 33, 61, 0.16), 0 10px 24px rgba(48, 121, 216, 0.28), 0 18px 44px -16px rgba(48, 121, 216, 0.5)",
+        "brand-blue-hover":
+          "inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 1px 1px rgba(20, 33, 61, 0.18), 0 12px 28px rgba(48, 121, 216, 0.34), 0 22px 50px -16px rgba(48, 121, 216, 0.58)",
         focus: "0 0 0 3px var(--color-accent-ring)",
       },
       transitionDuration: {

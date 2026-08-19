@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 264 264" role="img" aria-label="Pegasus">
+  <rect width="264" height="264" fill="#14213d"/>
+  <g transform="translate(0, 42)">
+    <path d="M28 66 Q130 196 232 66" fill="none" stroke="#ff5757" stroke-width="34" stroke-linecap="round"/>
+    <circle cx="236" cy="30" r="18" fill="#ff5757"/>
+  </g>
+</svg>
