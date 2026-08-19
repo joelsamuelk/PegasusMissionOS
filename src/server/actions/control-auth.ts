@@ -28,7 +28,9 @@ export async function requestControlMagicLink(
     email: parsed.data,
     options: {
       shouldCreateUser: false,
-      emailRedirectTo: `${appConfig.controlUrl}/control-auth/confirm`,
+      // The shared Supabase template appends the token hash with `&`, so
+      // every callback destination deliberately includes a query string.
+      emailRedirectTo: `${appConfig.controlUrl}/control-auth/confirm?next=/control`,
     },
   });
   if (error) console.error("Control magic-link request failed", { code: error.code });

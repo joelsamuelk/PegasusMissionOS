@@ -16,6 +16,7 @@ describe("control authentication boundary", () => {
   it("sends internal links back to the control origin", () => {
     expect(action).toContain("appConfig.controlUrl");
     expect(action).toContain("/control-auth/confirm");
+    expect(action).toContain("next=/control");
   });
   it("checks internal identity rather than tenant membership", () => {
     expect(callback).toContain('.from("internal_users")');

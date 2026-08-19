@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { magicLinkSchema, safeNextPath } from "@/lib/validation/auth";
 
 describe("magic-link authentication", () => {
@@ -16,5 +18,16 @@ describe("magic-link authentication", () => {
     expect(safeNextPath("//attacker.example")).toBe("/dashboard");
     expect(safeNextPath("/\\attacker.example")).toBe("/dashboard");
     expect(safeNextPath(null)).toBe("/dashboard");
+  });
+});
+
+describe("shared magic-link template", () => {
+  it("uses the request-specific callback instead of a hardcoded app host", () => {
+    const template = readFileSync(
+      join(process.cwd(), "supabase/templates/magic_link.html"),
+      "utf8",
+    );
+    expect(template).toContain("{{ .RedirectTo }}");
+    expect(template).not.toContain("app.pegasus-studio.co/auth/confirm");
   });
 });
