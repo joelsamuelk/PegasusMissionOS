@@ -91,7 +91,7 @@ export default function CalibrationPage() {
           <div className="border-b p-5">
             <h2 className="font-semibold">Acceptance by signal</h2>
             <p className="text-xs text-ink-muted">
-              Small samples—descriptive, not statistically significant
+              Small samples: descriptive, not statistically significant
             </p>
           </div>
           <table className="w-full text-left text-xs">
@@ -140,7 +140,7 @@ export default function CalibrationPage() {
               <div>
                 <p className="font-bold text-critical">Founder: Reject</p>
                 <p className="mt-1">
-                  No credible problem — publishing reports does not establish operational
+                  No credible problem: publishing reports does not establish operational
                   pain.
                 </p>
               </div>

@@ -105,7 +105,7 @@ export function OutreachWorkbench({ initialId }: { initialId?: string }) {
               Who can introduce me?
             </button>
             <div className="my-5 border-t" />
-            <p className="eyebrow">Unknowns — do not assume</p>
+            <p className="eyebrow">Unknowns: do not assume</p>
             <ul className="mt-3 space-y-2">
               {a.unknowns.map((x) => (
                 <li key={x} className="flex gap-2 text-xs text-ink-muted">

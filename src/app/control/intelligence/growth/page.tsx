@@ -14,7 +14,7 @@ export default function GrowthIntelligencePage() {
           What is actually generating customers?
         </h1>
         <p className="mt-2 text-sm text-ink-muted">
-          Outcomes connected back to ICP, signal, buyer, message and source—with sample
+          Outcomes connected back to ICP, signal, buyer, message and source, with sample
           sizes visible.
         </p>
       </header>

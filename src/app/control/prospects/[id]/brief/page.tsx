@@ -41,7 +41,7 @@ export default async function AccountBriefPage({
               </span>
             </div>
             <p className="mt-3 text-sm leading-6 text-ink-muted">
-              {a.angle} This is a hypothesis to test—not a diagnosed organisational
+              {a.angle} This is a hypothesis to test, not a diagnosed organisational
               problem.
             </p>
           </section>
