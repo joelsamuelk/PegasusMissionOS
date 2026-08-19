@@ -1,3 +1,5 @@
+import { domainConfig } from "@/lib/domains";
+
 /**
  * Runtime configuration. Determines whether the app runs against a live
  * Supabase project or the in-memory mock store, and which AI provider is used.
@@ -8,10 +10,9 @@ export const appConfig = {
    * Where the application runs. Used for absolute links into the product and
    * for the address shown on marketing product previews.
    */
-  appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  appUrl: domainConfig.missionAppUrl,
   /** Separate internal application origin. Never use `appUrl` as its auth boundary. */
-  controlUrl:
-    process.env.NEXT_PUBLIC_CONTROL_URL ?? "http://control.localhost:3000",
+  controlUrl: domainConfig.controlPlaneUrl,
   control: {
     /** Explicit opt-in: an unconfigured production deployment must fail closed. */
     mockEnabled: process.env.CONTROL_PLANE_MOCK === "true",
@@ -21,10 +22,9 @@ export const appConfig = {
    * the two are different hosts in production, and metadata, canonicals and
    * the sitemap must point at the marketing origin rather than the app.
    */
-  marketingUrl:
-    process.env.NEXT_PUBLIC_MARKETING_URL ?? "https://mission.pegasus-studio.co",
+  marketingUrl: domainConfig.missionMarketingUrl,
   /** The parent company. Linked from the marketing site and structured data. */
-  studioUrl: process.env.NEXT_PUBLIC_STUDIO_URL ?? "https://www.pegasus-studio.co/",
+  studioUrl: domainConfig.studioUrl,
   supabase: {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",

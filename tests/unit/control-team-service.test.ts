@@ -12,6 +12,14 @@ function fixture(): ControlMemoryState {
       { id: "sales-1", email: "sales@pegasus.test", name: "Sales One", role: "sales", status: "active", createdAt: timestamp, updatedAt: timestamp },
     ],
     audit: [],
+    prospects: [],
+    prospectPeople: [],
+    prospectSources: [],
+    prospectFacts: [],
+    salesOpportunities: [],
+    prospectQualifications: [],
+    internalTasks: [],
+    outreachTemplates: [], outreachSequences: [], sequenceSteps: [], sequenceEnrollments: [], contactCompliance: [], outreachSendRequests: [], customerAccounts: [], customerConversions: [], provisioningRuns: [], onboardingPlans: [], onboardingSteps: [], activationCriteria: [], customerValueEvents: [], activationSnapshots: [], customerMetadata: [], customerHealthSnapshots: [], supportSessions: [], supportAccessEvents: [], usageEvents: [], customerFeedback: [], featureFlags: [], featureTargets: [], aiTraces: [], systemStatuses: [],
   };
 }
 

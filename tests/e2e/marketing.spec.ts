@@ -20,14 +20,14 @@ test("the page answers what Pegasus is, above the fold", async ({ page }) => {
 
   await expect(
     page.getByRole("heading", {
-      name: /every mission deserves world-class technology/i,
+      name: /run your whole mission from one place/i,
       level: 1,
     }),
   ).toBeVisible();
 
   await expect(page.getByText(/one organisation\./i).first()).toBeVisible();
   await expect(
-    page.getByRole("link", { name: /explore the demo/i }).first(),
+    page.getByRole("link", { name: /get early access/i }).first(),
   ).toBeVisible();
 
   // The demo-data disclaimer must survive any rewrite of the hero.
@@ -38,17 +38,14 @@ test("the page answers what Pegasus is, above the fold", async ({ page }) => {
 test("the home page leads to the detail without repeating it", async ({ page }) => {
   await page.goto("/");
 
-  // The homepage proves the connected workspace once; the full domain
-  // walkthrough stays on the product page.
+  // The homepage explains the connected context once; the full domain
+  // walkthrough remains on the product page.
   await expect(
-    page.getByRole("heading", { name: /one clear view of the work/i }),
+    page.getByRole("heading", { name: /your mission is connected/i }),
   ).toBeVisible();
 
-  await page
-    .getByLabel("One clear view of the work that matters.")
-    .getByRole("link", { name: "How it works", exact: true })
-    .click();
-  await expect(page).toHaveURL(/\/product$/);
+  await page.getByRole("link", { name: /see how the context connects/i }).click();
+  await expect(page).toHaveURL(/\/product#operating-system$/);
   await expect(
     page.getByRole("heading", { name: /one model of your organisation/i, level: 1 }),
   ).toBeVisible();
@@ -109,12 +106,11 @@ test("a figure opens its provenance", async ({ page }) => {
   await expect(panel).toContainText(/deriveFundingNeed/i);
 });
 
-test("the homepage names the teams it is built for", async ({ page }) => {
-  await page.goto("/#personas");
+test("the homepage names the work the connected system supports", async ({ page }) => {
+  await page.goto("/#context");
 
-  const section = page.getByLabel(/different roles/i);
-  await expect(section).toContainText(/chief executives/i);
-  await expect(section).toContainText(/trustees/i);
+  await expect(page.getByLabel(/less system-wrangling/i).getByText(/funding, programmes, finance, relationships, evidence, impact and reporting/i)).toBeVisible();
+  await expect(page.getByText(/tell pegasus once\. use it everywhere/i)).toBeVisible();
 });
 
 test("the product explorer renders real seeded data", async ({ page }) => {
@@ -129,15 +125,10 @@ test("the product explorer renders real seeded data", async ({ page }) => {
   await expect(panel).toContainText(/Horizon Fund for Youth/i);
 });
 
-test("the trust section states what has not been verified", async ({ page }) => {
-  await page.goto("/#trust");
-
-  // Production Build Spec §6: no Supabase project is provisioned, so
-  // database-level RLS is unproven. The site must keep saying so.
-  // The wording appears in the Trust section and again in the FAQ, deliberately.
-  await expect(
-    page.getByText(/has not yet been verified against a live database/i).first(),
-  ).toBeVisible();
+test("the homepage labels its demo data as fictional", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText(/fictional UK charity/i).first()).toBeVisible();
+  await expect(page.getByText(/every record in it is labelled as sample data/i).first()).toBeVisible();
 });
 
 test("robots keeps the demo workspace out of the index", async ({ request }) => {

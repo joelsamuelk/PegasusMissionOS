@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Command,
   Headphones,
+  Mail,
   Search,
   Settings,
   Sparkles,
@@ -19,17 +20,22 @@ import { cn } from "@/lib/utils";
 
 const groups = [
   { label: "Command", items: [["Command Centre", "/control", Command]] },
+  { label: "Intelligence", items: [["Control Intelligence", "/control/intelligence", Sparkles]] },
   {
     label: "Grow",
     items: [
       ["Prospects", "/control/prospects", Target],
       ["Pipeline", "/control/pipeline", Activity],
+      ["Outreach", "/control/outreach", Mail],
     ],
   },
   {
     label: "Customers",
     items: [
       ["Organisations", "/control/organisations", Building2],
+      ["Conversions", "/control/conversions", Building2],
+      ["Onboarding", "/control/onboarding", ClipboardList],
+      ["Customer 360", "/control/customers", Users],
       ["Support", "/control/support", Headphones],
     ],
   },
@@ -37,6 +43,7 @@ const groups = [
     label: "Operate",
     items: [
       ["Tasks", "/control/tasks", ClipboardList],
+      ["Usage & Feedback", "/control/insights", Activity],
       ["Audit", "/control/audit", Activity],
     ],
   },
@@ -45,6 +52,7 @@ const groups = [
     items: [
       ["Team", "/control/team", Users],
       ["Settings", "/control/settings", Settings],
+      ["Operations Safety", "/control/operations", Settings],
     ],
   },
 ] as const;

@@ -6,6 +6,7 @@ import { ArrowRight, Menu, X } from "lucide-react";
 import { NAV_LINKS } from "@/lib/marketing/content";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { ButtonLink } from "@/components/shared/ui";
+import { domainPaths } from "@/lib/domains";
 
 /**
  * The marketing site's only above-the-fold client island.
@@ -53,7 +54,7 @@ export function MarketingNav() {
       if (event.key !== "Tab") return;
 
       const focusable = sheetRef.current?.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled])',
+        "a[href], button:not([disabled])",
       );
       if (!focusable || focusable.length === 0) return;
 
@@ -79,11 +80,7 @@ export function MarketingNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-line/70 bg-paper/85 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-6 px-5 py-3.5 sm:px-8">
-        <Link
-          href="/"
-          className="rounded-md"
-          aria-label="Pegasus Mission OS, home"
-        >
+        <Link href="/" className="rounded-md" aria-label="Pegasus Mission OS, home">
           <Wordmark showProduct />
         </Link>
 
@@ -104,13 +101,18 @@ export function MarketingNav() {
 
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
-            href="/login"
+            href={domainPaths.app("/login")}
             className="hidden rounded text-sm font-medium text-ink-muted transition-colors hover:text-ink sm:block"
           >
             Sign in
           </Link>
-          <ButtonLink href="/dashboard" size="sm" variant="blue" className="hidden sm:inline-flex">
-            Explore demo
+          <ButtonLink
+            href="/#contact"
+            size="sm"
+            variant="blue"
+            className="hidden sm:inline-flex"
+          >
+            Get early access
           </ButtonLink>
           <button
             ref={triggerRef}
@@ -173,17 +175,17 @@ export function MarketingNav() {
 
             <div className="mt-7 flex flex-col gap-3">
               <ButtonLink
-                href="/dashboard"
+                href="/#contact"
                 size="lg"
                 variant="blue"
                 onClick={close}
                 className="w-full"
               >
-                Explore the demo
+                Get early access
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </ButtonLink>
               <ButtonLink
-                href="/login"
+                href={domainPaths.app("/login")}
                 size="lg"
                 variant="secondary"
                 onClick={close}

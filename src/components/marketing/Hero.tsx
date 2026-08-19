@@ -1,7 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import { HERO } from "@/lib/marketing/content";
 import { BrandMotif } from "@/components/brand/Wordmark";
-import { MissionGraphic } from "@/components/marketing/MissionGraphic";
+import { HeroComposition } from "@/components/marketing/HeroComposition";
 import { ButtonLink } from "@/components/shared/ui";
 
 /**
@@ -23,29 +23,29 @@ export function Hero() {
       <div className="absolute inset-0 brand-wash" aria-hidden />
       <BrandMotif className="-right-24 top-1/2 h-[300px] w-auto -translate-y-1/2 opacity-[0.06] lg:hidden" />
 
-      <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 items-center gap-10 px-5 pb-12 pt-16 sm:px-8 sm:pb-16 sm:pt-24 lg:grid-cols-[1.3fr_0.7fr] lg:gap-12">
-        <div>
+      <div className="relative mx-auto w-full max-w-6xl px-5 pb-16 pt-16 sm:px-8 sm:pb-24 sm:pt-24">
+        <div className="mx-auto max-w-4xl text-center">
           <span className="animate-fade-up inline-flex items-center rounded-full border border-blue/25 bg-blue-soft px-3.5 py-1.5 text-eyebrow font-semibold uppercase text-info">
             {HERO.eyebrow}
           </span>
 
           <h1
             id="hero-heading"
-            className="animate-fade-up mt-7 max-w-4xl text-balance font-heading text-[2.25rem] font-semibold leading-[1.03] tracking-[-0.03em] text-ink sm:text-[3rem] lg:text-[3.75rem]"
+            className="animate-fade-up mt-7 text-balance font-heading text-[2.6rem] font-semibold leading-[0.98] tracking-[-0.04em] text-ink sm:text-[4rem] lg:text-[5rem]"
             style={{ animationDelay: "80ms" }}
           >
             {HERO.headline}
           </h1>
 
           <p
-            className="animate-fade-up mt-7 max-w-2xl text-[1.0625rem] leading-relaxed text-ink-muted sm:text-lg"
+            className="animate-fade-up mx-auto mt-7 max-w-3xl text-[1.0625rem] leading-relaxed text-ink-muted sm:text-xl"
             style={{ animationDelay: "150ms" }}
           >
             {HERO.body}
           </p>
 
           <p
-            className="animate-fade-up mt-6 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-heading text-[0.95rem] font-semibold tracking-tight text-ink sm:text-[1.0625rem]"
+            className="animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 font-heading text-[0.95rem] font-semibold tracking-tight text-ink sm:text-[1.0625rem]"
             style={{ animationDelay: "220ms" }}
           >
             {HERO.refrain.map((line, i) => (
@@ -57,27 +57,29 @@ export function Hero() {
           </p>
 
           <div
-            className="animate-fade-up mt-9 flex flex-wrap items-center gap-3"
+            className="animate-fade-up mt-9 flex flex-wrap items-center justify-center gap-3"
             style={{ animationDelay: "290ms" }}
           >
-            <ButtonLink href="/dashboard" size="lg" variant="blue">
-              Explore the demo
+            <ButtonLink href="#contact" size="lg" variant="blue">
+              Get early access
               <ArrowRight className="h-4 w-4" aria-hidden />
             </ButtonLink>
-            <ButtonLink href="#contact" size="lg" variant="secondary">
-              Talk to us
+            <ButtonLink href="#see-it" size="lg" variant="secondary">
+              See how it works
             </ButtonLink>
           </div>
 
           <p
-            className="animate-fade-up mt-5 max-w-xl text-xs leading-relaxed text-ink-subtle"
+            className="animate-fade-up mx-auto mt-5 max-w-xl text-xs leading-relaxed text-ink-subtle"
             style={{ animationDelay: "350ms" }}
           >
             {HERO.note}
           </p>
         </div>
 
-        <MissionGraphic className="mx-auto hidden h-auto w-full max-w-[23rem] lg:block" />
+        <div id="see-it" className="scroll-mt-24 pt-6">
+          <HeroComposition />
+        </div>
       </div>
     </section>
   );
