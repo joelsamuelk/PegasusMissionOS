@@ -1,54 +1,69 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Info } from "lucide-react";
+import { AlertCircle, Info } from "lucide-react";
 import { ButtonLink } from "@/components/shared/ui";
+import { MagicLinkForm } from "@/components/auth/MagicLinkForm";
+import { appConfig } from "@/lib/config";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-export default function LoginPage() {
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid_link: "That sign-in link is invalid or has expired. Request a new one below.",
+  no_membership:
+    "Your email is verified, but it does not have access to an active Pegasus workspace.",
+  not_configured: "Email sign-in is not configured for this deployment.",
+};
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+  const errorMessage = error ? ERROR_MESSAGES[error] : undefined;
+
   return (
     <div>
       <h1 className="text-heading font-semibold tracking-tight text-ink">Sign in</h1>
       <p className="mt-1.5 text-sm text-ink-muted">
-        Welcome back. Enter your details to continue.
+        {appConfig.isMockData
+          ? "Explore the demonstration workspace without an account."
+          : "Enter your work email and we will send you a secure sign-in link."}
       </p>
 
-      <div className="mt-5 flex items-start gap-2.5 rounded-md border border-info/25 bg-info-soft p-3 text-sm text-info">
-        <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
-        <span>
-          This is a demo. Authentication is not required. Continue to explore
-          the seeded workspace.
-        </span>
-      </div>
+      {errorMessage && (
+        <p
+          role="alert"
+          className="mt-5 flex items-start gap-2 rounded-md border border-critical/30 bg-critical-soft px-3.5 py-3 text-sm text-critical"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          {errorMessage}
+        </p>
+      )}
 
-      <form className="mt-6 flex flex-col gap-4" action="/dashboard">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-ink">Email</span>
-          <input
-            type="email"
-            name="email"
-            defaultValue="amara@northstarcf.org.uk"
-            className="h-10 rounded border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:shadow-focus"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-ink">Password</span>
-          <input
-            type="password"
-            name="password"
-            defaultValue="demo-workspace"
-            className="h-10 rounded border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:shadow-focus"
-          />
-        </label>
-        <ButtonLink href="/dashboard" size="lg" className="mt-1">
-          Continue to workspace
-        </ButtonLink>
-      </form>
+      {appConfig.isMockData ? (
+        <>
+          <div className="mt-5 flex items-start gap-2.5 rounded-md border border-info/25 bg-info-soft p-3 text-sm text-info">
+            <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>
+              No credentials are required. The workspace contains fictional sample data.
+            </span>
+          </div>
+          <ButtonLink href="/dashboard" size="lg" className="mt-6 w-full">
+            Continue to demonstration
+          </ButtonLink>
+        </>
+      ) : (
+        <MagicLinkForm />
+      )}
 
       <p className="mt-6 text-center text-sm text-ink-muted">
-        New to Pegasus?{" "}
-        <Link href="/signup" className="font-medium text-info hover:underline">
-          Create a workspace
+        Need access?{" "}
+        <Link
+          href="mailto:hello@pegasus-studio.co"
+          className="font-medium text-info hover:underline"
+        >
+          Contact Pegasus Studio
         </Link>
       </p>
     </div>

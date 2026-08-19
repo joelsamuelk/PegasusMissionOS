@@ -24,6 +24,7 @@ const APPLICATION_ROUTES = [
   "/onboarding",
   "/login",
   "/signup",
+  "/auth",
 ];
 
 export default function robots(): MetadataRoute.Robots {

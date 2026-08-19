@@ -1,5 +1,10 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { appConfig } from "@/lib/config";
 import { resolveRequestContext } from "@/server/context/request-context";
+import {
+  NoMembershipError,
+  NotAuthenticatedError,
+} from "@/server/context/supabase-context";
 import { getRepository } from "@/server/data";
 import { ShellChrome } from "@/components/layout/ShellChrome";
 
@@ -15,7 +20,14 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const ctx = await resolveRequestContext();
+  let ctx;
+  try {
+    ctx = await resolveRequestContext();
+  } catch (error) {
+    if (error instanceof NotAuthenticatedError) redirect("/login");
+    if (error instanceof NoMembershipError) redirect("/login?error=no_membership");
+    throw error;
+  }
   const repo = getRepository();
 
   const [organisation, user, member, notifications] = await Promise.all([
@@ -36,6 +48,7 @@ export default async function DashboardLayout({
       role={member.role}
       notifications={notifications}
       now={ctx.now()}
+      authenticationEnabled={!appConfig.isMockData}
     >
       {children}
     </ShellChrome>
