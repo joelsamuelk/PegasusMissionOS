@@ -108,7 +108,7 @@ export async function middleware(request: NextRequest) {
       return surfaceHeader(NextResponse.rewrite(destination), surface);
     }
     if (!pathname.startsWith("/control")) return notFound(surface);
-    return surfaceHeader(NextResponse.next(), surface);
+    return finish(request, NextResponse.next(), surface);
   }
 
   return notFound(surface);
