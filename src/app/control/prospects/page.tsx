@@ -6,7 +6,7 @@ import { createProspectAction } from "@/server/actions/control-prospects";
 
 const field = "rounded-md border border-line bg-surface px-3 py-2 text-sm";
 export default async function ProspectsPage() {
-  const ctx = await resolveControlRequestContext(); const repo = await getControlRepository();
+  const ctx = await resolveControlRequestContext(); const repo = await getControlRepository(ctx);
   if (!canControl(ctx.role, "prospect:view")) throw new Error("Prospect access required.");
   const prospects = await repo.prospects.list(ctx);
   return <div className="space-y-6"><div><p className="eyebrow">Grow</p><h1 className="mt-2 text-3xl font-semibold">Prospects</h1><p className="mt-2 text-sm text-ink-muted">One identity from discovery through customer conversion.</p></div>

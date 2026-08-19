@@ -161,14 +161,34 @@ export function falsePositiveCandidates(
     )
     .map((r) => ({ recommendation: r, review: rejected.get(r.id)! }));
 }
-export const pilotJobs = [
+export interface PilotDiscoveryJob {
+  id: string;
+  name: string;
+  motion: CommercialMotion;
+  icpId: string;
+  criteria: string;
+  /**
+   * Terms a provider can actually query with.
+   *
+   * `criteria` states the intent for a reader; the registry providers search by
+   * organisation name, so a run needs short terms it can send one at a time.
+   */
+  searchTerms: string[];
+  geography: string[];
+  signalRequirements: string[];
+  providers: string[];
+  status: "pilot";
+}
+export const pilotJobs: PilotDiscoveryJob[] = [
   {
     id: "pilot-mission-os",
     name: "Mission OS Pilot",
-    motion: "mission_os" as const,
+    motion: "mission_os",
     icpId: "mission-os",
     criteria:
       "UK mission-driven organisations with programme, funding, reporting or organisational-growth evidence",
+    searchTerms: ["youth", "community", "climate", "education", "wellbeing"],
+    geography: ["United Kingdom"],
     signalRequirements: [
       "programme expansion",
       "major grant",
@@ -178,15 +198,17 @@ export const pilotJobs = [
       "digital transformation",
     ],
     providers: ["brave_search", "charity_commission_ew", "bounded_public_web"],
-    status: "pilot" as const,
+    status: "pilot",
   },
   {
     id: "pilot-studio",
     name: "Pegasus Studio Pilot",
-    motion: "studio" as const,
+    motion: "studio",
     icpId: "ai-transformation",
     criteria:
       "UK organisations with recent product, technology, AI, engineering, leadership or market change",
+    searchTerms: ["technology", "digital", "data", "software"],
+    geography: ["United Kingdom"],
     signalRequirements: [
       "AI initiative",
       "engineering scaling",
@@ -195,6 +217,6 @@ export const pilotJobs = [
       "market expansion",
     ],
     providers: ["brave_search", "companies_house", "bounded_public_web"],
-    status: "pilot" as const,
+    status: "pilot",
   },
 ];

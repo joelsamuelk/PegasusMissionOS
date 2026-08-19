@@ -5,7 +5,7 @@ import { getControlRepository } from "@/server/control-plane";
 export default async function ControlAuditPage() {
   const ctx = await resolveControlRequestContext();
   requireControlCapability(ctx.role, "audit:view");
-  const events = await (await getControlRepository()).audit.list(ctx);
+  const events = await (await getControlRepository(ctx)).audit.list(ctx);
   return (
     <div className="space-y-6">
       <div><p className="eyebrow">Operate</p><h1 className="mt-2 text-3xl font-semibold">Internal audit</h1><p className="mt-2 text-sm text-ink-muted">Append-only records of consequential Control Plane actions.</p></div>

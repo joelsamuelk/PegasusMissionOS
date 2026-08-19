@@ -9,7 +9,7 @@ const roles: InternalRole[] = [
 
 export default async function ControlTeamPage() {
   const ctx = await resolveControlRequestContext();
-  const users = await (await getControlRepository()).users.list(ctx);
+  const users = await (await getControlRepository(ctx)).users.list(ctx);
   const mayManage = canControl(ctx.role, "internal_user:manage");
   return (
     <div className="space-y-6">

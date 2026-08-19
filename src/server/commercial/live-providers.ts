@@ -153,11 +153,13 @@ export class CompaniesHouseDiscoveryProvider implements ProspectDiscoveryProvide
       if (!raw || typeof raw !== "object") return [];
       const x = raw as Record<string, unknown>;
       if (typeof x.company_number !== "string" || typeof x.title !== "string") return [];
+      // A dissolved or insolvent company is a register record, never a prospect.
+      if (x.company_status !== "active") return [];
       return [
         {
           providerRecordId: `companies-house:${x.company_number}`,
           name: x.title,
-          website: `https://find-and-update.company-information.service.gov.uk/company/${x.company_number}`,
+          registrationIdentifier: `companies-house:${x.company_number}`,
           description: typeof x.description === "string" ? x.description : undefined,
           geography: "United Kingdom",
           sourceUrl: `https://find-and-update.company-information.service.gov.uk/company/${x.company_number}`,
@@ -231,7 +233,7 @@ export class CharityCommissionDiscoveryProvider implements ProspectDiscoveryProv
         {
           providerRecordId: `ccew:${number}:${suffix}`,
           name,
-          website: sourceUrl,
+          registrationIdentifier: `ccew:${number}`,
           description:
             "Registered charity in England and Wales. Registry presence is identity evidence, not buying intent.",
           geography: "England and Wales",

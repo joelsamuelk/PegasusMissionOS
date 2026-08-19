@@ -68,7 +68,8 @@ export class BoundedWebsiteResearchProvider implements OrganisationResearchProvi
   ) {}
   async research(candidate: DiscoveryCandidate, context: ProviderContext) {
     const started = Date.now(),
-      queue = [candidate.website],
+      site = candidate.website,
+      queue = site ? [site] : [],
       visited = new Set<string>(),
       claims: ResearchClaim[] = [],
       signals: CommercialSignal[] = [];
@@ -115,7 +116,7 @@ export class BoundedWebsiteResearchProvider implements OrganisationResearchProvi
           claims.push(result.claim);
           injectionSuspected ||= result.injectionSuspected;
         }
-        for (const link of links(html, candidate.website))
+        for (const link of links(html, site ?? url))
           if (!visited.has(link) && queue.length < this.budget.maxPages * 2)
             queue.push(link);
         if (characters >= this.budget.maxCharacters) {
