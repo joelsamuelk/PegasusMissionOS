@@ -15,18 +15,30 @@ import {
   Sparkles,
   Target,
   Users,
+  SlidersHorizontal,
+  SunMedium,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const groups = [
   { label: "Command", items: [["Command Centre", "/control", Command]] },
-  { label: "Intelligence", items: [["Control Intelligence", "/control/intelligence", Sparkles]] },
+  {
+    label: "Intelligence",
+    items: [["Control Intelligence", "/control/intelligence", Sparkles]],
+  },
   {
     label: "Grow",
     items: [
+      ["Today", "/control/today", SunMedium],
       ["Prospects", "/control/prospects", Target],
+      ["Discover", "/control/prospects/discover", Search],
+      ["Research review", "/control/research", ShieldCheck],
+      ["ICP profiles", "/control/icps", SlidersHorizontal],
       ["Pipeline", "/control/pipeline", Activity],
       ["Outreach", "/control/outreach", Mail],
+      ["Growth intelligence", "/control/intelligence/growth", Sparkles],
+      ["Calibration", "/control/intelligence/calibration", Target],
     ],
   },
   {
@@ -115,13 +127,20 @@ export function ControlPlaneShell({
           <button className="flex max-w-xl flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm text-ink-muted">
             <Search className="h-4 w-4" />
             Search or run a command
-            <kbd className="ml-auto hidden rounded border border-line px-1.5 py-0.5 text-[0.65rem] sm:block">⌘ K</kbd>
+            <kbd className="ml-auto hidden rounded border border-line px-1.5 py-0.5 text-[0.65rem] sm:block">
+              ⌘ K
+            </kbd>
           </button>
           <div
             title={`${userName}, ${roleLabel}`}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-soft text-xs font-bold"
           >
-            {userName.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+            {userName
+              .split(" ")
+              .map((part) => part[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase()}
           </div>
         </header>
         <main className="mx-auto max-w-[1500px] p-5 sm:p-8">{children}</main>
@@ -135,7 +154,8 @@ export function FoundationNotice() {
     <div className="flex items-start gap-3 rounded-lg border border-blue/20 bg-blue-soft p-4 text-sm text-ink">
       <Sparkles className="mt-0.5 h-4 w-4 flex-none text-blue" />
       <p>
-        Foundation preview. Live operational data and actions are intentionally disabled until the internal authentication and persistence adapters are connected.
+        Foundation preview. Live operational data and actions are intentionally disabled
+        until the internal authentication and persistence adapters are connected.
       </p>
     </div>
   );

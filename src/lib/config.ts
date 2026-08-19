@@ -20,6 +20,11 @@ export const appConfig = {
   control: {
     /** Explicit opt-in: an unconfigured production deployment must fail closed. */
     mockEnabled: process.env.CONTROL_PLANE_MOCK === "true",
+    discovery: {
+      braveConfigured: Boolean(process.env.BRAVE_SEARCH_API_KEY),
+      companiesHouseConfigured: Boolean(process.env.COMPANIES_HOUSE_API_KEY),
+      charityCommissionConfigured: Boolean(process.env.CHARITY_COMMISSION_API_KEY),
+    },
   },
   /**
    * Where the public marketing site runs. Kept separate from `appUrl` because
