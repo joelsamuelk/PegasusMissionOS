@@ -21,7 +21,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               className="object-cover object-center"
             />
             <div
-              className="absolute inset-0 bg-gradient-to-t from-navy/95 via-navy/10 to-transparent"
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(to top, rgba(255,252,250,0.98) 0%, rgba(255,252,250,0.78) 24%, rgba(255,252,250,0) 53%)",
+              }}
               aria-hidden
             />
             <div
@@ -34,11 +38,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             </div>
 
             <div className="absolute inset-x-0 bottom-0 p-7 xl:p-10">
-              <div className="eyebrow mb-4 text-white/65">Pegasus Mission OS</div>
-              <p className="max-w-lg font-heading text-heading-lg font-semibold leading-tight text-white xl:text-display">
+              <div className="eyebrow mb-4 text-accent-ink">Pegasus Mission OS</div>
+              <p className="max-w-lg font-heading text-heading-lg font-semibold leading-tight text-navy xl:text-display">
                 Every mission deserves world-class technology.
               </p>
-              <p className="mt-4 max-w-md text-sm leading-relaxed text-white/75">
+              <p className="mt-4 max-w-md text-sm leading-relaxed text-[#526079]">
                 One intelligent place to discover funding, manage applications, run
                 programmes and demonstrate impact.
               </p>
