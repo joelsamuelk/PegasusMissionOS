@@ -1,4 +1,4 @@
-import { CircleDot, FileSearch, Landmark, Target, TrendingUp } from "lucide-react";
+import { CircleDot, FileSearch, Target } from "lucide-react";
 import { formatCurrencyCompact, deadlineInfo } from "@/lib/formatting";
 import type { CommandCentrePreview, FundingPreview, ProvenancePreview } from "@/lib/marketing/preview";
 import { AppFrame, MiniMetric } from "@/components/marketing/primitives";
@@ -23,6 +23,10 @@ const TONE_DOT: Record<string, string> = {
  * Every figure here comes from the seeded workspace through the repository —
  * the pipeline value, the deadline urgency, the fit score, the participant
  * count and its source page are all read, never written.
+ *
+ * It renders inside a `<Section>` and brings no width or padding of its own:
+ * it used to sit directly under the hero and carried its own container, which
+ * double-padded it the moment it moved into one.
  */
 export function ProductComposition({
   command,
@@ -36,7 +40,7 @@ export function ProductComposition({
   const { metrics } = command;
 
   return (
-    <div className="relative mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24">
+    <div className="relative pb-10">
       <Reveal>
         <div className="relative">
           <AppFrame path="/dashboard" label="Command Centre">
@@ -194,21 +198,6 @@ export function ProductComposition({
         </div>
       </Reveal>
 
-      {/* The connective statement the composition exists to make. */}
-      <ul className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-[0.8125rem] text-ink-muted">
-        {[
-          { icon: Target, label: "Funding" },
-          { icon: Landmark, label: "Finance" },
-          { icon: TrendingUp, label: "Impact" },
-          { icon: FileSearch, label: "Intelligence" },
-        ].map(({ icon: Icon, label }) => (
-          <li key={label} className="inline-flex items-center gap-2">
-            <Icon className="h-4 w-4 text-ink-subtle" aria-hidden />
-            {label}
-          </li>
-        ))}
-        <li className="text-ink-subtle">— one organisation, one record of it</li>
-      </ul>
     </div>
   );
 }

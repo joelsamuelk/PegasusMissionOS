@@ -94,30 +94,76 @@ Single container (`max-w-6xl`, `px-5 sm:px-8`), one or two breakpoints per secti
 
 ## 3. Narrative architecture
 
-Eighteen sections, ordered so each answers the question the previous one raises. The right-hand column is the acceptance question (from the brief) that the section closes.
+The site is **two routes**, split by what the visitor has already decided.
+
+`/` answers *what is this and is it for me* in six sections. `/product` answers
+*how does it actually work* at whatever length the argument needs. The split
+replaced an eighteen-section home page: it made the same point — the domains
+are connected, the figures are traceable — five separate times through five
+separate demos, and a visitor had to scroll past all of it to reach the FAQ.
+
+### 3.1 `/` — the home page
 
 | # | Section | Answers |
 |---|---|---|
 | 1 | Navigation | — |
-| 2 | Hero + product composition | 1. What is Pegasus? |
-| 3 | Fragmentation | 9. Why is this better than disconnected tools? |
-| 4 | The operating system (Mission OS map) | 4. Why an operating system? 7. How do the domains connect? |
-| 5 | Pegasus Intelligence | 5. What does the AI do? 6. Why trust it? |
-| 6 | Mission lifecycle | 7. How does information compound? |
-| 7 | Organisation Intelligence | 3. Why isn't it just grant software? |
-| 8 | Funding Intelligence | 3, 5 |
-| 9 | Finance Intelligence | 3, 7 |
-| 10 | Relationships | 3, 7 |
-| 11 | Impact & reporting (provenance) | 6, 7 |
-| 12 | Trust | 6 |
-| 13 | Who it's for | 2. Who is it for? |
-| 14 | Product principles | 6, 8 |
-| 15 | Product explorer | 8. What can I use today? |
-| 16 | FAQ | 8, and every residual objection |
-| 17 | Pegasus Studio | credibility, deliberately low-prominence |
-| 18 | Final CTA + contact + footer | 10. What next? |
+| 2 | Hero | 1. What is Pegasus? |
+| 3 | What it does (seven domain tiles) | 3. Why isn't it just grant software? 4. Why an operating system? |
+| 4 | See it working (live composition) | 8. What can I use today? |
+| 5 | Who it's for | 2. Who is it for? |
+| 6 | Trust | 6. Why trust it? |
+| 7 | FAQ | 8, and every residual objection |
+| 8 | Final CTA + contact + footer | 10. What next? |
 
-**The spine, stated once:** fragmentation is the pain → one model is the answer → intelligence is what one model makes possible → the lifecycle is how value compounds → five vertical proofs → trust is why any of it is safe → here is who benefits → here is what you can touch today.
+**The spine:** here is what it is → here are the seven parts and the one model
+under them → here it is running on real records → here is your seat in it →
+here is why it is safe → here are your objections → here is what to do.
+
+The section count is enforced. `tests/unit/marketing-content.test.ts` fails the
+build if `src/app/page.tsx` composes more than eight marketing sections, because
+nothing else stops the page growing back to eighteen one well-argued section at
+a time. Depth goes on `/product`; if a section genuinely belongs on the home
+page, something else comes off it.
+
+### 3.2 `/product` — the walkthrough
+
+| # | Section | Answers |
+|---|---|---|
+| 1 | Header | — |
+| 2 | Fragmentation | 9. Why is this better than disconnected tools? |
+| 3 | The operating system (Mission OS map) | 4, 7. How do the domains connect? |
+| 4 | Mission lifecycle | 7. How does information compound? |
+| 5 | Pegasus Intelligence | 5. What does the AI do? 6. Why trust it? |
+| 6 | Organisation Intelligence | 3 |
+| 7 | Funding Intelligence | 3, 5 |
+| 8 | Finance Intelligence | 3, 7 |
+| 9 | Relationships | 3, 7 |
+| 10 | Impact & reporting (provenance) | 6, 7 |
+| 11 | Product principles | 6, 8 |
+| 12 | Product explorer | 8. What can I use today? |
+| 13 | Pegasus Studio | credibility, deliberately low-prominence |
+| 14 | Final CTA + contact + footer | 10. What next? |
+
+**The spine:** fragmentation is the pain → one model is the answer →
+the lifecycle is how value compounds → intelligence is what one model makes
+possible → five vertical proofs → here is what you can touch today.
+
+### 3.3 Cross-route links
+
+Nav and footer hrefs are **root-relative**, not bare fragments: `/#trust`, not
+`#trust`. The same nav renders on both routes, and a bare fragment silently
+scrolls nowhere on the page that does not contain it. `NavLink` in
+`MarketingNav.tsx` routes paths through `next/link` and leaves anything
+containing a `#` as a plain anchor, so the browser handles the scroll it
+already handles correctly. A unit test checks every link resolves: the fragment
+against the rendered corpus, the path against the route that must exist.
+
+### 3.4 Register
+
+Short sentences, everyday words, one idea per line. The audience reads this
+between other jobs, not settled in with an essay. Where a sentence has to stay
+long to stay true — §9.3's isolation claim is the clearest case — it stays
+long, and no shortening pass touches it.
 
 ---
 
@@ -139,7 +185,10 @@ src/components/marketing/
                         MiniMetric, KeyValue, Hairline    (server)
   MarketingNav.tsx      sticky nav + accessible mobile sheet             (client)
   Hero.tsx                                                              (server)
-  ProductComposition.tsx layered Command Centre + satellite cards        (server)
+  WhatItDoes.tsx        seven domain tiles, the home page's whole product
+                        argument in one scannable grid                   (server)
+  ProductComposition.tsx Command Centre + satellite cards, no container
+                        of its own — it renders inside a <Section>       (server)
   FragmentationSection.tsx converging fragments, CSS-only                (server)
   MissionOSMap.tsx      interactive domain map / mobile accordion        (client)
   IntelligenceDemo.tsx  deterministic-vs-AI split + real fit readout     (server)
@@ -161,13 +210,16 @@ src/components/marketing/
   ContactForm.tsx       unchanged                                        (client)
 
 src/app/
-  page.tsx       composition + metadata + JSON-LD
-  legal/page.tsx privacy / terms / cookies, current position (see §11)
-  robots.ts      marketing indexed, application routes disallowed
-  sitemap.ts     the two public URLs
+  page.tsx          the home page: six sections, metadata + JSON-LD (§3.1)
+  product/page.tsx  the walkthrough: everything the home page hands off (§3.2)
+  legal/page.tsx    privacy / terms / cookies, current position (see §11)
+  robots.ts         marketing indexed, application routes disallowed
+  sitemap.ts        the three public URLs
 ```
 
 **Five client islands only** — `MarketingNav`, `MissionOSMap`, `ImpactProvenanceDemo`, `PersonaExplorer`, `ProductExplorer` — plus the two pre-existing ones (`Reveal`, `ContactForm`). Everything else is a server component and ships zero JavaScript.
+
+The home page loads three of them (`MarketingNav`, `PersonaExplorer`, `Reveal`) plus `ContactForm`; `MissionOSMap`, `ImpactProvenanceDemo` and `ProductExplorer` are only on `/product`, which is most of why `/` is the lighter route.
 
 ### 4.1 The rule that keeps the previews honest
 
@@ -284,6 +336,37 @@ Motion explains relationships between information. Nothing loops forever, nothin
 8. **Every product figure on the page comes from the seed via the repository** (§4.1).
 9. **Labels are used sparingly.** At most one chip per section, placed on the artefact it qualifies, never scattered across a grid.
 
+### 9.1a House style: no em dash, anywhere a customer can read it
+
+The em dash is prohibited in customer-facing copy. Not discouraged: prohibited,
+and enforced by `tests/unit/customer-facing-copy.test.ts`, which fails the
+build on one.
+
+The reason is the same reason the rest of §9 exists. The em dash is the most
+recognisable tell of machine-written prose, and a site whose whole argument is
+that Pegasus does not fabricate things cannot read as though it was fabricated.
+An absolute is also cheaper to hold than a guideline: a rule with exceptions
+gets re-argued at every review, and a failing test gets fixed.
+
+**Scope.** Every string literal and JSX text node under `src/`. That covers the
+marketing copy, the application's own labels, and strings assembled at runtime
+such as `allocationNote` or a relationship health signal, because a customer
+reads those too. Code comments are exempt. Regular expressions are exempt: an
+em dash inside one is matching somebody else's text rather than writing ours,
+and the organisation research parser splits third-party page titles on it.
+
+**Replacing one.** Use what it was standing in for, and reread the sentence:
+
+| The dash was doing | Use |
+|---|---|
+| Fusing two sentences | A full stop |
+| Introducing a list or a label | A colon |
+| Wrapping an aside | Commas, or brackets |
+| Standing in for an empty value in a table | The word: `None`, `Not set`, `Not stated` |
+
+Dropping a comma in where the dash was and changing nothing else is how the
+tic survives a search-and-replace. The point is the sentence, not the glyph.
+
 ### 9.2 Claims register
 
 Status is derived from `PEGASUS_PRODUCTION_BUILD_SPEC.md` §7 and the per-slice verification records.
@@ -326,7 +409,63 @@ Exactly three, defined in `content.ts` and used nowhere else:
 | `In development` | The deterministic engine is built and tested; the product surface is not | Finance Intelligence |
 | `Coming to Pegasus` / `Coming to onboarding` | Designed and specified; not built | Organisation research, report rebuild-from-claims, orchestration |
 
-Total on the page: **five chips.** Any sixth is a signal the copy has over-reached and should be rewritten instead of labelled.
+Total across both routes: **five chips.** Any sixth is a signal the copy has over-reached and should be rewritten instead of labelled. Finance carries one on each route — the same claim on the home page's domain grid and on the product page's principles — which is one claim, labelled wherever it appears, not two.
+
+---
+
+## 9.5 Imagery and brand assets
+
+The site carries **no photographs and no screenshots**, and that is a decision
+rather than an omission. Product surfaces are HTML recreations (§4.1), which
+are responsive, themable, legible to a screen reader and incapable of going
+stale. Everything else visual is drawn in the page.
+
+| Asset | Where | How it is made |
+|---|---|---|
+| Brand mark | `components/brand/Wordmark.tsx` | Inline SVG, `currentColor` |
+| Hero figure | `components/marketing/MissionGraphic.tsx` | Inline SVG, Tailwind colour utilities |
+| Domain icons | `WhatItDoes.tsx`, keyed by domain id | `lucide-react` |
+| Dot lattice | `.dot-grid` in `globals.css` | CSS gradient, masked, theme-tinted |
+| Favicon / touch icon | `app/icon.svg`, `app/apple-icon.svg` | The mark on the fixed navy plate |
+| Share card | `public/og.png` | `scripts/build-og-image.mjs` |
+
+**The hero figure** draws seven nodes on a ring, each joined to one centre and
+none joined to each other. The missing node-to-node edges are the argument:
+integrations between modules would be a mesh, and this is a hub because there
+is one record underneath. It is decorative and hidden from assistive
+technology, because the claim it illustrates is made in words beside it.
+
+**The share card** is the one asset that cannot be drawn live, because crawlers
+do not render SVG. It is therefore the one that can go stale silently, which is
+why it is generated by a committed script rather than exported by hand:
+
+```bash
+node scripts/build-og-image.mjs   # after any change to the palette, fonts or card
+```
+
+Chromium renders it rather than Satori (`next/og`), because the brand faces
+ship as WOFF2 and Satori cannot read WOFF2 — rendering in a browser gets real
+Quicksand instead of a substituted system sans. A unit test asserts the PNG
+exists and is still 1200x630, since `summary_large_image` was declared with no
+image behind it for months and nothing caught it.
+
+### Photography
+
+`PHOTOS` in `content.ts` is empty, and `PhotoBand` renders nothing while it
+stays empty. Stock photography of models captioned as though they were the
+organisations who use Pegasus is the same claim as an invented testimonial, and
+is ruled out by the same rule. Real photographs go in `public/photos/` with an
+entry each: landscape, at least 1200x900, shot at real delivery. Everyone
+identifiable needs to have agreed to appear on a public website, which is a
+consent question rather than a licensing one.
+
+### Unused
+
+`public/preview-command-centre.png` and `public/preview-funding-board.png` are
+genuine screenshots of the running product, kept but referenced nowhere. The
+HTML recreations replaced them on every count that matters (§4.1). They are
+retained because they are real product assets rather than stock, and are worth
+having for a deck or a README that is not subject to §4.1.
 
 ---
 
@@ -335,8 +474,8 @@ Total on the page: **five chips.** Any sixth is a signal the copy has over-reach
 - `metadataBase` from `appConfig.marketingUrl`; `alternates.canonical` set per route.
 - OpenGraph (`type: website`, `locale: en_GB`, site name, title, description) and `summary_large_image` Twitter card.
 - `app/robots.ts` allows `/`, disallows the application routes (`/dashboard`, `/funding`, `/applications`, `/grants`, `/programmes`, `/impact`, `/evidence`, `/relationships`, `/organisation`, `/team`, `/settings`, `/onboarding`, `/login`, `/signup`) — a seeded demo workspace should not be indexed as content.
-- `app/sitemap.ts` lists the marketing URL only.
-- JSON-LD: `Organization` (Pegasus Information Studio, with `sameAs` to the studio site) and `SoftwareApplication` (Pegasus Mission OS, `applicationCategory: BusinessApplication`). **No `AggregateRating`, no `Review`, no `offers` with a fabricated price.**
+- `app/sitemap.ts` lists the three public URLs: `/`, `/product` and `/legal`. Section anchors are not listed — padding a sitemap with fragments does not create pages, it creates duplicates of one.
+- JSON-LD, on `/` only: `Organization` (Pegasus Information Studio, with `sameAs` to the studio site), `SoftwareApplication` (Pegasus Mission OS, `applicationCategory: BusinessApplication`) and `FAQPage` built from the FAQs that page actually renders. `/product` declares none, so there is one `FAQPage` on the site rather than two competing copies. **No `AggregateRating`, no `Review`, no `offers` with a fabricated price.**
 
 ### Domain configuration
 
@@ -373,8 +512,10 @@ npm run typecheck && npm run lint && npm test && npm run test:e2e && npm run bui
 
 Marketing-specific checks:
 
-- `tests/e2e/marketing.spec.ts` — eight journeys: the hero answers "what is this", the Mission OS map is operable by arrow keys, the mobile sheet traps focus and restores it on Escape, a figure opens its provenance and a forecast is still labelled a forecast, the persona explorer switches panels, the product explorer renders seeded records, the Trust section still states what has not been verified, and `robots.txt` keeps the demo out of the index.
-- `tests/unit/marketing-content.test.ts` — eight guards over §9: the preview rail matches the product's real navigation, every nav link resolves to a rendered section, the status vocabulary stays at three states, the isolation claim still admits the unverified layer, no certification language, no fabricated social proof or rating structured data, no inverting `bg-ink` ground under fixed white text, and Finance stays labelled.
+- `tests/e2e/marketing.spec.ts` — nine journeys: the hero answers "what is this", the home page's domain grid leads to `/product` and the detail is still reachable, the Mission OS map is operable by arrow keys, the mobile sheet traps focus and restores it on Escape, a figure opens its provenance and a forecast is still labelled a forecast, the persona explorer switches panels, the product explorer renders seeded records, the Trust section still states what has not been verified, and `robots.txt` keeps the demo out of the index.
+- `tests/unit/customer-facing-copy.test.ts` — two guards: no em dash in any string literal or JSX text under `src/` (§9.1a), and the assets the metadata promises (`og.png` at 1200x630, `icon.svg`, `apple-icon.svg`) are all present.
+- `tests/unit/marketing-content.test.ts` — nine guards over §3 and §9: the preview rail matches the product's real navigation, every nav link resolves (fragment to a rendered section, path to a route that exists), the home page composes no more than eight marketing sections, the status vocabulary stays at three states, the isolation claim still admits the unverified layer, no certification language, no fabricated social proof or rating structured data, no inverting `bg-ink` ground under fixed white text, and Finance stays labelled.
+- `npm run test:e2e` reuses whatever is already on port 3000. A `next dev` server left running there serves stale chunks once `npm run build` has overwritten `.next`, and every JS-dependent test fails with the static assertions still passing. Stop the dev server before running the suite; the failure looks like broken hydration and is not.
 - Manual: 375px / 768px / 1280px / 1440px / 1680px; `prefers-reduced-motion: reduce` (asserted: zero elements left below full opacity); full keyboard traverse; dark theme via `data-theme="dark"`.
 - Any new sentence about capability is checked against the §9.2 register before it ships. If a row does not exist for it, add the row first.
 

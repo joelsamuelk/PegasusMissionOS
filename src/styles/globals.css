@@ -161,7 +161,8 @@ h6 {
   .animate-fade-up,
   .converge,
   .converge-arrow,
-  .lifecycle-line {
+  .lifecycle-line,
+  .node-pulse {
     opacity: 1 !important;
     transform: none !important;
     animation: none !important;
@@ -223,6 +224,28 @@ h6 {
       opacity: 1;
       transform: none;
     }
+  }
+
+  /* The hero graphic's nodes settle onto the ring in sequence, once, on load.
+   * Scaling from the node's own centre rather than the SVG origin is why this
+   * sets `transform-box: fill-box`: without it every node flies in from the
+   * top-left corner of the viewBox. */
+  @keyframes node-settle {
+    from {
+      opacity: 0;
+      transform: scale(0.72);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .node-pulse {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    animation: node-settle 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
 
   @keyframes float-slow {
@@ -332,5 +355,34 @@ h6 {
         rgba(48, 121, 216, 0.09),
         transparent 64%
       );
+  }
+
+  /*
+   * A dot lattice, for the one section that frames a product preview.
+   *
+   * The preview is a white panel on a white-ish page, and its shadow was doing
+   * all the work of separating the two. The lattice gives the panel a ground
+   * to sit on. It is drawn from `--color-line-strong`, so it re-tints with the
+   * theme instead of being a grey that only works in light mode, and it is
+   * masked to fade out before the section edges so it reads as texture rather
+   * than as a pattern that got clipped.
+   */
+  .dot-grid {
+    background-image: radial-gradient(
+      var(--color-line-strong) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(
+      ellipse 78% 62% at 50% 42%,
+      #000 38%,
+      transparent 78%
+    );
+    mask-image: radial-gradient(
+      ellipse 78% 62% at 50% 42%,
+      #000 38%,
+      transparent 78%
+    );
+    opacity: 0.55;
   }
 }

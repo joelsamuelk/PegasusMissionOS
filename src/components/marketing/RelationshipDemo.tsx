@@ -152,7 +152,7 @@ export function RelationshipDemo({
           </AppFrame>
 
           <PreviewCaption>
-            Assembled from the demo workspace&rsquo;s own records — no model ran, which
+            Assembled from the demo workspace&rsquo;s own records. No model ran, which
             is why there is no confidence score on it. The Henderson Trust is a
             fictional funder in the seeded demo data. Email and calendar sync are
             designed and not yet built, so nothing here arrived from an inbox.

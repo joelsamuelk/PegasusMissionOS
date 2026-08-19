@@ -326,7 +326,7 @@ function ProgrammePanel({ explorer }: { explorer: ProductExplorerPreview }) {
         <MiniMetric label="Location" value={programme.location} />
         <MiniMetric
           label="Budget"
-          value={programme.budget ? formatCurrencyCompact(programme.budget) : "—"}
+          value={programme.budget ? formatCurrencyCompact(programme.budget) : "Not set"}
         />
       </div>
       <div className="mt-4 rounded-lg border border-line bg-paper">
@@ -393,7 +393,7 @@ function ImpactPanel({ explorer }: { explorer: ProductExplorerPreview }) {
         <div className="mt-4 rounded-lg border border-line bg-paper p-4">
           <div className="eyebrow">Reported through</div>
           <p className="mt-1.5 text-[0.8125rem] text-ink">
-            {programme.name} — {programme.indicators.length} indicators, each with an
+            {programme.name}: {programme.indicators.length} indicators, each with an
             owner, a measurement frequency and a source.
           </p>
         </div>

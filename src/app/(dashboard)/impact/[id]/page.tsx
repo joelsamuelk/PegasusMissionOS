@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { EvidenceItem, Indicator } from "@/types/domain";
+import { assessReportReadiness } from "@/lib/reporting";
 import { resolveRequestContext } from "@/server/context/request-context";
 import { getRepository } from "@/server/data";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -29,7 +30,7 @@ export default async function ImpactReportPage({
   const report = await repo.reports.get(ctx, id);
   if (!report) notFound();
 
-  const [programme, indicators, evidence] = await Promise.all([
+  const [programme, indicators, evidence, claims, deliverables] = await Promise.all([
     report.programmeId ? repo.programmes.get(ctx, report.programmeId) : null,
     Promise.all(
       report.includedIndicatorIds.map((iid) => repo.programmes.getIndicator(ctx, iid)),
@@ -37,7 +38,18 @@ export default async function ImpactReportPage({
     Promise.all(report.includedEvidenceIds.map((eid) => repo.evidence.get(ctx, eid))).then(
       (rows) => rows.filter((e): e is EvidenceItem => Boolean(e)),
     ),
+    repo.claims.list(ctx),
+    report.grantId ? repo.grants.deliverables(ctx, report.grantId) : [],
   ]);
+
+  const readiness = assessReportReadiness({
+    report,
+    claims,
+    indicators,
+    evidence,
+    deliverables,
+    now: ctx.now(),
+  });
 
   return (
     <div>
@@ -47,7 +59,12 @@ export default async function ImpactReportPage({
         title={report.title}
         description={`Reporting period: ${report.reportingPeriod}`}
       />
-      <ReportBuilder report={report} indicators={indicators} evidence={evidence} />
+      <ReportBuilder
+        report={report}
+        indicators={indicators}
+        evidence={evidence}
+        readiness={readiness}
+      />
     </div>
   );
 }

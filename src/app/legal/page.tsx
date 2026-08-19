@@ -51,7 +51,7 @@ const SECTIONS = [
     title: "Cookies",
     paragraphs: [
       "This site sets no analytics, advertising or tracking cookies, because it runs no analytics or advertising scripts. Fonts are served from this domain rather than a font CDN, so loading a page here does not make a request to a third party.",
-      "If cookies become necessary — for authenticated sessions once accounts exist — this page will be updated to name each one, what it does and how long it lasts, before it is set.",
+      "If cookies become necessary, for authenticated sessions once accounts exist, this page will be updated to name each one, what it does and how long it lasts, before it is set.",
     ],
   },
 ] as const;

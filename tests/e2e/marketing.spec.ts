@@ -7,6 +7,12 @@ import { expect, test } from "@playwright/test";
  * sections work by keyboard, and whether the page still tells the truth. The
  * second is the reason this file exists — a marketing claim cannot be checked
  * by a type, and the failure mode is silent.
+ *
+ * The site is two routes. `/` answers what Pegasus is and stays short;
+ * `/product` carries the walkthrough, the four intelligence demos and the
+ * explorer. Tests are grouped by the page they belong to, and the link between
+ * them is tested too, because a short home page is only an improvement if the
+ * detail is still reachable.
  */
 
 test("the page answers what Pegasus is, above the fold", async ({ page }) => {
@@ -26,10 +32,30 @@ test("the page answers what Pegasus is, above the fold", async ({ page }) => {
 
   // The demo-data disclaimer must survive any rewrite of the hero.
   await expect(page.getByText(/fictional uk charity/i).first()).toBeVisible();
+
+});
+
+test("the home page leads to the detail without repeating it", async ({ page }) => {
+  await page.goto("/");
+
+  // The homepage proves the connected workspace once; the full domain
+  // walkthrough stays on the product page.
+  await expect(
+    page.getByRole("heading", { name: /one clear view of the work/i }),
+  ).toBeVisible();
+
+  await page
+    .getByLabel("One clear view of the work that matters.")
+    .getByRole("link", { name: "How it works", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/product$/);
+  await expect(
+    page.getByRole("heading", { name: /one model of your organisation/i, level: 1 }),
+  ).toBeVisible();
 });
 
 test("the operating-system map is operable by keyboard", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/product");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   const tablist = page.getByRole("tablist", { name: /mission os domains/i });
@@ -69,7 +95,7 @@ test("the mobile menu traps focus and closes on Escape", async ({ page }) => {
 });
 
 test("a figure opens its provenance", async ({ page }) => {
-  await page.goto("/#impact");
+  await page.goto("/product#impact");
 
   // The seeded fact: a participant count read from an independent evaluation.
   const forecast = page.getByRole("button", { name: /funding gap/i });
@@ -83,18 +109,16 @@ test("a figure opens its provenance", async ({ page }) => {
   await expect(panel).toContainText(/deriveFundingNeed/i);
 });
 
-test("the persona explorer switches its panel", async ({ page }) => {
+test("the homepage names the teams it is built for", async ({ page }) => {
   await page.goto("/#personas");
 
-  const tablist = page.getByRole("tablist", { name: /who pegasus is for/i });
-  await tablist.getByRole("tab", { name: /trustee/i }).click();
-  await expect(page.getByRole("tabpanel", { name: /trustee/i })).toContainText(
-    /review, question and approve/i,
-  );
+  const section = page.getByLabel(/different roles/i);
+  await expect(section).toContainText(/chief executives/i);
+  await expect(section).toContainText(/trustees/i);
 });
 
 test("the product explorer renders real seeded data", async ({ page }) => {
-  await page.goto("/#explore");
+  await page.goto("/product#explore");
 
   const tablist = page.getByRole("tablist", { name: /product previews/i });
   await tablist.getByRole("tab", { name: /^funding$/i }).click();

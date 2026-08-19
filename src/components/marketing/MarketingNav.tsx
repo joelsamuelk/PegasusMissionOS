@@ -18,6 +18,11 @@ import { ButtonLink } from "@/components/shared/ui";
  * restored to the trigger on close, focus trapped while it is open, Escape to
  * dismiss, and body scroll locked. A menu that a keyboard user can tab out of
  * behind is worse than no menu, because they cannot tell they have left it.
+ *
+ * Links are root-relative now that the site has two routes (`/` and
+ * `/product`), so `NavLink` below routes `/product` through `next/link` and
+ * leaves `/#trust` as a plain anchor — the browser scrolls it in-document when
+ * you are already on `/`, and navigates then scrolls when you are not.
  */
 export function MarketingNav() {
   const [open, setOpen] = useState(false);
@@ -86,12 +91,12 @@ export function MarketingNav() {
           <ul className="flex items-center gap-7 text-sm text-ink-muted">
             {NAV_LINKS.map((link) => (
               <li key={link.href}>
-                <a
+                <NavLink
                   href={link.href}
                   className="rounded transition-colors hover:text-ink"
                 >
                   {link.label}
-                </a>
+                </NavLink>
               </li>
             ))}
           </ul>
@@ -154,13 +159,13 @@ export function MarketingNav() {
               <ul className="flex flex-col">
                 {NAV_LINKS.map((link) => (
                   <li key={link.href} className="border-b border-line last:border-0">
-                    <a
+                    <NavLink
                       href={link.href}
                       onClick={close}
                       className="block py-3.5 font-heading text-lg font-semibold text-ink"
                     >
                       {link.label}
-                    </a>
+                    </NavLink>
                   </li>
                 ))}
               </ul>
@@ -191,5 +196,38 @@ export function MarketingNav() {
         </div>
       )}
     </header>
+  );
+}
+
+/**
+ * A nav link that knows whether it is a route change or a scroll.
+ *
+ * `next/link` on a same-page fragment would make the client router handle a
+ * scroll the browser already does correctly; a plain anchor on `/product`
+ * would throw away the prefetch and do a full document load. Splitting on the
+ * hash gets both right.
+ */
+function NavLink({
+  href,
+  onClick,
+  className,
+  children,
+}: {
+  href: string;
+  onClick?: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  if (href.includes("#")) {
+    return (
+      <a href={href} onClick={onClick} className={className}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link href={href} onClick={onClick} className={className}>
+      {children}
+    </Link>
   );
 }

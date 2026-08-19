@@ -205,7 +205,7 @@ export function allocateSharedCost(input: SharedCostInput): SharedCostResult {
       amount: share.amount,
       allocationMethod: "shared_cost" as AllocationMethod,
       allocationBasis: input.basis,
-      allocationNote: `${input.label} — ${share.proportionPercent}% by ${BASIS_LABELS[
+      allocationNote: `${input.label}: ${share.proportionPercent}% by ${BASIS_LABELS[
         input.basis
       ].toLowerCase()}`,
       confidence,

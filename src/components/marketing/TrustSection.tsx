@@ -48,8 +48,8 @@ export function TrustSection() {
         ))}
         <li className="flex items-center bg-navy p-6 sm:p-7">
           <p className="text-[0.875rem] leading-relaxed text-white/50">
-            Every one of these is a constraint in the codebase rather than a policy in a
-            document — enforced by tests that fail the build when they are broken.
+            Every one of these is a constraint in the codebase rather than a policy in
+            a document, enforced by tests that fail the build when they are broken.
           </p>
         </li>
       </ol>

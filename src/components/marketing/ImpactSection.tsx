@@ -96,7 +96,7 @@ export function ImpactSection({ provenance }: { provenance: ProvenancePreview })
 
       <PreviewCaption>
         Real claims and indicators from the demo workspace. Reports themselves are not
-        yet rebuilt from live claims — a published report still holds the text it was
+        yet rebuilt from live claims. A published report still holds the text it was
         written with, so correcting a figure does not silently rewrite last year&rsquo;s
         report. Connecting the two is the next piece of work, and the provenance model
         above is what it will be built on.

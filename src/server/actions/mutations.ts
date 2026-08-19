@@ -7,8 +7,11 @@ import type {
   EvidenceType,
   FundingOpportunity,
   ImpactReport,
+  EvidenceItem,
+  Indicator,
 } from "@/types/domain";
 import { assessFit } from "@/lib/logic/fit";
+import { assessReportReadiness, canTransitionReport } from "@/lib/reporting";
 import { getRepository } from "@/server/data";
 import { authorise, capabilityForTransition, ok, type ActionResult } from "./authorise";
 
@@ -196,7 +199,45 @@ export async function setReportStatus(
   );
   if (!auth.ok) return auth.result;
 
-  await getRepository().reports.setStatus(auth.ctx, reportId, status);
+  const repo = getRepository();
+  const report = await repo.reports.get(auth.ctx, reportId);
+  if (!report) return { ok: false, message: "That report could not be found." };
+  if (!canTransitionReport(report.status, status)) {
+    return {
+      ok: false,
+      message: `A report cannot move directly from ${report.status.replace(/_/g, " ")} to ${status.replace(/_/g, " ")}.`,
+    };
+  }
+
+  if (status === "ready_for_approval" || status === "approved") {
+    const [claims, indicators, evidence, deliverables] = await Promise.all([
+      repo.claims.list(auth.ctx),
+      Promise.all(
+        report.includedIndicatorIds.map((id) => repo.programmes.getIndicator(auth.ctx, id)),
+      ).then((rows) => rows.filter((item): item is Indicator => Boolean(item))),
+      Promise.all(report.includedEvidenceIds.map((id) => repo.evidence.get(auth.ctx, id))).then(
+        (rows) => rows.filter((item): item is EvidenceItem => Boolean(item)),
+      ),
+      report.grantId ? repo.grants.deliverables(auth.ctx, report.grantId) : [],
+    ]);
+    const readiness = assessReportReadiness({
+      report,
+      claims,
+      indicators,
+      evidence,
+      deliverables,
+      now: auth.ctx.now(),
+    });
+    if (!readiness.readyForApproval) {
+      const blockers = readiness.issues.filter((issue) => issue.severity === "blocker");
+      return {
+        ok: false,
+        message: `Resolve ${blockers.length} blocking readiness issue${blockers.length === 1 ? "" : "s"} before approval.`,
+      };
+    }
+  }
+
+  await repo.reports.setStatus(auth.ctx, reportId, status);
   revalidatePath(`/impact/${reportId}`);
   revalidatePath("/impact");
   return ok;

@@ -710,7 +710,7 @@ export interface IndicatorMeasurement {
 
 // --- Impact reports -----------------------------------------------------
 
-export type ReportSectionKey =
+export type LegacyReportSectionKey =
   | "executive_summary"
   | "organisation_overview"
   | "funding_overview"
@@ -726,10 +726,65 @@ export type ReportSectionKey =
   | "supporting_evidence"
   | "appendix";
 
-export interface ImpactReportSection {
-  key: ReportSectionKey;
+export type ReportType =
+  | "impact"
+  | "funder"
+  | "grant"
+  | "programme"
+  | "trustee"
+  | "board_pack"
+  | "annual"
+  | "finance"
+  | "management"
+  | "donor_update"
+  | "partner"
+  | "custom";
+
+export type ReportStatus =
+  | "draft"
+  | "collecting_evidence"
+  | "drafting"
+  | "internal_review"
+  | "changes_requested"
+  | "ready_for_approval"
+  | "approved"
+  | "submitted"
+  | "archived";
+
+export type ReportSectionType =
+  | "narrative"
+  | "claims"
+  | "metrics"
+  | "table"
+  | "chart"
+  | "evidence"
+  | "financial"
+  | "appendix";
+
+export interface ReportSectionDefinition {
+  key: string;
   title: string;
+  type: ReportSectionType;
+  required: boolean;
+}
+
+export interface ReportDefinition {
+  id: UUID;
+  organisationId: UUID;
+  name: string;
+  type: ReportType;
+  sections: ReportSectionDefinition[];
+  audit: AuditStamp;
+}
+
+export interface ImpactReportSection {
+  /** Stable within a report definition; no longer constrained to 14 keys. */
+  key: string;
+  title: string;
+  type: ReportSectionType;
   content: string;
+  /** Figures are references to immutable claims, never copied values. */
+  claimIds: UUID[];
   provenance?: GroundingRecord;
 }
 
@@ -737,15 +792,24 @@ export interface ImpactReport {
   id: UUID;
   organisationId: UUID;
   title: string;
+  type: ReportType;
+  definitionId?: UUID;
   programmeId?: UUID;
   grantId?: UUID;
   reportingPeriod: string;
-  status: "draft" | "in_review" | "approved";
+  status: ReportStatus;
+  ownerId?: UUID;
+  contributorIds: UUID[];
+  reviewerIds: UUID[];
+  approverIds: UUID[];
   includedIndicatorIds: UUID[];
   includedEvidenceIds: UUID[];
   sections: ImpactReportSection[];
   audit: AuditStamp;
 }
+
+/** Generic name for new code; `ImpactReport` remains as the migration alias. */
+export type Report = ImpactReport;
 
 // --- Tasks, comments, notifications, activity --------------------------
 

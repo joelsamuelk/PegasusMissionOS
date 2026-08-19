@@ -79,7 +79,10 @@ const STATUS_MAP: Record<string, Mapping> = {
   paused: { tone: "warning", label: "Paused", icon: Minus },
   // Report
   draft: { tone: "neutral", label: "Draft", icon: FileText },
+  collecting_evidence: { tone: "warning", label: "Collecting evidence", icon: CircleDashed },
+  ready_for_approval: { tone: "accent", label: "Ready for approval", icon: Clock },
   in_review: { tone: "accent", label: "In review", icon: Clock },
+  archived: { tone: "neutral", label: "Archived", icon: FileText },
 };
 
 export function EntityStatusBadge({

@@ -1,6 +1,14 @@
 import { can, type Capability } from "@/lib/permissions";
 import { resolveRequestContext, type RequestContext } from "@/server/context/request-context";
 import { getRepository } from "@/server/data";
+import {
+  requireControlCapability,
+  type ControlCapability,
+} from "@/lib/control-plane/permissions";
+import {
+  resolveControlRequestContext,
+  type ControlRequestContext,
+} from "@/server/control-plane/context";
 
 /**
  * Server-side authorisation for mutating actions.
@@ -66,6 +74,15 @@ export function capabilityForTransition(
 }
 
 export const ok: ActionResult = { ok: true };
+
+/** Separate internal gate. It never derives access from Mission OS membership. */
+export async function authoriseControl(
+  capability: ControlCapability,
+): Promise<ControlRequestContext> {
+  const ctx = await resolveControlRequestContext();
+  requireControlCapability(ctx.role, capability);
+  return ctx;
+}
 
 /**
  * Gate for the AI entry points: capability **and** the organisation's setting.

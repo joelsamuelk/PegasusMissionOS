@@ -26,8 +26,10 @@ export function MarketingFooter() {
           </div>
 
           <FooterColumn title="Product">
+            {/* Same rule as the nav: a fragment is a scroll, a path is a
+                route. `/#trust` is both, and the anchor handles it. */}
             {FOOTER_PRODUCT.map((link) =>
-              link.href.startsWith("#") ? (
+              link.href.includes("#") ? (
                 <FooterLink key={link.href} href={link.href}>
                   {link.label}
                 </FooterLink>

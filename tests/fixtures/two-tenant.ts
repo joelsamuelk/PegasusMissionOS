@@ -348,11 +348,15 @@ function beaconRecords(state: StoreState): void {
     id: "report-beacon-1",
     organisationId: ORG_B,
     title: "Beacon impact report",
+    type: "impact",
     reportingPeriod: "2026",
     status: "draft",
+    contributorIds: [],
+    reviewerIds: [],
+    approverIds: [],
     includedIndicatorIds: [],
     includedEvidenceIds: [],
-    sections: [{ key: "executive_summary", title: "Executive summary", content: "" }],
+    sections: [{ key: "executive_summary", title: "Executive summary", type: "narrative", content: "", claimIds: [] }],
     audit: audit(),
   });
 }

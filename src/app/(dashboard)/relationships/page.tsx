@@ -161,7 +161,7 @@ export default async function RelationshipsPage() {
                           value={
                             s.totalFunding > 0
                               ? formatCurrencyCompact(s.totalFunding)
-                              : "—"
+                              : "None"
                           }
                           hint={
                             s.activeGrantCount > 0

@@ -9,6 +9,13 @@ export const appConfig = {
    * for the address shown on marketing product previews.
    */
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  /** Separate internal application origin. Never use `appUrl` as its auth boundary. */
+  controlUrl:
+    process.env.NEXT_PUBLIC_CONTROL_URL ?? "http://control.localhost:3000",
+  control: {
+    /** Explicit opt-in: an unconfigured production deployment must fail closed. */
+    mockEnabled: process.env.CONTROL_PLANE_MOCK === "true",
+  },
   /**
    * Where the public marketing site runs. Kept separate from `appUrl` because
    * the two are different hosts in production, and metadata, canonicals and

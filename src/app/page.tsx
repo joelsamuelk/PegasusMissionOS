@@ -1,33 +1,21 @@
 import type { Metadata } from "next";
+import { ArrowRight } from "lucide-react";
 import { appConfig } from "@/lib/config";
-import { loadMarketingPreview } from "@/lib/marketing/preview";
 import { FAQS } from "@/lib/marketing/content";
 import { Section, SectionHeader } from "@/components/marketing/primitives";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { Hero } from "@/components/marketing/Hero";
-import { ProductComposition } from "@/components/marketing/ProductComposition";
-import { FragmentationSection } from "@/components/marketing/FragmentationSection";
-import { MissionOSMap } from "@/components/marketing/MissionOSMap";
-import { IntelligenceDemo } from "@/components/marketing/IntelligenceDemo";
-import { Lifecycle } from "@/components/marketing/Lifecycle";
-import { OrganisationIntelligenceDemo } from "@/components/marketing/OrganisationIntelligenceDemo";
-import { FundingIntelligenceDemo } from "@/components/marketing/FundingIntelligenceDemo";
-import { FinanceIntelligenceDemo } from "@/components/marketing/FinanceIntelligenceDemo";
-import { RelationshipDemo } from "@/components/marketing/RelationshipDemo";
-import { ImpactSection } from "@/components/marketing/ImpactSection";
+import { ProductScreens } from "@/components/marketing/ProductScreens";
+import { HomeStory } from "@/components/marketing/HomeStory";
 import { TrustSection } from "@/components/marketing/TrustSection";
-import { PersonaExplorer } from "@/components/marketing/PersonaExplorer";
-import { PrinciplesSection } from "@/components/marketing/PrinciplesSection";
-import { ProductExplorer } from "@/components/marketing/ProductExplorer";
 import { FAQ } from "@/components/marketing/FAQ";
-import { StudioSection } from "@/components/marketing/StudioSection";
 import { FinalCTA } from "@/components/marketing/FinalCTA";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
-import { Reveal } from "@/components/marketing/Reveal";
+import { ButtonLink } from "@/components/shared/ui";
 
-const TITLE = "Pegasus Mission OS — the operating system for mission-driven organisations";
+const TITLE = "Pegasus Mission OS: the operating system for mission-driven organisations";
 const DESCRIPTION =
-  "Pegasus Mission OS connects funding, programmes, finances, relationships, evidence and reporting for charities, NGOs, foundations and social enterprises — one organisation, one source of truth, one intelligence layer.";
+  "Pegasus Mission OS keeps funding, programmes, finances, relationships, evidence and reporting in one place for charities, NGOs, foundations and social enterprises. Enter something once and it is there everywhere you need it.";
 
 export const metadata: Metadata = {
   title: {
@@ -42,38 +30,53 @@ export const metadata: Metadata = {
     siteName: "Pegasus Mission OS",
     title: TITLE,
     description: DESCRIPTION,
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Pegasus Mission OS. Every mission deserves world-class technology.",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
+    images: ["/og.png"],
   },
 };
 
 /**
- * The public marketing site.
+ * The public home page.
  *
- * A thin composition over `components/marketing/`. Two things about the shape
- * are deliberate:
+ * Five core sections, and that restraint is the design. The previous version ran to
+ * eighteen: it made the same argument — the domains are connected, the figures
+ * are traceable — five separate times through five separate demos, and a
+ * visitor had to scroll past all of it to reach the FAQ. Everything cut is on
+ * `/product`, which this page links to twice.
  *
- * 1. **It is a server component and stays one.** Five client islands ship on
- *    this page — the nav, the Mission OS map, the provenance drill-down, the
- *    persona explorer and the product explorer — and everything else renders
- *    to HTML. The LCP element is the hero `<h1>`, in a local font, with no
- *    image above it.
+ * The order answers a visitor's questions in the order they ask them: what is
+ * it (hero), is it real (product screens), how does it improve the work
+ * (benefit chapters), is it for my team (roles), can I trust it (trust), and
+ * what about X (FAQ), then how do I start (CTA).
  *
- * 2. **Product data is loaded once and passed down.** `loadMarketingPreview()`
- *    reads the seeded workspace through `MissionRepository` and runs the
- *    product's own deterministic engines, so every figure on this page is the
- *    product's rather than a copywriter's. It resolves at build time.
+ * Two things about the shape are deliberate and unchanged:
  *
- * Structured data claims only what is true: an Organisation and a
- * SoftwareApplication. No ratings, no reviews, no fabricated price.
+ * 1. **It is a server component and stays one.** The nav and scroll reveals
+ *    are the only client-side behaviour; the product story, screenshots and
+ *    everything else renders to HTML. The LCP element is the hero `<h1>`, in a
+ *    local font, with no image request above it.
+ *
+ * 2. **The product imagery is real.** Both captures come from the seeded demo
+ *    workspace and the page links directly to that workspace, rather than
+ *    presenting a fabricated UI or an uncheckable marketing number.
+ *
+ * Structured data claims only what is true: an Organisation, a
+ * SoftwareApplication and the FAQ this page actually renders. No ratings, no
+ * reviews, no fabricated price.
  */
-export default async function LandingPage() {
-  const { command, funding, relationship, provenance, explorer } =
-    await loadMarketingPreview();
-
+export default function LandingPage() {
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
@@ -96,8 +99,7 @@ export default async function LandingPage() {
         publisher: { "@id": `${appConfig.marketingUrl}#organisation` },
         audience: {
           "@type": "Audience",
-          audienceType:
-            "Charities, NGOs, foundations and social enterprises",
+          audienceType: "Charities, NGOs, foundations and social enterprises",
         },
       },
       {
@@ -131,71 +133,42 @@ export default async function LandingPage() {
 
       <main id="main">
         <Hero />
-        <ProductComposition
-          command={command}
-          funding={funding}
-          provenance={provenance}
-        />
 
-        <FragmentationSection />
+        {/* The proof. One composition of real seeded records, not five demos
+            of the same claim. The deeper walkthroughs are on /product.
 
-        {/* The centrepiece. */}
-        <Section id="operating-system">
-          <SectionHeader
-            id="operating-system"
-            eyebrow="The operating system"
-            title="One operating system for the organisation behind the mission."
-            lead="Pegasus is not six modules that talk to each other. It is one organisational model, with an intelligence layer over it and a trust layer under it — which is why a fact entered in one place is useful everywhere else without anyone syncing anything."
-          />
-          <Reveal className="mt-12">
-            <MissionOSMap />
-          </Reveal>
-          <p className="mt-8 max-w-2xl border-l-2 border-accent pl-5 font-heading text-[1.125rem] font-semibold leading-snug tracking-tight text-ink sm:text-[1.3rem]">
-            Not integrations between modules. One shared organisational model.
-          </p>
-        </Section>
-
-        <IntelligenceDemo funding={funding} />
-        <Lifecycle />
-        <OrganisationIntelligenceDemo />
-        <FundingIntelligenceDemo funding={funding} />
-        <FinanceIntelligenceDemo />
-        {relationship && <RelationshipDemo relationship={relationship} />}
-        {provenance && <ImpactSection provenance={provenance} />}
-        <TrustSection />
-
-        <Section id="personas">
-          <SectionHeader
-            id="personas"
-            eyebrow="Who it's for"
-            title="Six people, one organisation, one system."
-            lead="A chief executive, a fundraiser and a trustee are not using different products — they are looking at the same organisational truth from the seat they sit in."
-          />
-          <Reveal className="mt-12">
-            <PersonaExplorer />
-          </Reveal>
-        </Section>
-
-        <PrinciplesSection />
-
-        <Section id="explore" tone="surface" bordered>
-          <SectionHeader
-            id="explore"
-            eyebrow="Explore the product"
-            title="This is the working application, not a mockup."
-            lead="Every panel below is rendered from the demo workspace: Northstar Community Foundation, a fictional UK charity whose records are labelled as sample data throughout the product. Open the demo and you will find these exact screens."
-          />
-          <Reveal className="mt-12">
-            <ProductExplorer
-              explorer={explorer}
-              funding={funding}
-              relationship={relationship}
+            The dot lattice sits behind it because the preview is a white panel
+            on near-white paper: without a ground, the panel's only separation
+            from the page was its shadow. */}
+        <Section id="see-it" className="relative overflow-hidden">
+          <div className="dot-grid absolute inset-0" aria-hidden />
+          {/* Positioned, so it paints above the lattice. An absolutely
+              positioned sibling outranks static content whatever the DOM
+              order, so the content has to opt into the same layer. */}
+          <div className="relative">
+            <SectionHeader
+              id="see-it"
+              eyebrow="See it working"
+              title="One clear view of the work that matters."
+              lead="Funding, deadlines and evidence meet in the same workspace. Every figure below comes from the product's demo data, so you can follow it into the application and inspect where it came from."
             />
-          </Reveal>
+            <ProductScreens />
+            <div className="flex flex-wrap items-center gap-3">
+              <ButtonLink href="/dashboard" variant="blue">
+                Explore the demo
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </ButtonLink>
+              <ButtonLink href="/product" variant="secondary">
+                How it works
+              </ButtonLink>
+            </div>
+          </div>
         </Section>
 
+        <HomeStory />
+
+        <TrustSection />
         <FAQ />
-        <StudioSection />
         <FinalCTA />
       </main>
 

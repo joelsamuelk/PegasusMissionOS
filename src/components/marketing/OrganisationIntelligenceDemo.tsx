@@ -40,7 +40,7 @@ export function OrganisationIntelligenceDemo() {
 
           <div className="mt-8 flex flex-col gap-4">
             <p className="text-[0.9375rem] leading-relaxed text-ink-muted">
-              The extraction core is built and tested — structured data and labelled
+              The extraction core is built and tested. Structured data and labelled
               patterns are read with a locator for every fact, sources are ranked by
               authority, contradictions between two pages are raised rather than
               silently resolved, and a registration number is never inferred from a

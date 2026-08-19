@@ -37,7 +37,7 @@ Stated honestly, because an invariant nobody has checked is a slogan. Several ar
 | 2 | Permission enforcement | 🟢 Upheld | All 12 `mutations.ts` actions and all 4 `ai.ts` entry points authorise before mutating, returning a refusal rather than failing silently. `data-boundary.test.ts` fails the build if a new action ships without a gate; a deliberately public action must declare `@public-action` with a reason. | ✅ **Slice C** |
 | 3 | Traceable AI grounding | 🟢 Upheld | `AIProvenance` is deleted. Generations return the references they drew on; one that was never offered throws `GroundingViolationError` and the output is discarded. | ✅ **Slice B** |
 | 4 | Methodology travels with figures | 🟢 Upheld, unpersisted | `UnitCost` cannot be constructed without a `Methodology`; there is no code path producing a bare number. But no figure is persisted yet, so the invariant is untested against storage. | Holds; **Slice E** must preserve it |
-| 5 | Published reports don't silently change | 🔴 Violated | `ImpactReportSection` stores copied prose and numbers with no reference to their source. A corrected figure never reaches a published report at all. | **Slice D** |
+| 5 | Published reports don't silently change | 🟡 Core upheld, migration incomplete | Report sections now pin immutable `claimIds`; readiness flags a superseded claim and conflicting current figures without replacing the cited value. Legacy free-text figures and database persistence still need the remainder of Slice D. | **Slice D** |
 | 6 | Recommendations aren't dressed as analysis | 🟡 Partial | The five kinds are now global (`ClaimKind`) and `effectiveClaimKind()` applies to any claim; finance defers to that definition rather than keeping a copy. AI output still needs the UI treatment. | Model ✅ **Slice B**; UI **Slice F** |
 | 7 | Human approval for external action | 🟢 Upheld by absence | No external action exists to execute. S5 (`askCommand` self-approving) was closed in 1A-i. | Must hold in **Slice I** |
 | 8 | Missing ≠ assumed | 🟢 Upheld | Three independent implementations already refuse to smooth over gaps: `missing[]` on relationship briefs, withheld unit costs with a `requires` list, and `not_publicly_found ≠ missing` in `OrganisationGap`. | Holds; **Slice F** generalises it |
@@ -568,7 +568,7 @@ No slice is complete unless it works end to end.
 | A — Legacy data path removal | ✅ **Complete and verified** |
 | B — Knowledge / Claims + migration 0004 | ✅ **Complete and verified** |
 | C — Supabase adapter + auth | ⏳ **Next** (partially blocked, see §6) |
-| D — Reporting engine | ⏳ Planned |
+| D — Reporting engine | 🟡 **In progress** — generic types, 12 templates, nine-state lifecycle, deterministic readiness, claim-pinned sections, neutral export payload and the impact-report UI are built and verified. Report creation, format adapters and full legacy-content migration remain. |
 | E — Finance vertical | ⏳ Planned |
 | F — Intelligence orchestrator | ⏳ Planned |
 | G — Attention system + events | ⏳ Planned |

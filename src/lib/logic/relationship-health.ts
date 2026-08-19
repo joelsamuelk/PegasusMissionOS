@@ -183,7 +183,7 @@ export function computeRelationshipHealth(
       label: "Next action",
       detail:
         days !== undefined && days > 0
-          ? `${relationship.nextAction ?? "Action"} — ${days} day${days === 1 ? "" : "s"} overdue`
+          ? `${relationship.nextAction ?? "Action"}: ${days} day${days === 1 ? "" : "s"} overdue`
           : (relationship.nextAction ?? "Scheduled"),
       effect: days !== undefined && days > 0 ? "negative" : "neutral",
     });

@@ -137,6 +137,63 @@ export async function generateReportSection(
   }
 }
 
+export interface GeneratedReportSection {
+  key: string;
+  text: string;
+  provenance: GroundingRecord;
+}
+
+/**
+ * Generate and persist a complete first draft in one authorised server call.
+ * The previous client loop crossed the network twice per section, which made a
+ * nine-section report slow even when the deterministic mock provider was used.
+ */
+export async function generateAllReportSections(
+  reportId: string,
+): Promise<{ ok: boolean; sections: GeneratedReportSection[]; error?: string }> {
+  try {
+    const auth = await authoriseAi();
+    if (!auth.ok) return { ok: false, sections: [], error: auth.result.message };
+    const { ctx } = auth;
+    const repo = getRepository();
+    const report = await repo.reports.get(ctx, reportId);
+    if (!report) return { ok: false, sections: [], error: "That report could not be found." };
+
+    const sections: GeneratedReportSection[] = [];
+    for (const section of report.sections) {
+      const context = await buildReportSectionContext(ctx, repo, reportId, section.key);
+      const result = await runAi("report_section", context);
+      const provenance = groundingRecord(result, ctx.now());
+
+      await repo.reports.saveSection(ctx, reportId, section.key, result.text, provenance);
+      await repo.audit.recordAiGeneration(ctx, {
+        feature: "report_section",
+        model: result.model,
+        promptVersion: result.promptVersion,
+        inputRefs: [`impact_report:${reportId}`, section.key, ...provenance.used.map(refKey)],
+        outputPreview: result.text.slice(0, 200),
+        approvalStatus: "pending",
+      });
+      await Promise.all(
+        provenance.used
+          .filter((ref) => ref.type === "claim")
+          .map((ref) =>
+            repo.claims.recordUsage(ctx, {
+              claimId: ref.id,
+              usedIn: { type: "impact_report", id: reportId },
+              context: `report section: ${section.key}`,
+            }),
+          ),
+      );
+      sections.push({ key: section.key, text: result.text, provenance });
+    }
+
+    return { ok: true, sections };
+  } catch (error) {
+    return { ok: false, sections: [], error: (error as Error).message };
+  }
+}
+
 /** Answer a command-bar question using approved organisation data. */
 export async function askCommand(query: string): Promise<AiActionResult> {
   try {

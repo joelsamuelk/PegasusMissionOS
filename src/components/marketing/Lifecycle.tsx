@@ -90,8 +90,8 @@ export function Lifecycle() {
 
       <Reveal>
         <p className="mt-12 max-w-2xl border-l-2 border-accent pl-5 font-heading text-[1.125rem] font-semibold leading-snug tracking-tight text-ink sm:text-[1.3rem]">
-          By the twelfth stage, the organisation knows more than it did at the first —
-          and none of that had to be typed twice.
+          By the twelfth stage, the organisation knows more than it did at the
+          first, and none of that had to be typed twice.
         </p>
       </Reveal>
     </Section>

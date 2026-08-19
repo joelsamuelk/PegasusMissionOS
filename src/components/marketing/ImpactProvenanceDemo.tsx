@@ -89,7 +89,7 @@ export function ImpactProvenanceDemo({
 
           <p className="mt-4 text-[0.75rem] leading-relaxed text-ink-subtle">
             The second figure&rsquo;s arithmetic is exact, and Pegasus still records it
-            as a forecast — because it stands on an assumption nobody has approved.
+            as a forecast, because it stands on an assumption nobody has approved.
             Certainty is inherited, not asserted.
           </p>
         </div>
@@ -139,7 +139,7 @@ export function ImpactProvenanceDemo({
             <Row label="Source">
               {source
                 ? `${provenance.evidence?.title ?? source.ref.label ?? source.ref.id}`
-                : "No external source — derived from your own records"}
+                : "No external source. Derived from your own records."}
             </Row>
             {source?.locator && <Row label="Locator">{source.locator}</Row>}
             {source && <Row label="Source authority">{humanise(source.authority)}</Row>}
@@ -162,8 +162,8 @@ export function ImpactProvenanceDemo({
                     <span className="text-[0.8125rem] leading-snug text-ink-muted">
                       <span className="font-medium uppercase tracking-[0.06em] text-ink-subtle">
                         {s.kind}
-                      </span>{" "}
-                      — {s.text}
+                      </span>{": "}
+                      {s.text}
                     </span>
                   </li>
                 ))}

@@ -34,7 +34,7 @@ export function StudioSection() {
             <p className="text-[0.9375rem] leading-relaxed text-ink-muted">
               Pegasus Information Studio designs and builds high-performance software,
               and embeds AI into everyday work where it earns its place. Mission OS is
-              that practice turned toward the sector we care most about — the
+              that practice turned toward the sector we care most about: the
               organisations doing the hardest work with the least slack. It is our own
               product, built in the open against a published architecture and a
               standard of evidence we hold ourselves to.

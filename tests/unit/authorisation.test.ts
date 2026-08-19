@@ -91,9 +91,9 @@ describe("every mutating action maps to a real capability", () => {
       join(process.cwd(), "src", "server", "actions", "ai.ts"),
       "utf8",
     );
-    // One per entry point: generateAnswer, generateReportSection, askCommand,
-    // summarisePipeline. A dropped gate reduces the count.
-    expect((source.match(/authoriseAi\(\)/g) ?? []).length).toBe(4);
+    // One per entry point: answer, one/all report sections, command and pipeline.
+    // A dropped gate reduces the count.
+    expect((source.match(/authoriseAi\(\)/g) ?? []).length).toBe(5);
 
     // `authoriseAi` must check both. Gating on the capability alone would let a
     // workspace that turned AI off keep generating.

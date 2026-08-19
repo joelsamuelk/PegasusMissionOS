@@ -105,7 +105,7 @@ export function FinanceIntelligenceDemo() {
                 <div className="flex items-center gap-2">
                   <Ban className="h-3.5 w-3.5 flex-shrink-0 text-ink-muted" aria-hidden />
                   <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-ink-muted">
-                    Withheld — social return on investment
+                    Withheld: social return on investment
                   </span>
                 </div>
                 <p className="mt-2 text-[0.8125rem] leading-relaxed text-ink-muted">

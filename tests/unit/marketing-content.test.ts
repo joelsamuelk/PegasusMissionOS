@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { NAV_ITEMS } from "@/components/navigation/nav-items";
@@ -33,24 +33,75 @@ describe("marketing content", () => {
 
   /**
    * A nav pointing at an anchor nobody renders scrolls the visitor nowhere and
-   * looks like a broken site. The sections live in their own components, so
-   * the whole marketing tree is searched rather than just the page.
+   * looks like a broken site. Since the site split into `/` and `/product`
+   * there are two ways to break a link, so both are checked: the fragment must
+   * be rendered by something, and the path must be a route that exists.
+   *
+   * The sections live in their own components rather than in the pages, so the
+   * whole marketing tree is searched rather than just the two page files.
    */
-  it("every nav link points at a section the page actually renders", () => {
+  it("every nav link points at a section the site actually renders", () => {
     const marketingDir = join(process.cwd(), "src", "components", "marketing");
     const corpus = [
       readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8"),
+      readFileSync(join(process.cwd(), "src", "app", "product", "page.tsx"), "utf8"),
       ...readdirSync(marketingDir)
         .filter((file) => /\.tsx?$/.test(file))
         .map((file) => readFileSync(join(marketingDir, file), "utf8")),
     ].join("\n");
 
-    for (const link of [...NAV_LINKS, ...FOOTER_PRODUCT].filter((l) =>
-      l.href.startsWith("#"),
-    )) {
-      const id = link.href.replace("#", "");
-      expect(corpus, `nav links to #${id}`).toContain(`id="${id}"`);
+    /** `/` and `/product` are the marketing routes; the rest are the app's. */
+    const ROUTES: Record<string, string[]> = {
+      "/": ["src", "app", "page.tsx"],
+      "/product": ["src", "app", "product", "page.tsx"],
+      "/legal": ["src", "app", "legal", "page.tsx"],
+      "/dashboard": ["src", "app", "(dashboard)", "dashboard", "page.tsx"],
+      "/login": ["src", "app", "(auth)", "login", "page.tsx"],
+    };
+
+    for (const link of [...NAV_LINKS, ...FOOTER_PRODUCT]) {
+      const [path, hash] = link.href.split("#");
+
+      if (hash) {
+        expect(corpus, `${link.label} links to #${hash}`).toContain(`id="${hash}"`);
+      }
+
+      // An empty path means a bare fragment on whichever page is current.
+      if (!path) continue;
+
+      const segments = ROUTES[path];
+      expect(segments, `${link.label} links to unknown route ${path}`).toBeDefined();
+      expect(
+        existsSync(join(process.cwd(), ...segments!)),
+        `${link.label} links to ${path}, which has no page`,
+      ).toBe(true);
     }
+  });
+
+  /**
+   * The home page stays short.
+   *
+   * It ran to eighteen sections once, which is what prompted the split into
+   * `/` and `/product`. Nothing stops the next person adding a nineteenth
+   * except a number that fails, so here is the number. Depth belongs on the
+   * product page; if a section genuinely has to be on the home page, something
+   * else has to come off it.
+   */
+  it("the home page composes a small number of sections", () => {
+    const home = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+
+    // Furniture, not sections: these render around the content rather than
+    // adding any, so counting them would make the limit meaningless.
+    const FURNITURE = ["primitives", "MarketingNav", "MarketingFooter", "Reveal"];
+
+    const sections = [
+      ...home.matchAll(/from "@\/components\/marketing\/([A-Za-z]+)"/g),
+    ]
+      .map((match) => match[1]!)
+      .filter((name) => !FURNITURE.includes(name));
+
+    expect(sections.length, `home sections:\n${sections.join("\n")}`)
+      .toBeLessThanOrEqual(8);
   });
 
   /**
@@ -118,7 +169,10 @@ describe("marketing content", () => {
    */
   it("invents no customers, testimonials or ratings", () => {
     const marketing = join(process.cwd(), "src", "components", "marketing");
-    const page = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+    const page = [
+      readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8"),
+      readFileSync(join(process.cwd(), "src", "app", "product", "page.tsx"), "utf8"),
+    ].join("\n");
     const content = readFileSync(
       join(process.cwd(), "src", "lib", "marketing", "content.ts"),
       "utf8",

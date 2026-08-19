@@ -562,7 +562,12 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
         const section = report.sections.find((s) => s.key === sectionKey);
         if (!section) return;
         section.content = content;
-        if (provenance) section.provenance = provenance;
+        if (provenance) {
+          section.provenance = provenance;
+          section.claimIds = provenance.used
+            .filter((ref) => ref.type === "claim")
+            .map((ref) => ref.id);
+        }
         report.audit.updatedAt = stamp(ctx);
       },
       async setStatus(ctx, reportId, status) {

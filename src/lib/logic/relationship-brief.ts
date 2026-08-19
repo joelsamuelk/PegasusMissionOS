@@ -230,7 +230,7 @@ export function buildRelationshipBrief(input: RelationshipBriefInput): Relations
     .slice(0, 3);
   const communicationLines: BriefLine[] = recent.map((i) => ({
     label: formatDate(i.occurredAt),
-    value: `${i.subject}${i.summary ? ` — ${i.summary}` : ""}`,
+    value: `${i.subject}${i.summary ? `: ${i.summary}` : ""}`,
     sources: [{ type: "interaction", id: i.id }],
   }));
   if (communicationLines.length === 0) {

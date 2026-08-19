@@ -78,7 +78,7 @@ export function FundingIntelligenceDemo({ funding }: { funding: FundingPreview }
                 <Fact
                   label="Duration"
                   value={
-                    funding.durationMonths ? `${funding.durationMonths} months` : "—"
+                    funding.durationMonths ? `${funding.durationMonths} months` : "Not stated"
                   }
                 />
                 <Fact label="Evidence available" value={`${funding.evidenceCount} items`} />

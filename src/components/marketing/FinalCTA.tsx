@@ -57,7 +57,7 @@ export function FinalCTA() {
               </h2>
               <p className="mt-5 max-w-md text-[0.9375rem] leading-relaxed text-ink-muted">
                 Whether you want a guided walkthrough, a second opinion on your funding
-                pipeline, or a route off a decade of spreadsheets — start here and a
+                pipeline, or a route off a decade of spreadsheets, start here and a
                 person will read it.
               </p>
               <p className="mt-7 text-[0.9375rem] text-ink-muted">
