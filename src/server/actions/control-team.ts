@@ -9,7 +9,7 @@ import { authoriseControl as authorise } from "./authorise";
 
 export async function updateInternalRole(form: FormData): Promise<void> {
   const ctx = await authorise("internal_user:manage");
-  await changeInternalRole(ctx, await getControlRepository(), {
+  await changeInternalRole(ctx, await getControlRepository(ctx), {
     userId: String(form.get("userId") ?? ""),
     role: String(form.get("role") ?? "") as InternalRole,
     reason: String(form.get("reason") ?? ""),
@@ -20,7 +20,7 @@ export async function updateInternalRole(form: FormData): Promise<void> {
 
 export async function updateInternalStatus(form: FormData): Promise<void> {
   const ctx = await authorise("internal_user:manage");
-  await changeInternalUserStatus(ctx, await getControlRepository(), {
+  await changeInternalUserStatus(ctx, await getControlRepository(ctx), {
     userId: String(form.get("userId") ?? ""),
     status: String(form.get("status") ?? "") as InternalUserStatus,
     reason: String(form.get("reason") ?? ""),

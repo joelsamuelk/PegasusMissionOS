@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ControlPlaneShell } from "@/components/control-plane/ControlPlaneShell";
+import { DemoModeBanner } from "@/components/control-plane/DemoModeBanner";
 import { resolveControlRequestContext } from "@/server/control-plane/context";
 import { getControlRepository } from "@/server/control-plane";
 
@@ -13,11 +14,12 @@ export const dynamic = "force-dynamic";
 export default async function ControlLayout({ children }: { children: React.ReactNode }) {
   try {
     const ctx = await resolveControlRequestContext();
-    const user = await (await getControlRepository()).users.current(ctx);
+    const user = await (await getControlRepository(ctx)).users.current(ctx);
     if (!user) throw new Error("Internal identity is unavailable.");
-    const supportSession = (await (await getControlRepository()).support.sessions(ctx)).find((session) => session.requesterId === ctx.internalUserId && session.status === "active" && new Date(session.expiresAt).getTime() > Date.now());
+    const supportSession = (await (await getControlRepository(ctx)).support.sessions(ctx)).find((session) => session.requesterId === ctx.internalUserId && session.status === "active" && new Date(session.expiresAt).getTime() > Date.now());
     return (
       <ControlPlaneShell userName={user.name} roleLabel={user.role.replaceAll("_", " ")}>
+        {ctx.demoMode ? <DemoModeBanner /> : null}
         {supportSession ? <div className="mb-5 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-900">Support access active · organisation {supportSession.organisationId} · {supportSession.approvedScope.replaceAll("_", " ")} · expires {new Date(supportSession.expiresAt).toLocaleString()}</div> : null}
         {children}
       </ControlPlaneShell>

@@ -44,7 +44,17 @@ export interface DiscoveryJob {
 export interface DiscoveryCandidate {
   providerRecordId: string;
   name: string;
-  website: string;
+  /**
+   * The organisation's own website, when the provider actually knows it.
+   *
+   * A registry record does not: it knows a register entry, which belongs in
+   * `sourceUrl`. Putting the register URL here would give every candidate from
+   * one registry the same domain, and identity resolution would then read them
+   * all as the same organisation.
+   */
+  website?: string;
+  /** Company or charity number, when the provider is an official register. */
+  registrationIdentifier?: string;
   description?: string;
   sector?: string;
   geography?: string;
@@ -128,6 +138,22 @@ export function resolveOrganisationIdentity(
       return "possible_duplicate";
   }
   return "distinct";
+}
+
+/**
+ * The public register page a `registrationIdentifier` refers to.
+ *
+ * A register candidate has no website of its own, so this is the only link a
+ * reviewer can follow to check the organisation is real.
+ */
+export function registerUrl(registrationIdentifier: string | undefined): string | null {
+  const [register, reference] = (registrationIdentifier ?? "").split(":");
+  if (!reference) return null;
+  if (register === "companies-house")
+    return `https://find-and-update.company-information.service.gov.uk/company/${reference}`;
+  if (register === "ccew")
+    return `https://register-of-charities.charitycommission.gov.uk/charity-search/-/charity-details/${reference}`;
+  return null;
 }
 
 export function safeClaim(input: {

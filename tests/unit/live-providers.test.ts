@@ -71,18 +71,25 @@ describe("live discovery adapters", () => {
                 company_number: "0123",
                 title: "ACME LTD",
                 description: "Private company",
+                company_status: "active",
+              },
+              {
+                company_number: "0456",
+                title: "GONE LTD",
+                description: "Private company",
+                company_status: "dissolved",
               },
             ],
           }),
           { status: 200 },
         ),
     );
-    const [result] = await new CompaniesHouseDiscoveryProvider("key", fetcher).discover(
+    const results = await new CompaniesHouseDiscoveryProvider("key", fetcher).discover(
       job,
       ctx,
     );
-    expect(result!.providerRecordId).toBe("companies-house:0123");
-    expect(result!.sourceUrl).toContain("0123");
+    expect(results.map((x) => x.providerRecordId)).toEqual(["companies-house:0123"]);
+    expect(results[0]!.sourceUrl).toContain("0123");
   });
   it("maps Charity Commission identity and excludes removed charities", async () => {
     const fetcher = vi.fn<(input: string | URL, init?: RequestInit) => Promise<Response>>(

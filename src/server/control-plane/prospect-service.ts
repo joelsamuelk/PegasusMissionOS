@@ -33,13 +33,13 @@ export async function researchProspect(ctx: ControlRequestContext, repo: Control
   return { sourceCount: mapped.sources.length, factCount: mapped.facts.length, conflictCount: outcome.reconciliation.conflicts.length, degradedReason: outcome.degraded?.reason };
 }
 
-export async function createProspect(ctx: ControlRequestContext, repo: ControlRepository, input: { name: string; website?: string; country?: string; organisationType?: string; source: string }): Promise<string> {
+export async function createProspect(ctx: ControlRequestContext, repo: ControlRepository, input: { name: string; website?: string; registrationIdentifier?: string; country?: string; organisationType?: string; source: string }): Promise<string> {
   requireControlCapability(ctx.role, "prospect:create");
   if (!input.name.trim()) throw new Error("Prospect name is required.");
   if (input.website) { const url = new URL(input.website); if (!["http:", "https:"].includes(url.protocol)) throw new Error("Website must use HTTP or HTTPS."); }
   const now = ctx.now().toISOString();
   const id = crypto.randomUUID();
-  const prospect: ProspectOrganisation = { id, name: input.name.trim(), website: input.website, country: input.country, organisationType: input.organisationType, focusAreas: [], sizeIndicators: [], publicFinancialIndicators: [], publicProgrammeIndicators: [], status: "discovered", ownerId: ctx.internalUserId, source: input.source, createdAt: now, updatedAt: now };
+  const prospect: ProspectOrganisation = { id, name: input.name.trim(), website: input.website, registrationIdentifier: input.registrationIdentifier, country: input.country, organisationType: input.organisationType, focusAreas: [], sizeIndicators: [], publicFinancialIndicators: [], publicProgrammeIndicators: [], status: "discovered", ownerId: ctx.internalUserId, source: input.source, createdAt: now, updatedAt: now };
   await repo.prospects.create(ctx, prospect);
   await repo.audit.append(ctx, createInternalAuditEvent(ctx, { action: "prospect.create", targetType: "prospect_organisation", targetId: id, after: { name: prospect.name, source: prospect.source } }));
   return id;

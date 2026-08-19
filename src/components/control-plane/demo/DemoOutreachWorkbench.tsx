@@ -14,7 +14,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { rankedAccounts } from "@/lib/commercial/demo-data";
-export function OutreachWorkbench({ initialId }: { initialId?: string }) {
+export function DemoOutreachWorkbench({ initialId }: { initialId?: string }) {
   const start = Math.max(
     0,
     rankedAccounts.findIndex((a) => a.id === initialId),

@@ -1,6 +1,7 @@
 import type { InternalRole } from "@/lib/control-plane/permissions";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { appConfig } from "@/lib/config";
+import { DEMO_MODE_COOKIE, isDemoCookie } from "@/lib/control-plane/demo-mode";
 import { createAnonClient } from "@/server/data/supabase/client";
 
 /** Identity for an internal request. It intentionally contains no tenant role. */
@@ -8,6 +9,14 @@ export interface ControlRequestContext {
   internalUserId: string;
   role: InternalRole;
   requestId: string;
+  /**
+   * True while this session is demonstrating.
+   *
+   * Resolved once, here. Every surface that can render curated example content
+   * reads it, and the repository reads it to hand back a sandbox, so no page
+   * can decide to show or write demonstration data on its own.
+   */
+  demoMode: boolean;
   now(): Date;
   /** Present only during an explicitly established support session. */
   supportSession?: {
@@ -19,9 +28,16 @@ export interface ControlRequestContext {
 }
 
 export function createControlRequestContext(
-  init: Omit<ControlRequestContext, "now"> & { now?: () => Date },
+  init: Omit<ControlRequestContext, "now" | "demoMode"> & {
+    now?: () => Date;
+    demoMode?: boolean;
+  },
 ): ControlRequestContext {
-  return { ...init, now: init.now ?? (() => new Date()) };
+  return {
+    ...init,
+    demoMode: init.demoMode ?? false,
+    now: init.now ?? (() => new Date()),
+  };
 }
 
 export function activeSupportSession(
@@ -51,11 +67,18 @@ export async function resolveControlRequestContext(): Promise<ControlRequestCont
   const requestHeaders = await headers();
   const requestId = requestHeaders.get("x-request-id") ?? crypto.randomUUID();
 
+  // Read before authentication: a demonstration is entered by a signed-in
+  // operator, but the flag itself is session state rather than identity.
+  const demoMode = isDemoCookie((await cookies()).get(DEMO_MODE_COOKIE)?.value);
+
   if (appConfig.control.mockEnabled) {
+    // Local development against the mock store. The demonstration cookie still
+    // decides which views render, so both can be worked on without Supabase.
     return createControlRequestContext({
       internalUserId: "internal-demo",
       role: "super_admin",
       requestId,
+      demoMode,
     });
   }
   if (appConfig.isMockData) throw new ControlNotAuthenticatedError();
@@ -76,5 +99,6 @@ export async function resolveControlRequestContext(): Promise<ControlRequestCont
     internalUserId: data.id,
     role: data.role as InternalRole,
     requestId,
+    demoMode,
   });
 }

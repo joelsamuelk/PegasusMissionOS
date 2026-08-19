@@ -1,4 +1,4 @@
-import { OutreachWorkbench } from "@/components/control-plane/OutreachWorkbench";
+import { DemoOutreachWorkbench } from "@/components/control-plane/demo/DemoOutreachWorkbench";
 import { getControlRepository } from "@/server/control-plane";
 import { resolveControlRequestContext } from "@/server/control-plane/context";
 import {
@@ -14,7 +14,7 @@ export default async function OutreachPage({
 }) {
   const query = await searchParams;
   const ctx = await resolveControlRequestContext(),
-    repo = await getControlRepository(),
+    repo = await getControlRepository(ctx),
     prospects = await repo.prospects.list(ctx),
     people = (
       await Promise.all(prospects.map((p) => repo.prospects.people(ctx, p.id)))
@@ -25,7 +25,18 @@ export default async function OutreachPage({
     requests = await repo.outreach.sendRequests(ctx);
   return (
     <div className="space-y-10">
-      <OutreachWorkbench initialId={query.account} />
+      {ctx.demoMode ? (
+        <DemoOutreachWorkbench initialId={query.account} />
+      ) : (
+        <section className="surface-card p-5">
+          <p className="eyebrow">Daily outreach</p>
+          <h2 className="mt-2 text-lg font-semibold">No account queue yet</h2>
+          <p className="mt-2 max-w-2xl text-sm text-ink-muted">
+            The queue is built from scored recommendations, and scoring does not run yet.
+            Drafts below work against real prospects and verified contacts.
+          </p>
+        </section>
+      )}
       <section className="surface-card p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

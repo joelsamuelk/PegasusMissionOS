@@ -1,5 +1,5 @@
 import { Check, SlidersHorizontal } from "lucide-react";
-import { icpProfiles } from "@/lib/commercial/demo-data";
+import { icpProfiles } from "@/lib/commercial/icp-profiles";
 export default function ICPPage() {
   return (
     <div className="space-y-6">
