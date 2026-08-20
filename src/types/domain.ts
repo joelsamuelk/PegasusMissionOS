@@ -1710,6 +1710,313 @@ export interface ReportTemplateIngestion {
 }
 
 
+// --- Integrations (MG-11) -----------------------------------------------
+
+/**
+ * The integration hub.
+ *
+ * The strategic point, from the brief: *Mission OS should be capable of
+ * becoming the intelligence layer around existing systems before becoming the
+ * system of record for every capability.* An organisation with a CRM it likes
+ * should be able to start using Pegasus for programme, funding, evidence and
+ * impact work without a risky day-one migration.
+ *
+ * Two rules make that survivable, and both are enforced by types here rather
+ * than by discipline.
+ *
+ * **No provider identifier ever enters a core entity.** `Person` has no
+ * `beaconId`. The mapping lives in `ExternalIdentity`, keyed by
+ * `(connectionId, externalId)`, which is also the idempotency key — re-running
+ * a sync must not duplicate a record and must not need a full re-read to know
+ * so. This is the rule `server/communications/provider.ts` established for
+ * email; this generalises it.
+ *
+ * **Nothing silently overwrites a human.** *Never silently overwrite
+ * conflicting human-approved information.* A sync that would change a value
+ * somebody verified produces a `SyncConflict` and writes nothing. That is not
+ * a setting; it is what the engine does.
+ */
+
+export type IntegrationCategory =
+  | "crm"
+  | "accounting"
+  | "payments"
+  | "email"
+  | "calendar"
+  | "fundraising"
+  | "storage"
+  | "forms"
+  | "banking";
+
+/**
+ * Which way records move.
+ *
+ * `inbound` is the safe default and the one CONNECT mode uses: Pegasus reads,
+ * and the other system stays the system of record. `outbound` and
+ * `bidirectional` are the ones that can damage another system's data, and both
+ * require the organisation to have said which side wins.
+ */
+export type SyncDirection = "inbound" | "outbound" | "bidirectional";
+
+/** Which system is authoritative for a kind of record. */
+export type SourceOfTruth = "external" | "pegasus" | "field_level";
+
+/**
+ * What happens when both sides changed.
+ *
+ * `refuse` is the default and the only one safe without configuration.
+ * `newest_wins` is a real policy an organisation may choose and is dangerous
+ * where clocks disagree, which is why it is named rather than implied.
+ */
+export type ConflictBehaviour = "refuse" | "external_wins" | "pegasus_wins" | "newest_wins";
+
+/**
+ * What a deletion on the other side means here.
+ *
+ * `ignore` is the default. A CRM record deleted by somebody tidying up should
+ * not silently remove a person from a grant report, and a sync that propagated
+ * deletions by default would do exactly that.
+ */
+export type DeletionBehaviour = "ignore" | "archive" | "flag";
+
+/**
+ * How an integration behaves, declared rather than assumed.
+ *
+ * The brief requires every integration to define source of truth, direction,
+ * conflict behaviour, deletion behaviour, freshness and failure behaviour.
+ * Making it a required field on the connection means an integration cannot
+ * exist without somebody having answered all six.
+ */
+export interface SyncSemantics {
+  direction: SyncDirection;
+  sourceOfTruth: SourceOfTruth;
+  conflictBehaviour: ConflictBehaviour;
+  deletionBehaviour: DeletionBehaviour;
+  /** How stale data may be before the UI says so, in minutes. */
+  freshnessMinutes: number;
+  /** Consecutive failures before the connection is marked as needing help. */
+  failureThreshold: number;
+}
+
+/**
+ * What a provider can actually do.
+ *
+ * Declared per provider and **verified against its documentation**, because
+ * assuming a capability produces an integration that fails in production
+ * rather than at design time. `verified` records whether anybody checked.
+ */
+export interface ProviderCapabilities {
+  read: boolean;
+  write: boolean;
+  delete: boolean;
+  /** Incremental reads from a cursor, rather than a full re-read each time. */
+  incrementalSync: boolean;
+  webhooks: boolean;
+  bulkExport: boolean;
+  fileAccess: boolean;
+  /** Requests per minute, where the provider publishes one. */
+  rateLimitPerMinute?: number;
+  bulkRateLimitPerMinute?: number;
+}
+
+/**
+ * A provider Pegasus knows how to talk to.
+ *
+ * A descriptor, not a connection. `implemented` is false for every provider
+ * today, and saying so is the point: a registry that listed nine providers
+ * without distinguishing the described from the built would be a roadmap
+ * presented as a feature.
+ */
+export interface Integration {
+  id: string;
+  name: string;
+  category: IntegrationCategory;
+  /** What Mission OS can consume from it, in graph terms. */
+  supplies: EntityType[];
+  /** What it deliberately cannot supply, and why. Never left implicit. */
+  unavailable: { entityType: EntityType; reason: string }[];
+  capabilities: ProviderCapabilities;
+  /** Where the capabilities were read from. A claim needs a source. */
+  documentation?: string;
+  /** True only where an adapter exists and has been exercised. */
+  implemented: boolean;
+  /** Constraints an organisation needs to know before connecting. */
+  notes: string[];
+}
+
+export type ConnectionStatus =
+  | "pending"
+  | "active"
+  | "reauthorisation_required"
+  | "rate_limited"
+  | "failing"
+  | "revoked";
+
+/**
+ * How the organisation is using an integration.
+ *
+ * `connect` keeps the other system as the system of record and reads from it.
+ * `migrate` moves canonical ownership to Pegasus. The brief is explicit that
+ * the first dramatically reduces adoption friction, and the mode is on the
+ * connection because it changes what a sync is allowed to do.
+ */
+export type MigrationMode = "connect" | "migrate";
+
+export interface IntegrationConnection {
+  id: UUID;
+  organisationId: UUID;
+  integrationId: string;
+  /** A label the organisation recognises: the account or mailbox connected. */
+  accountLabel: string;
+  mode: MigrationMode;
+  semantics: SyncSemantics;
+  status: ConnectionStatus;
+  /**
+   * Credentials are **never** stored here.
+   *
+   * This holds a reference to wherever the secret actually lives. A token in a
+   * tenant-readable row is a token every member of the organisation can read,
+   * and a schema that has somewhere to put one will eventually have one in it.
+   */
+  credentialRef?: string;
+  connectedBy?: UUID;
+  connectedAt: ISODate;
+  lastSyncedAt?: ISODate;
+  consecutiveFailures: number;
+  lastError?: string;
+  audit: AuditStamp;
+}
+
+/**
+ * The bridge between a provider record and a Pegasus entity.
+ *
+ * The table that keeps provider identifiers out of core entities. `Person` has
+ * no `beaconId`; this row says that Beacon record `abc123` on this connection
+ * is Pegasus person `per-rowan`, and `(connectionId, externalId)` is the
+ * idempotency key that makes a re-run safe.
+ */
+export interface ExternalIdentity {
+  id: UUID;
+  organisationId: UUID;
+  connectionId: UUID;
+  /** The provider's own id. Opaque; never parsed, never displayed as an id. */
+  externalId: string;
+  /** The provider's own type name, e.g. "person", "organisation". */
+  externalType: string;
+  entity: EntityReference;
+  /** A hash of the last payload seen, so an unchanged record is skipped. */
+  contentHash?: string;
+  firstSeenAt: ISODate;
+  lastSeenAt: ISODate;
+  /** Set where the provider reports the record as deleted. */
+  externallyDeletedAt?: ISODate;
+}
+
+/**
+ * Where a sync got to.
+ *
+ * Opaque and provider-specific. Pegasus stores it and hands it back; it never
+ * parses one, because a cursor's format is the provider's business and parsing
+ * it is how an integration breaks on a vendor's internal change.
+ */
+export interface SyncCursor {
+  id: UUID;
+  organisationId: UUID;
+  connectionId: UUID;
+  resource: string;
+  cursor: string;
+  updatedAt: ISODate;
+}
+
+export type SyncRunOutcome = "completed" | "partial" | "failed" | "refused";
+
+export interface SyncRun {
+  id: UUID;
+  organisationId: UUID;
+  connectionId: UUID;
+  resource: string;
+  direction: SyncDirection;
+  startedAt: ISODate;
+  finishedAt?: ISODate;
+  outcome: SyncRunOutcome;
+  recordsRead: number;
+  recordsCreated: number;
+  recordsUpdated: number;
+  recordsSkipped: number;
+  conflictsRaised: number;
+  /** Always populated. A run that explains nothing cannot be diagnosed. */
+  summary: string;
+  error?: string;
+}
+
+/**
+ * A change the sync refused to make.
+ *
+ * *Never silently overwrite conflicting human-approved information.* This is
+ * that rule's record. It holds both values, so a person resolving it can see
+ * what each side says rather than being asked to pick between two labels.
+ */
+export interface SyncConflict {
+  id: UUID;
+  organisationId: UUID;
+  connectionId: UUID;
+  entity: EntityReference;
+  field: string;
+  /** What Pegasus holds, and how much it is trusted. */
+  pegasusValue: string;
+  pegasusVerification: VerificationState;
+  /** What the provider says. */
+  externalValue: string;
+  detectedAt: ISODate;
+  resolution?: "kept_pegasus" | "took_external" | "manual";
+  resolvedBy?: UUID;
+  resolvedAt?: ISODate;
+  resolutionNote?: string;
+}
+
+/**
+ * An inbound event from a provider that supports them.
+ *
+ * Stored before it is processed, and deduplicated on the provider's own event
+ * id. A webhook delivered twice is normal, and a handler that assumed
+ * otherwise would double-count a donation.
+ */
+export interface WebhookEvent {
+  id: UUID;
+  organisationId: UUID;
+  connectionId: UUID;
+  providerEventId: string;
+  eventType: string;
+  receivedAt: ISODate;
+  payloadHash: string;
+  status: "received" | "processed" | "ignored" | "failed";
+  processedAt?: ISODate;
+  note?: string;
+}
+
+/**
+ * How a provider's field becomes a Pegasus field.
+ *
+ * Per connection rather than per provider, because some providers generate
+ * their schema from each customer's own configuration — Beacon does — so field
+ * keys differ between two organisations using the same product. A mapping
+ * hardcoded per provider would work for the first customer and fail for the
+ * second.
+ */
+export interface IntegrationMapping {
+  id: UUID;
+  organisationId: UUID;
+  connectionId: UUID;
+  externalType: string;
+  externalField: string;
+  entityType: EntityType;
+  field: string;
+  /** Whether this field may be written back. Off unless somebody said so. */
+  writable: boolean;
+  /** Set where a human confirmed the mapping. Discovery produces candidates. */
+  verification: VerificationState;
+}
+
 // --- Supporters, fundraising and stewardship (MG-10) --------------------
 
 /**

@@ -43,7 +43,14 @@ import type {
   DocumentVersion,
   EvidenceItem,
   EvidenceLink,
+  ExternalIdentity,
   ExternalOrganisation,
+  IntegrationConnection,
+  IntegrationMapping,
+  SyncConflict,
+  SyncCursor,
+  SyncRun,
+  WebhookEvent,
   ExtractedClaim,
   FinancialAllocation,
   FinancialTransaction,
@@ -199,6 +206,14 @@ export interface StoreState {
   // code because a field allowlist is not data an organisation should edit.
   // MG-10. A donation points at a transaction and carries no amount: the
   // money is finance, and this is what the money was.
+  // MG-11. Provider ids live here and never on a core entity.
+  integrationConnections: IntegrationConnection[];
+  externalIdentities: ExternalIdentity[];
+  syncCursors: SyncCursor[];
+  syncRuns: SyncRun[];
+  syncConflicts: SyncConflict[];
+  webhookEvents: WebhookEvent[];
+  integrationMappings: IntegrationMapping[];
   campaigns: Campaign[];
   appeals: Appeal[];
   donations: Donation[];
@@ -303,6 +318,13 @@ export function createStoreState(): StoreState {
     reportApprovals: [],
     reportRequirements: clone(seed.reportRequirements ?? []),
     reportTemplateIngestions: [],
+    integrationConnections: [],
+    externalIdentities: [],
+    syncCursors: [],
+    syncRuns: [],
+    syncConflicts: [],
+    webhookEvents: [],
+    integrationMappings: [],
     campaigns: clone(seed.campaigns ?? []),
     appeals: clone(seed.appeals ?? []),
     donations: clone(seed.donations ?? []),

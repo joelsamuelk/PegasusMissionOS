@@ -33,7 +33,15 @@ import type {
   EntityReference,
   EvidenceItem,
   EvidenceType,
+  ExternalIdentity,
   ExternalOrganisation,
+  IntegrationConnection,
+  IntegrationMapping,
+  MigrationMode,
+  SyncConflict,
+  SyncRun,
+  SyncSemantics,
+  WebhookEvent,
   FinancialAllocation,
   FinancialTransaction,
   FitAssessment,
@@ -1242,6 +1250,95 @@ export interface FundraisingRepository {
   giftAidClaims(ctx: RequestContext): Promise<GiftAidClaim[]>;
 }
 
+/**
+ * Integrations.
+ *
+ * `applyIncoming` is the method the phase turns on. It takes a normalised
+ * record from a provider and decides, field by field, whether to write it —
+ * and raises a `SyncConflict` rather than overwriting anything a person stood
+ * behind. There is deliberately no method that writes a synced value directly.
+ */
+export interface IncomingRecord {
+  externalId: string;
+  externalType: string;
+  /** The provider's payload, already normalised to flat string values. */
+  fields: Record<string, string>;
+  /** Set where the provider reports the record as deleted. */
+  deleted?: boolean;
+}
+
+export interface SyncOutcome {
+  run: SyncRun;
+  conflicts: SyncConflict[];
+}
+
+export interface IntegrationRepository {
+  connections(ctx: RequestContext): Promise<IntegrationConnection[]>;
+  getConnection(ctx: RequestContext, id: string): Promise<IntegrationConnection | null>;
+  connect(
+    ctx: RequestContext,
+    input: {
+      integrationId: string;
+      accountLabel: string;
+      mode: MigrationMode;
+      semantics?: SyncSemantics;
+      credentialRef?: string;
+    },
+  ): Promise<string | null>;
+  setSemantics(
+    ctx: RequestContext,
+    connectionId: string,
+    semantics: SyncSemantics,
+  ): Promise<void>;
+  disconnect(ctx: RequestContext, connectionId: string): Promise<void>;
+
+  mappings(ctx: RequestContext, connectionId: string): Promise<IntegrationMapping[]>;
+  saveMapping(
+    ctx: RequestContext,
+    input: Omit<IntegrationMapping, "id" | "organisationId">,
+  ): Promise<string | null>;
+
+  identities(ctx: RequestContext, connectionId: string): Promise<ExternalIdentity[]>;
+  /** Resolve a provider record to a Pegasus entity, if it has been seen. */
+  resolveExternal(
+    ctx: RequestContext,
+    connectionId: string,
+    externalId: string,
+    externalType: string,
+  ): Promise<ExternalIdentity | null>;
+
+  runs(ctx: RequestContext, connectionId?: string): Promise<SyncRun[]>;
+  conflicts(ctx: RequestContext, options?: { openOnly?: boolean }): Promise<SyncConflict[]>;
+  resolveConflict(
+    ctx: RequestContext,
+    conflictId: string,
+    resolution: NonNullable<SyncConflict["resolution"]>,
+    note?: string,
+  ): Promise<void>;
+
+  /**
+   * Take a batch of provider records and decide what to do with each.
+   *
+   * Writes nothing a person stood behind. Returns the run and every conflict
+   * it raised, so a caller can report what did not happen as readily as what
+   * did.
+   */
+  applyIncoming(
+    ctx: RequestContext,
+    connectionId: string,
+    resource: string,
+    records: IncomingRecord[],
+  ): Promise<SyncOutcome>;
+
+  /** Record a webhook, deduplicated on the provider's own event id. */
+  recordWebhook(
+    ctx: RequestContext,
+    connectionId: string,
+    input: { providerEventId: string; eventType: string; payload: Record<string, unknown> },
+  ): Promise<{ accepted: boolean; reason?: string }>;
+  webhooks(ctx: RequestContext, connectionId: string): Promise<WebhookEvent[]>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
@@ -1265,6 +1362,7 @@ export interface MissionRepository {
   /** Unscoped by necessity, and narrowed to almost nothing. See above. */
   publicForms: PublicFormRepository;
   fundraising: FundraisingRepository;
+  integrations: IntegrationRepository;
   portals: PortalRepository;
   /** The portal user's side. Returns projections, never records. */
   portalAccess: PortalAccessRepository;

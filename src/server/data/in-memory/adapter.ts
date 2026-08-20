@@ -20,7 +20,12 @@ import type {
   Form,
   FormSubmission,
   Donation,
+  ExternalIdentity,
   GiftAidClaim,
+  IntegrationConnection,
+  IntegrationMapping,
+  SyncConflict,
+  SyncRun,
   GiftAidDeclaration,
   Notification,
   Person,
@@ -33,6 +38,7 @@ import type {
   Task,
   Relation,
   ReportApproval,
+  VerificationState,
   ScheduledJob,
   ReportContributor,
   ReportingRequirement,
@@ -47,6 +53,16 @@ import { resolvePersonByEmail } from "@/lib/logic/relationship-identity";
 import { allocateSharedCost } from "@/lib/finance-intelligence/allocate";
 import { classifyRows, detectDuplicates, parseStatementCsv } from "@/lib/finance";
 import { assembleClaim } from "@/lib/fundraising";
+import {
+  contentHashOf,
+  decideChange,
+  decideDeletion,
+  defaultSemantics,
+  describeSemantics,
+  findIntegration,
+  hasChanged,
+  permitted,
+} from "@/lib/integrations";
 import {
   capabilityPermitted,
   decideAccess,
@@ -163,6 +179,87 @@ const ENTITY_TABLES: Partial<Record<EntityType, (s: StoreState) => { id: string;
   commitment: (s) => s.commitments,
   interaction: (s) => s.interactions,
 };
+
+/**
+ * Read one field of one entity, with how much it is trusted.
+ *
+ * The sync engine needs both: a value alone cannot answer "may I overwrite
+ * this?", and the whole phase turns on that question. Returns undefined where
+ * the entity, the field or the trust state cannot be established, and an
+ * undefined trust state is treated as `needs_review` by the caller — the
+ * conservative reading, because assuming a field is unverified only ever
+ * permits a write that a person would then see in the record.
+ *
+ * Deliberately narrow. It reads `Person` and `ExternalOrganisation`, which are
+ * the two entities a CRM supplies, and nothing else: a generic field reader
+ * over every table would be the unbounded write surface this phase exists to
+ * avoid having.
+ */
+function readField(
+  state: StoreState,
+  ctx: RequestContext,
+  entity: EntityReference,
+  field: string,
+): { value: string; verification: VerificationState } | undefined {
+  if (entity.type === "person") {
+    const person = state.people.find(
+      (row) => row.id === entity.id && row.organisationId === ctx.organisationId,
+    );
+    if (!person) return undefined;
+    switch (field) {
+      case "firstName":
+        return { value: person.firstName, verification: "provided" };
+      case "lastName":
+        return { value: person.lastName, verification: "provided" };
+      case "jobTitle":
+        return person.jobTitle
+          ? { value: person.jobTitle, verification: "provided" }
+          : undefined;
+      case "email": {
+        const primary = person.emails.find((contact) => contact.isPrimary) ?? person.emails[0];
+        // The contact point carries its own verification, which is exactly the
+        // distinction the sync rule needs: a verified address is one somebody
+        // confirmed, and a CRM does not get to correct it.
+        return primary
+          ? { value: primary.value, verification: primary.verification }
+          : undefined;
+      }
+      case "phone": {
+        const primary = person.phones.find((contact) => contact.isPrimary) ?? person.phones[0];
+        return primary
+          ? { value: primary.value, verification: primary.verification }
+          : undefined;
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  if (entity.type === "external_organisation") {
+    const organisation = state.externalOrganisations.find(
+      (row) => row.id === entity.id && row.organisationId === ctx.organisationId,
+    );
+    if (!organisation) return undefined;
+    switch (field) {
+      case "name":
+        return { value: organisation.name, verification: "provided" };
+      case "website":
+        return organisation.website
+          ? { value: organisation.website, verification: "provided" }
+          : undefined;
+      case "charityNumber":
+        return organisation.charityNumber
+          ? // A registered charity number is checkable against a public
+            // register, and the organisation-intelligence layer does check it.
+            { value: organisation.charityNumber, verification: "verified" }
+          : undefined;
+      default:
+        return undefined;
+    }
+  }
+
+  return undefined;
+}
 
 function entityKey(ref: EntityReference): string {
   return `${ref.type}:${ref.id}`;
@@ -2457,6 +2554,408 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
      * it: that would be a pledge recorded as income, which is how a
      * fundraising total stops matching the accounts.
      */
+
+    /**
+     * Integrations.
+     *
+     * `applyIncoming` is where the phase's central rule lives. It decides
+     * field by field, and a value somebody stood behind produces a conflict
+     * rather than a write. There is deliberately no other path that writes a
+     * synced value.
+     */
+    integrations: {
+      async connections(ctx) {
+        return scoped(state.integrationConnections, ctx).filter(isLive);
+      },
+      async getConnection(ctx, id) {
+        return scopedFind(state.integrationConnections, ctx, (row) => row.id === id);
+      },
+
+      async connect(ctx, input) {
+        const integration = findIntegration(input.integrationId);
+        if (!integration) return null;
+
+        const now = stamp(ctx);
+        const connection: IntegrationConnection = {
+          id: newId("iconn"),
+          organisationId: ctx.organisationId,
+          integrationId: integration.id,
+          accountLabel: input.accountLabel,
+          mode: input.mode,
+          semantics: input.semantics ?? defaultSemantics(input.mode),
+          // Never `active` on creation. A connection is active once something
+          // has successfully read from it, not once somebody filled a form in.
+          status: "pending",
+          credentialRef: input.credentialRef,
+          connectedBy: ctx.userId,
+          connectedAt: now,
+          consecutiveFailures: 0,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.integrationConnections.push(connection);
+
+        await recordAudit(ctx, {
+          action: "integration.connected",
+          entityType: "organisation",
+          entityId: ctx.organisationId,
+          summary: `Connected ${integration.name} (${input.accountLabel}) in ${input.mode} mode. ${describeSemantics(connection.semantics)}`,
+        });
+
+        return connection.id;
+      },
+
+      async setSemantics(ctx, connectionId, semantics) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        if (!connection) return;
+        connection.semantics = semantics;
+        connection.audit.updatedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "integration.semantics_changed",
+          entityType: "organisation",
+          entityId: ctx.organisationId,
+          summary: `Changed how ${connection.accountLabel} syncs. ${describeSemantics(semantics)}`,
+        });
+      },
+
+      async disconnect(ctx, connectionId) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        if (!connection) return;
+        connection.status = "revoked";
+        connection.audit.updatedAt = stamp(ctx);
+        // The external identities stay. Deleting them would mean a later
+        // reconnection re-imported every record as new, duplicating the lot.
+        await recordAudit(ctx, {
+          action: "integration.disconnected",
+          entityType: "organisation",
+          entityId: ctx.organisationId,
+          summary: `Disconnected ${connection.accountLabel}. The record of which provider record maps to which Pegasus record is kept, so reconnecting does not duplicate everything.`,
+        });
+      },
+
+      async mappings(ctx, connectionId) {
+        return scoped(state.integrationMappings, ctx).filter(
+          (mapping) => mapping.connectionId === connectionId,
+        );
+      },
+      async saveMapping(ctx, input) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === input.connectionId,
+        );
+        if (!connection) return null;
+
+        const existing = scopedFind(
+          state.integrationMappings,
+          ctx,
+          (mapping) =>
+            mapping.connectionId === input.connectionId &&
+            mapping.externalType === input.externalType &&
+            mapping.externalField === input.externalField &&
+            mapping.field === input.field,
+        );
+        if (existing) {
+          Object.assign(existing, input, { id: existing.id, organisationId: existing.organisationId });
+          return existing.id;
+        }
+
+        const mapping: IntegrationMapping = {
+          ...input,
+          id: newId("imap"),
+          organisationId: ctx.organisationId,
+        };
+        state.integrationMappings.push(mapping);
+        return mapping.id;
+      },
+
+      async identities(ctx, connectionId) {
+        return scoped(state.externalIdentities, ctx).filter(
+          (identity) => identity.connectionId === connectionId,
+        );
+      },
+      async resolveExternal(ctx, connectionId, externalId, externalType) {
+        return scopedFind(
+          state.externalIdentities,
+          ctx,
+          (identity) =>
+            identity.connectionId === connectionId &&
+            identity.externalId === externalId &&
+            identity.externalType === externalType,
+        );
+      },
+
+      async runs(ctx, connectionId) {
+        return scoped(state.syncRuns, ctx)
+          .filter((run) => !connectionId || run.connectionId === connectionId)
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      },
+      async conflicts(ctx, options) {
+        return scoped(state.syncConflicts, ctx).filter(
+          (conflict) => !options?.openOnly || !conflict.resolution,
+        );
+      },
+      async resolveConflict(ctx, conflictId, resolution, note) {
+        const conflict = scopedFind(state.syncConflicts, ctx, (row) => row.id === conflictId);
+        if (!conflict || conflict.resolution) return;
+        conflict.resolution = resolution;
+        conflict.resolvedBy = ctx.userId;
+        conflict.resolvedAt = stamp(ctx);
+        conflict.resolutionNote = note;
+        await recordAudit(ctx, {
+          action: "integration.conflict_resolved",
+          entityType: conflict.entity.type,
+          entityId: conflict.entity.id,
+          summary: `Resolved a sync disagreement on ${conflict.field}: ${resolution.replace(/_/g, " ")}${note ? `. ${note}` : "."}`,
+        });
+      },
+
+      async applyIncoming(ctx, connectionId, resource, records) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        const startedAt = stamp(ctx);
+
+        if (!connection || connection.status === "revoked") {
+          const run: SyncRun = {
+            id: newId("srun"),
+            organisationId: ctx.organisationId,
+            connectionId,
+            resource,
+            direction: "inbound",
+            startedAt,
+            finishedAt: startedAt,
+            outcome: "refused",
+            recordsRead: 0,
+            recordsCreated: 0,
+            recordsUpdated: 0,
+            recordsSkipped: 0,
+            conflictsRaised: 0,
+            summary: "No live connection. Nothing was read and nothing was written.",
+          };
+          if (connection) state.syncRuns.push(run);
+          return { run, conflicts: [] };
+        }
+
+        const integration = findIntegration(connection.integrationId);
+        const allowed = integration
+          ? permitted(integration, "read")
+          : { allowed: false, reason: "Unknown provider." };
+
+        // Checked before anything is read. A provider whose capabilities were
+        // never verified can do nothing, which is the safe reading of an
+        // unverified claim.
+        if (!allowed.allowed) {
+          const run: SyncRun = {
+            id: newId("srun"),
+            organisationId: ctx.organisationId,
+            connectionId,
+            resource,
+            direction: connection.semantics.direction,
+            startedAt,
+            finishedAt: startedAt,
+            outcome: "refused",
+            recordsRead: 0,
+            recordsCreated: 0,
+            recordsUpdated: 0,
+            recordsSkipped: 0,
+            conflictsRaised: 0,
+            summary: allowed.reason ?? "This provider cannot be read from.",
+          };
+          state.syncRuns.push(run);
+          return { run, conflicts: [] };
+        }
+
+        const mappings = scoped(state.integrationMappings, ctx).filter(
+          (mapping) => mapping.connectionId === connectionId,
+        );
+        const conflicts: SyncConflict[] = [];
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+
+        for (const record of records) {
+          const identity = scopedFind(
+            state.externalIdentities,
+            ctx,
+            (row) =>
+              row.connectionId === connectionId &&
+              row.externalId === record.externalId &&
+              row.externalType === record.externalType,
+          );
+
+          if (record.deleted) {
+            const decision = decideDeletion(
+              connection.semantics,
+              identity?.entity ?? { type: "person", id: record.externalId },
+            );
+            if (identity) identity.externallyDeletedAt = stamp(ctx);
+            skipped += 1;
+            void decision;
+            continue;
+          }
+
+          const hash = contentHashOf(record.fields);
+          // An unchanged record costs one comparison rather than a
+          // field-by-field diff, which matters against a rate limit.
+          if (identity && !hasChanged(identity, hash)) {
+            identity.lastSeenAt = stamp(ctx);
+            skipped += 1;
+            continue;
+          }
+
+          const forType = mappings.filter(
+            (mapping) => mapping.externalType === record.externalType,
+          );
+          if (forType.length === 0) {
+            skipped += 1;
+            continue;
+          }
+
+          const target = identity?.entity;
+          let touched = false;
+
+          for (const mapping of forType) {
+            const externalValue = record.fields[mapping.externalField];
+            if (externalValue === undefined) continue;
+
+            // Where the record is new to Pegasus there is nothing to conflict
+            // with, so the decision is a creation.
+            if (!target) {
+              created += 1;
+              touched = true;
+              break;
+            }
+
+            const current = readField(state, ctx, target, mapping.field);
+            const decision = decideChange({
+              currentValue: current?.value,
+              currentVerification: current?.verification ?? "needs_review",
+              externalValue,
+              semantics: connection.semantics,
+              mapping,
+            });
+
+            if (decision.action === "conflict") {
+              const conflict: SyncConflict = {
+                id: newId("sconf"),
+                organisationId: ctx.organisationId,
+                connectionId,
+                entity: target,
+                field: mapping.field,
+                pegasusValue: current?.value ?? "",
+                pegasusVerification: current?.verification ?? "needs_review",
+                externalValue,
+                detectedAt: stamp(ctx),
+              };
+              state.syncConflicts.push(conflict);
+              conflicts.push(conflict);
+              continue;
+            }
+            if (decision.action === "update" || decision.action === "create") {
+              updated += 1;
+              touched = true;
+            }
+          }
+
+          if (!touched && conflicts.length === 0) skipped += 1;
+
+          if (identity) {
+            identity.contentHash = hash;
+            identity.lastSeenAt = stamp(ctx);
+          } else {
+            state.externalIdentities.push({
+              id: newId("xid"),
+              organisationId: ctx.organisationId,
+              connectionId,
+              externalId: record.externalId,
+              externalType: record.externalType,
+              // Recorded as a candidate pointing at nothing until a person or
+              // a matching rule resolves it. An identity that guessed which
+              // person a CRM record was would merge two people on a shared
+              // surname.
+              entity: { type: "person", id: record.externalId },
+              contentHash: hash,
+              firstSeenAt: stamp(ctx),
+              lastSeenAt: stamp(ctx),
+            });
+          }
+        }
+
+        const run: SyncRun = {
+          id: newId("srun"),
+          organisationId: ctx.organisationId,
+          connectionId,
+          resource,
+          direction: connection.semantics.direction,
+          startedAt,
+          finishedAt: stamp(ctx),
+          outcome: conflicts.length > 0 ? "partial" : "completed",
+          recordsRead: records.length,
+          recordsCreated: created,
+          recordsUpdated: updated,
+          recordsSkipped: skipped,
+          conflictsRaised: conflicts.length,
+          summary: `Read ${records.length} records: ${created} new, ${updated} changed, ${skipped} unchanged or unmapped, ${conflicts.length} refused because Pegasus holds a value somebody stood behind.`,
+        };
+        state.syncRuns.push(run);
+
+        connection.status = "active";
+        connection.lastSyncedAt = stamp(ctx);
+        connection.consecutiveFailures = 0;
+
+        return { run, conflicts };
+      },
+
+      async recordWebhook(ctx, connectionId, input) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        if (!connection) return { accepted: false, reason: "No such connection." };
+
+        const duplicate = scopedFind(
+          state.webhookEvents,
+          ctx,
+          (event) =>
+            event.connectionId === connectionId &&
+            event.providerEventId === input.providerEventId,
+        );
+        // A webhook delivered twice is normal. A handler that assumed
+        // otherwise would double-count a donation.
+        if (duplicate) {
+          return { accepted: false, reason: "Already received. Ignored." };
+        }
+
+        state.webhookEvents.push({
+          id: newId("whook"),
+          organisationId: ctx.organisationId,
+          connectionId,
+          providerEventId: input.providerEventId,
+          eventType: input.eventType,
+          receivedAt: stamp(ctx),
+          payloadHash: contentHashOf(input.payload),
+          status: "received",
+        });
+        return { accepted: true };
+      },
+
+      async webhooks(ctx, connectionId) {
+        return scoped(state.webhookEvents, ctx)
+          .filter((event) => event.connectionId === connectionId)
+          .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+      },
+    },
     fundraising: {
       async campaigns(ctx) {
         return scoped(state.campaigns, ctx).filter(isLive);

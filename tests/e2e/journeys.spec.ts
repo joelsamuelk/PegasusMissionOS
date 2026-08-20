@@ -373,3 +373,28 @@ test("30. a campaign reports net alongside gross", async ({ page }) => {
   await expect(page.getByText(/net/i).first()).toBeVisible();
   await expect(page.getByText(/gifts from \d+ donors/i).first()).toBeVisible();
 });
+
+/**
+ * MG-11 integrations.
+ *
+ * The journey checks the distinction that matters most on this page: described
+ * versus built. A registry listing nine providers without saying which are
+ * which is a roadmap presented as a feature.
+ */
+test("31. integrations distinguish what is described from what is built", async ({ page }) => {
+  await page.goto("/integrations");
+
+  await expect(
+    page.getByRole("heading", { name: /work alongside the systems you already have/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/has a working adapter/i)).toBeVisible();
+  await expect(page.getByText(/^described$/i).first()).toBeVisible();
+});
+
+test("32. Beacon states what it cannot supply", async ({ page }) => {
+  await page.goto("/integrations");
+
+  await expect(page.getByText(/documentation read/i).first()).toBeVisible();
+  // Beacon's own guide says relationships are not reachable through the API.
+  await expect(page.getByText(/cannot supply relationship/i)).toBeVisible();
+});

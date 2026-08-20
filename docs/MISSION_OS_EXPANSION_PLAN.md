@@ -49,7 +49,7 @@ Two facts govern everything below:
 | **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | Portal authentication waits on MG-2 |
 | **MG-10** Fundraising | Parked | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-11** Integrations | Slice I | Not started | MG-2 |
+| **MG-11** Integrations | Slice I | ✅ **Architecture complete and verified** | No provider adapter; see the record |
 | **MG-12** Production hardening | New, continuous | Ongoing | — |
 
 ### Deviations from the brief's recommended sequence, and why
@@ -646,6 +646,62 @@ What ships: the ability to *collect* intake answers, with a required sensitivity
 ---
 
 | **MG-11 Integrations** | Provider independence (§12). Stripe, Xero, Gmail, Mailchimp, GoCardless and banking providers sit behind ports. No provider identifier ever enters a core entity. The `server/communications/provider.ts` boundary is the precedent. |
+
+### Verification record — MG-11 ✅ *(architecture; no adapter)*
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm test` | **1,035 passed**, 77 files (was 1,001 across 76) |
+| `npm run test:e2e` | **41/41** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**What "complete" means here, stated first.** Every provider in the registry is marked `implemented: false`, `permitted()` refuses every operation on all of them, and the page says so above the list. This phase built the **hub**, not an integration. A registry listing nine providers without distinguishing the described from the built would be a roadmap presented as a feature, and a test asserts the distinction rather than trusting a comment.
+
+**The Beacon investigation was actually carried out**, and three findings changed the design rather than merely informing it. The capabilities in `BEACON` were read from Beacon's own published guide (`guide.beaconcrm.org`, article 5720215), which the descriptor cites. No scraping; the documented REST API and export mechanism only.
+
+1. **Relationships are not exposed.** Beacon's guide states the relationships feature is not currently accessible through its API. The brief's candidate sync list includes Relationships, and it **cannot be honoured**. That is recorded in `unavailable` with the reason, so an organisation finds out before connecting rather than afterwards: in CONNECT mode they keep their relationship map in Beacon while Pegasus reasons over the people, organisations and money it can read.
+2. **The schema is generated per account**, including each customer's custom fields. Field keys therefore differ between two charities using the same product, which is why `IntegrationMapping` is per **connection** rather than per provider. A mapping hardcoded against one customer's schema would work exactly once.
+3. **No webhooks are documented.** Sync must be poll-based against a cursor. Building a receiver on the assumption one exists would be building against an unofficial mechanism, which is what the brief forbids.
+
+Two operational constraints follow and are recorded: API access is plan-gated, so a connection can fail because of the customer's subscription rather than their credentials — a distinct failure deserving a distinct message — and the published limits are 300 requests a minute, 60 for bulk, with a 429 on exceeding them.
+
+**The other eight providers were not researched, and say so.** Each carries a note stating that nothing about it should be treated as a claim about what it supports, and a test asserts that exactly one entry cites documentation. Writing a confident capability list for eight products without reading eight sets of documentation would produce precisely the false precision the Beacon entry shows the alternative to.
+
+**Never silently overwrite conflicting human-approved information.** The check sits **before** the conflict behaviour, so no configuration can get past it. An organisation choosing `external_wins` is saying which machine to believe, not authorising a CRM to correct records their own staff verified. `provided` counts as human-approved alongside `verified`: somebody typed it deliberately. `ai_extracted`, `needs_review` and `outdated` do not, because a fresher value from a connected system is a genuine improvement on those.
+
+**`newest_wins` is offered and refuses to act.** Two systems' clocks and two notions of "modified" are not comparable, and a resolution that looks precise and is not is worse than a refusal. The behaviour is selectable because organisations ask for it; selecting it produces a conflict and an explanation.
+
+**No provider identifier enters a core entity.** There is no `beaconId` on `Person`. `ExternalIdentity` carries the mapping, `(connectionId, externalId, externalType)` is unique, and that key is also the idempotency key — a re-run cannot duplicate a record and does not need a full re-read to know so. This generalises the rule `server/communications/provider.ts` set for email.
+
+**Mutation tests.** Four, all restored.
+
+1. Move the human-approved check after the conflict behaviour. **Two tests fail.** This is the phase's central assertion.
+2. Let an empty provider value blank a field. **One test fails.** Blanking a field because a remote system has nothing in it is a deletion disguised as an update.
+3. Permit operations on an unimplemented provider. **Two tests fail**, including the end-to-end refusal.
+4. Remove webhook deduplication. **One test fails.** A webhook delivered twice is normal, and a handler that assumed otherwise would double-count a donation.
+
+**Security review, against §13.**
+
+- **Provider credentials.** The schema has nowhere to put one. `credential_ref` points at wherever the secret lives, and the migration says why: a token in a tenant-readable row is a token every member of the organisation can read, and a column that could hold one eventually would.
+- **Deletions do not propagate.** Default is `flag`. A CRM record removed by somebody tidying up should not silently remove a person from a grant report.
+- **A connection starts `pending`, never `active`.** Active means something read successfully, not that somebody filled in a form.
+- **Disconnecting keeps the identity map.** Deleting it would mean reconnecting re-imported every record as new, duplicating the lot.
+- **`readField` is deliberately narrow.** It reads `Person` and `ExternalOrganisation` and nothing else. A generic field reader over every table would be the unbounded write surface this phase exists to avoid having.
+- **Runs and webhook receipts are append-only** at the RLS layer, on the same reasoning as audit events and automation runs.
+
+**What was *not* verified, and why.**
+
+- **No adapter exists for any provider**, including Beacon. Writing one needs credentials for a real account and a real customer's schema; without those it would be an adapter tested against a fixture of my own invention, which proves nothing about the vendor's API.
+- **Nothing is persisted.** `0028` is written and reviewed SQL, never applied.
+- **`applyIncoming` is exercised against synthesised records.** Its conflict logic is tested thoroughly and its behaviour against real provider payloads is unverified.
+- **Entity resolution is a stub.** A new `ExternalIdentity` points at a candidate rather than a matched person, because guessing which person a CRM record is would merge two people on a shared surname. `lib/logic/relationship-identity.ts` already has the deterministic matcher this should use, and wiring it in is the obvious next step.
+- **No outbound sync.** `direction` supports `outbound` and `bidirectional`, and nothing writes to a provider. MIGRATE mode is modelled and untested against a real system.
+- **No connection UI.** The page lists providers and shows connections and conflicts; there is no form to create one, because there is no adapter to connect to.
+
+---
+
 
 ---
 
