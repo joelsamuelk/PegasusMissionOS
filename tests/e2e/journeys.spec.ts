@@ -6,8 +6,11 @@ import { expect, test } from "@playwright/test";
  */
 
 test("1. sign in to the demo workspace", async ({ page }) => {
+  // The demonstration entry only renders in mock mode. With Supabase
+  // configured, `/login` shows the magic-link form and there is no
+  // credential-free route into the workspace, which is correct.
   await page.goto("/login");
-  await page.getByRole("link", { name: /continue to workspace/i }).click();
+  await page.getByRole("link", { name: /continue to demonstration/i }).click();
   await expect(page).toHaveURL(/\/dashboard/);
   await expect(page.getByRole("heading", { name: /where northstar/i })).toBeVisible();
 });
@@ -100,4 +103,42 @@ test("command bar answers using approved data", async ({ page }) => {
   await page.getByRole("button", { name: /ask pegasus intelligence/i }).click();
   await page.getByText(/Summarise our current funding pipeline/i).click();
   await expect(page.getByText(/pipeline/i).first()).toBeVisible({ timeout: 15000 });
+});
+
+/**
+ * MG-3 onboarding.
+ *
+ * Deliberately does not run research: that reaches a real website and a real
+ * register, and an e2e suite that makes outbound calls to someone else's
+ * server is a bad citizen and a flaky test. The pipeline itself is covered
+ * hermetically in `tests/unit/onboarding.test.ts` against fixtures.
+ *
+ * What is checked here is what only a browser can check: that the screens
+ * render, and that the empty states tell the truth rather than showing a
+ * spinner or a fabricated completion percentage.
+ */
+test("12. onboarding asks for four fields, not forty", async ({ page }) => {
+  await page.goto("/onboarding");
+
+  await expect(page.getByLabel(/organisation name/i)).toBeVisible();
+  await expect(page.getByLabel(/website/i)).toBeVisible();
+  await expect(page.getByLabel(/charity or company number/i)).toBeVisible();
+
+  // The promise the screen makes, and the one the pipeline keeps.
+  await expect(page.getByText(/nothing is added to your profile until you have reviewed it/i))
+    .toBeVisible();
+});
+
+test("13. the review screen is honest when no research has run", async ({ page }) => {
+  await page.goto("/onboarding/review");
+
+  await expect(page.getByRole("heading", { name: /nothing to review yet/i })).toBeVisible();
+  await expect(page.getByText(/no research has run/i)).toBeVisible();
+});
+
+test("14. the audit does not exist before there is anything to audit", async ({ page }) => {
+  await page.goto("/onboarding/audit");
+
+  // Not an empty audit full of zeroes, which would read as a verdict.
+  await expect(page.getByRole("heading", { name: /no audit yet/i })).toBeVisible();
 });

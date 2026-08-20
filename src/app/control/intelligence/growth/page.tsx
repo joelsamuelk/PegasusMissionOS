@@ -88,7 +88,10 @@ export default function GrowthIntelligencePage() {
             ["Discovery → Opportunity", "3 stalled", "No economic buyer identified"],
             ["Proposal → Decision", "2 stalled", "Decision process unknown"],
           ].map(([a, b, c]) => (
-            <div className="mt-4 flex items-center justify-between border-b pb-4 last:border-0">
+            <div
+              key={a}
+              className="mt-4 flex items-center justify-between border-b pb-4 last:border-0"
+            >
               <div>
                 <b className="text-sm">{a}</b>
                 <p className="text-xs text-ink-muted">{c}</p>

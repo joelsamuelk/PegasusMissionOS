@@ -39,6 +39,7 @@ export {
 
 export {
   ClaimPromotionError,
+  assertKindMayNotStrengthen,
   assertProducerMayAssign,
   confirmClaim,
   correctClaim,
