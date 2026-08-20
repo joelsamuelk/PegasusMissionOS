@@ -31,6 +31,9 @@ const FAILURE_SENTENCE: Record<ProviderFailureKind, string> = {
 const ERROR_SENTENCE: Record<string, string> = {
   unknown_job: "That discovery job no longer exists.",
   run_failed: "The run could not start. Check Control Plane configuration.",
+  signed_out:
+    "Your internal session expired while this page was open. Sign in again, then run the job.",
+  not_permitted: "Your role cannot create prospects, so it cannot run a discovery job.",
   no_file: "Choose a CSV file before importing.",
   import_failed:
     "The CSV file could not be read. It needs a header row with a 'name' column.",
@@ -67,6 +70,13 @@ function jobStats(job: PilotDiscoveryJob, prospects: ProspectOrganisation[]) {
     qualified: own.filter((prospect) => prospect.status !== "discovered").length,
   };
 }
+
+/**
+ * A run calls several providers, several terms each, then writes what it found.
+ * The platform default cuts that off long before the run itself gives up, and a
+ * cut-off request reports nothing — the dead button this page must never show.
+ */
+export const maxDuration = 60;
 
 const field = "rounded-md border border-line bg-surface px-3 py-2 text-sm";
 const tile = "surface-card flex items-center gap-3 p-4 text-left";
@@ -159,16 +169,20 @@ export default async function DiscoverPage({
                 <h2 className="mt-1 font-semibold">{job.name}</h2>
                 <p className="mt-1 text-xs text-ink-muted">{job.criteria}</p>
               </div>
-              <form action={runDiscoveryJobAction}>
-                <input type="hidden" name="jobId" value={job.id} />
-                <button
-                  disabled={!mayRun}
-                  title={mayRun ? undefined : "Your role cannot create prospects."}
-                  className="rounded-lg bg-navy px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                >
-                  Run now
-                </button>
-              </form>
+              {/* A disabled control is silent, and silence is what an operator
+                  reads as broken. The reason is written out instead. */}
+              {mayRun ? (
+                <form action={runDiscoveryJobAction}>
+                  <input type="hidden" name="jobId" value={job.id} />
+                  <button className="rounded-lg bg-navy px-4 py-2 text-sm font-bold text-white">
+                    Run now
+                  </button>
+                </form>
+              ) : (
+                <p className="max-w-xs rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-muted">
+                  Your role cannot create prospects, so this job cannot be run from here.
+                </p>
+              )}
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-4">
               <div>
