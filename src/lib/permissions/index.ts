@@ -37,6 +37,20 @@ export type Capability =
   // carry their own capability rather than riding on `relationships:*`.
   | "donors:view"
   | "donors:manage"
+  /**
+   * Reading special category answers.
+   *
+   * MG-7. Article 9 data — health, ethnicity, religion, sexual life,
+   * biometrics — carries its own capability rather than riding on `read`, for
+   * the same reason donor records carry theirs: the most sensitive category
+   * the product can hold should not be visible to everybody who can open a
+   * programme page. Held by owner and administrator only.
+   */
+  | "beneficiary_data:view"
+  /** Designing forms, which decides what the organisation asks people. */
+  | "forms:manage"
+  /** Reviewing what a submission would change in the graph. */
+  | "forms:review"
   | "partnerships:manage"
   | "ai:use"
   | "read";
@@ -67,6 +81,9 @@ const ALL: Capability[] = [
   "meetings:manage",
   "donors:view",
   "donors:manage",
+  "beneficiary_data:view",
+  "forms:manage",
+  "forms:review",
   "partnerships:manage",
   "ai:use",
   "read",
@@ -96,6 +113,8 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
     "donors:view",
     "donors:manage",
     "partnerships:manage",
+    "forms:manage",
+    "forms:review",
   ],
   programme_lead: [
     "read",
@@ -111,6 +130,8 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
     "commitments:manage",
     "meetings:manage",
     "partnerships:manage",
+    "forms:manage",
+    "forms:review",
   ],
   finance_contributor: [
     "read",

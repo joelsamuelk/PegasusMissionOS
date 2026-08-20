@@ -1699,6 +1699,381 @@ export interface ReportTemplateIngestion {
 }
 
 
+// --- Forms and data collection (MG-7) -----------------------------------
+
+/**
+ * Forms.
+ *
+ * The rule that decides whether this phase succeeded is one sentence from the
+ * expansion plan: *a submission is not a form record. It is evidence, a claim
+ * about a cohort, an indicator measurement and a relationship interaction. If
+ * a submission does not become a claim, the phase has built a form builder.*
+ *
+ * So a `FormSubmission` is deliberately not the interesting type here.
+ * `FormMapping` is: it says what an answer becomes, and `SubmissionProjection`
+ * is the candidate set that a human reviews before anything reaches the graph.
+ *
+ * **On beneficiaries, and why this phase does not introduce them.**
+ * `MISSION_GRAPH_ARCHITECTURE.md` §8 records the absence of a beneficiary
+ * entity as a decision, and `MISSION_OS_EXPANSION_PLAN.md` §MG-12 names this
+ * exact phase as the one most likely to reverse it by accident. A beneficiary
+ * intake form is in the brief's own list of purposes, and building one is not
+ * the same as building a beneficiary record.
+ *
+ * What ships: a form can collect intake answers, they are classified
+ * `special_category` where they are, they carry a lawful basis, a retention
+ * period and an AI exclusion, and they stay in `submission_answers`. What does
+ * not ship: any projection from those answers into a `Person`, or a new
+ * `Beneficiary` table. Impact continues to be measured through indicators and
+ * evidence, which §8 records as both safer and sufficient.
+ */
+
+export type FormPurpose =
+  | "donation"
+  | "volunteer_application"
+  | "beneficiary_intake"
+  | "programme_registration"
+  | "survey"
+  | "outcome_measurement"
+  | "feedback"
+  | "grant_application"
+  | "partner_submission"
+  | "evidence_submission"
+  | "event_registration"
+  | "custom";
+
+export type FormFieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "currency"
+  | "date"
+  | "select"
+  | "multiselect"
+  | "checkbox"
+  | "radio"
+  | "email"
+  | "phone"
+  | "address"
+  | "file"
+  | "rating"
+  | "scale"
+  | "consent"
+  | "signature";
+
+/**
+ * How sensitive an answer is.
+ *
+ * A property of the **field**, decided when the form is designed, not of the
+ * answer, and not something a reviewer classifies afterwards. That ordering is
+ * the whole point: by the time an answer exists it is too late to decide
+ * whether it should have been collected, and a classification applied after
+ * the fact has already been wrong for however long the data sat unclassified.
+ *
+ * The four levels decide three things, listed in the order they bite:
+ *
+ * - **AI context.** `personal` and `special_category` never reach a model.
+ *   Not redacted on the way — never assembled. See `lib/forms/sensitivity.ts`.
+ * - **Retention.** `special_category` requires an explicit retention period;
+ *   a form that collects it and cannot say for how long cannot be published.
+ * - **Permission.** Reading `special_category` answers requires a capability
+ *   that most roles do not hold.
+ *
+ * `special_category` means UK GDPR Article 9 data — health, ethnicity,
+ * religion, sexual life, biometrics, and criminal offence data alongside it.
+ * It is named for the legal category rather than for a feeling about
+ * sensitivity, because the legal category is what carries the obligations.
+ */
+export type FieldSensitivity = "public" | "internal" | "personal" | "special_category";
+
+export interface FormFieldOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Validation a form applies before it accepts an answer.
+ *
+ * Deterministic and declarative. A regex is permitted and is bounded in
+ * length, because an unbounded tenant-supplied pattern is a denial-of-service
+ * against the server that evaluates it.
+ */
+export interface FieldValidation {
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  /** Anchored and length-bounded when applied. */
+  pattern?: string;
+  /** Shown when the pattern fails. A regex is not an error message. */
+  patternMessage?: string;
+}
+
+export interface FormField {
+  id: UUID;
+  organisationId: UUID;
+  versionId: UUID;
+  sectionKey: string;
+  key: string;
+  label: string;
+  help?: string;
+  type: FormFieldType;
+  required: boolean;
+  order: number;
+  options?: FormFieldOption[];
+  validation?: FieldValidation;
+  /** Required on every field. There is no default and no unclassified state. */
+  sensitivity: FieldSensitivity;
+  /**
+   * Show this field only when the condition holds.
+   *
+   * The same typed condition tree the automation engine uses, evaluated by the
+   * same three-valued function over a bag of answers. The brief's instruction
+   * not to build module-specific automation systems applies here: a second
+   * condition language would be a second thing to get wrong, and would drift.
+   */
+  visibleWhen?: unknown;
+  /** Required only when this holds. Separate from `required` on purpose. */
+  requiredWhen?: unknown;
+  /** For `consent` fields: what is being consented to. */
+  consentPurpose?: string;
+}
+
+export interface FormSection {
+  key: string;
+  title: string;
+  description?: string;
+  order: number;
+  visibleWhen?: unknown;
+}
+
+export type FormVersionStatus = "draft" | "published" | "retired";
+
+/**
+ * An immutable published form.
+ *
+ * *Published versions are immutable*, from the brief. The reason is the same
+ * one that governs report versions: a submission answers the form **as it
+ * stood**, and a form that can be edited after somebody answered it makes
+ * every prior submission unreadable — the answers point at fields whose labels,
+ * options and requiredness have all moved.
+ */
+export interface FormVersion {
+  id: UUID;
+  organisationId: UUID;
+  formId: UUID;
+  versionNumber: number;
+  status: FormVersionStatus;
+  sections: FormSection[];
+  publishedAt?: ISODate;
+  publishedBy?: UUID;
+  retiredAt?: ISODate;
+  audit: AuditStamp;
+}
+
+export type FormAccess = "internal" | "link" | "public";
+
+export interface Form {
+  id: UUID;
+  organisationId: UUID;
+  name: string;
+  purpose: FormPurpose;
+  description?: string;
+  /** What this form is about, where it is about one record. */
+  subject?: EntityReference;
+  /** The version being served. Absent means nothing is published. */
+  currentVersionId?: UUID;
+  access: FormAccess;
+  /** The slug a public form is served at. */
+  slug?: string;
+  status: "draft" | "open" | "closed";
+  /** Shown after submission. Never generated. */
+  confirmationMessage?: string;
+  /**
+   * The lawful basis for everything this form collects.
+   *
+   * Required before a form carrying `special_category` fields may be
+   * published. A form that cannot say why it is entitled to ask is a form that
+   * should not be asking.
+   */
+  lawfulBasis?: ConsentState;
+  /**
+   * How long answers are kept, in days.
+   *
+   * Required where any field is `special_category`. "Indefinitely" is not a
+   * retention policy, and the absence of one is the most common way personal
+   * data outlives its purpose.
+   */
+  retentionDays?: number;
+  /** Requests per hour per source. Public forms are rate limited by default. */
+  rateLimitPerHour?: number;
+  audit: AuditStamp;
+}
+
+export type SubmissionStatus =
+  | "received"
+  | "awaiting_review"
+  | "accepted"
+  | "rejected"
+  | "spam";
+
+/**
+ * Where a submission came from.
+ *
+ * `public` is the untrusted one and is treated as such throughout: rate
+ * limited, spam checked, sanitised before any answer reaches a model, and
+ * never projected into the graph without review.
+ */
+export type SubmissionSource = "public" | "link" | "internal" | "import";
+
+export interface FormSubmission {
+  id: UUID;
+  organisationId: UUID;
+  formId: UUID;
+  /** The exact version answered. Never the current one. */
+  versionId: UUID;
+  status: SubmissionStatus;
+  source: SubmissionSource;
+  submittedAt: ISODate;
+  /** Set only where an internal user submitted on someone's behalf. */
+  submittedBy?: UUID;
+  /**
+   * A coarse, non-identifying token for rate limiting and duplicate
+   * detection. Deliberately not an IP address: an IP is personal data under
+   * UK GDPR and keeping one for spam control needs its own lawful basis.
+   */
+  sourceToken?: string;
+  reviewedBy?: UUID;
+  reviewedAt?: ISODate;
+  /** Why it was rejected. An unexplained rejection is not auditable. */
+  reviewNote?: string;
+  /** When the answers become due for deletion, from the form's retention. */
+  retainUntil?: ISODate;
+}
+
+export interface SubmissionAnswer {
+  id: UUID;
+  organisationId: UUID;
+  submissionId: UUID;
+  fieldKey: string;
+  /** Denormalised so an answer stays readable when the field is retired. */
+  fieldLabel: string;
+  fieldType: FormFieldType;
+  /** Carried onto the answer, so a reader never has to resolve the field. */
+  sensitivity: FieldSensitivity;
+  value: ClaimValue;
+  /** True once the answer has been erased under retention. */
+  redacted?: boolean;
+  redactedAt?: ISODate;
+}
+
+export interface SubmissionAttachment {
+  id: UUID;
+  organisationId: UUID;
+  submissionId: UUID;
+  fieldKey: string;
+  fileName: string;
+  mediaType: string;
+  sizeBytes: number;
+  storageKey?: string;
+  sensitivity: FieldSensitivity;
+  uploadedAt: ISODate;
+}
+
+/**
+ * What an answer becomes in the Mission Graph.
+ *
+ * The type that decides whether this phase built a form builder or a data
+ * collection system. Without it a submission is a row nobody reads twice.
+ */
+export type MappingTargetKind =
+  | "person"
+  | "external_organisation"
+  | "relationship"
+  | "interaction"
+  | "indicator_measurement"
+  | "evidence"
+  | "claim"
+  | "consent";
+
+export interface FormMapping {
+  id: UUID;
+  organisationId: UUID;
+  formId: UUID;
+  fieldKey: string;
+  target: MappingTargetKind;
+  /** Which aspect, for claims and measurements: "participants_supported". */
+  predicate?: string;
+  /** The specific record, where the mapping names one. */
+  targetRef?: EntityReference;
+  /**
+   * Whether a person must approve before the graph changes.
+   *
+   * Defaults to true and is forced true for anything that touches an existing
+   * record. *Never mutate trusted data silently*, from the brief: a form
+   * answer is an assertion by whoever filled it in, and an assertion is not
+   * the same as a correction.
+   */
+  requiresReview: boolean;
+  audit: AuditStamp;
+}
+
+/**
+ * A recorded lawful basis for one submission.
+ *
+ * Separate from `ConsentState`, which is the *organisation's* basis for
+ * holding a relationship. This is the basis a specific person gave at a
+ * specific moment, on a specific version of a form, and it has to survive the
+ * form being edited afterwards.
+ */
+export interface ConsentRecord {
+  id: UUID;
+  organisationId: UUID;
+  submissionId: UUID;
+  fieldKey: string;
+  /** What they were told they were agreeing to, verbatim from the version. */
+  purpose: string;
+  granted: boolean;
+  recordedAt: ISODate;
+  /** The form version, so the wording can always be recovered. */
+  versionId: UUID;
+  /** Set where consent was later withdrawn. Never deleted. */
+  withdrawnAt?: ISODate;
+}
+
+/**
+ * A candidate change, before it reaches the graph.
+ *
+ * *Submission → candidate update → review where required → Mission Graph.*
+ * Nothing here is applied. A projection is a proposal with its provenance
+ * attached, and applying one is a separate, authorised act.
+ */
+export interface ProjectedChange {
+  /** Which mapping produced it. */
+  mappingId: UUID;
+  fieldKey: string;
+  target: MappingTargetKind;
+  targetRef?: EntityReference;
+  predicate?: string;
+  value: ClaimValue;
+  /** Rendered for a reviewer. */
+  summary: string;
+  requiresReview: boolean;
+  /** Set where the change would overwrite something that already exists. */
+  existingValue?: string;
+  /** Why this cannot be applied, where it cannot. */
+  blockedReason?: string;
+}
+
+export interface SubmissionProjection {
+  submissionId: UUID;
+  changes: ProjectedChange[];
+  /** Answers with no mapping. Reported rather than silently discarded. */
+  unmapped: { fieldKey: string; label: string }[];
+  /** Answers deliberately not projected because of their sensitivity. */
+  withheld: { fieldKey: string; reason: string }[];
+}
+
 // --- Domain events, automation and scheduling (MG-6) --------------------
 
 /**

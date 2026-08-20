@@ -12,6 +12,8 @@ import type {
   Budget,
   BudgetLine,
   Claim,
+  ClaimValue,
+  ConsentRecord,
   Document,
   DomainEvent,
   DomainEventKind,
@@ -28,6 +30,12 @@ import type {
   FinancialAllocation,
   FinancialTransaction,
   FitAssessment,
+  Form,
+  FormField,
+  FormMapping,
+  FormSection,
+  FormSubmission,
+  FormVersion,
   Fund,
   Funder,
   FundingOpportunity,
@@ -54,6 +62,8 @@ import type {
   Relationship,
   RelationshipLink,
   ScheduledJob,
+  SubmissionAnswer,
+  SubmissionSource,
   ReportApproval,
   ReportContributor,
   ReportDefinition,
@@ -368,6 +378,22 @@ export interface RelationshipRepository {
 
   // People
   listPeople(ctx: RequestContext): Promise<Person[]>;
+  /**
+   * Find or create a person from a contact detail.
+   *
+   * Added by MG-7, because a form that collects an email address has nowhere
+   * to put it otherwise. Matching reuses `resolvePersonByEmail`, the same
+   * deterministic identity logic the relationships layer already uses, so a
+   * survey response from an existing funder contact attaches to them rather
+   * than creating a second record with the same address.
+   *
+   * Returns the person and whether one was created, because a reviewer
+   * approving a form submission should be told which of the two happened.
+   */
+  upsertPersonByEmail(
+    ctx: RequestContext,
+    input: { email: string; firstName?: string; lastName?: string },
+  ): Promise<{ person: Person; created: boolean }>;
   getPerson(ctx: RequestContext, id: string): Promise<Person | null>;
   peopleForOrganisation(
     ctx: RequestContext,
@@ -778,6 +804,140 @@ export interface AutomationRepository {
   ): Promise<void>;
 }
 
+/**
+ * Forms and data collection.
+ *
+ * Two methods carry the phase's weight and the rest are ordinary reads.
+ *
+ * `submit` is the only public write surface in the whole product. It validates
+ * against the version that was answered, refuses answers to hidden fields,
+ * classifies every answer at the sensitivity its field declared, records
+ * consent verbatim, and stamps a retention date. A caller cannot skip any of
+ * that, because there is no lower-level way in.
+ *
+ * `redactExpired` is the promise being kept. Retention that nothing enforces
+ * is a sentence in a privacy policy.
+ */
+export interface FormSubmissionInit {
+  formId: string;
+  source: SubmissionSource;
+  /** Keyed by field key. Validated against the published version. */
+  values: Record<string, ClaimValue | undefined>;
+  sourceToken?: string;
+  /** Spam signals from the client, where the surface collected them. */
+  honeypotValue?: string;
+  secondsOnPage?: number;
+}
+
+export interface FormSubmissionResult {
+  ok: boolean;
+  submissionId?: string;
+  /** Field-level problems. Present only when the submission was refused. */
+  problems?: { fieldKey: string; message: string }[];
+  /** Set where the submission was accepted but flagged. */
+  spamScore?: number;
+  message?: string;
+}
+
+export interface FormRepository {
+  list(ctx: RequestContext): Promise<Form[]>;
+  get(ctx: RequestContext, id: string): Promise<Form | null>;
+  /** Resolve a public form by its slug. Returns null for a closed form. */
+  getBySlug(ctx: RequestContext, slug: string): Promise<Form | null>;
+  versions(ctx: RequestContext, formId: string): Promise<FormVersion[]>;
+  getVersion(ctx: RequestContext, versionId: string): Promise<FormVersion | null>;
+  fields(ctx: RequestContext, versionId: string): Promise<FormField[]>;
+  mappings(ctx: RequestContext, formId: string): Promise<FormMapping[]>;
+
+  saveDraft(
+    ctx: RequestContext,
+    input: {
+      form: Omit<Form, "organisationId" | "audit"> & { id?: string };
+      sections: FormSection[];
+      fields: Omit<FormField, "id" | "organisationId" | "versionId">[];
+      mappings: Omit<FormMapping, "id" | "organisationId" | "formId" | "audit">[];
+    },
+  ): Promise<{ formId: string; versionId: string }>;
+
+  /**
+   * Publish a version, or refuse with reasons.
+   *
+   * The refusals are not warnings. A form collecting special category data
+   * with no lawful basis and no retention period is not a form with a gap in
+   * its settings; it is a form that should not exist, and the moment to say so
+   * is before anybody is asked to fill it in.
+   */
+  publish(
+    ctx: RequestContext,
+    versionId: string,
+  ): Promise<{ ok: boolean; problems: { code: string; message: string }[] }>;
+
+  submit(ctx: RequestContext, init: FormSubmissionInit): Promise<FormSubmissionResult>;
+
+  submissions(ctx: RequestContext, formId?: string): Promise<FormSubmission[]>;
+  getSubmission(ctx: RequestContext, id: string): Promise<FormSubmission | null>;
+  /**
+   * Answers, filtered by what the caller may read.
+   *
+   * A role without `beneficiary_data:view` receives the submission without its
+   * special category answers, rather than an error. Refusing the whole
+   * submission would make an ordinary review impossible; returning the answers
+   * would defeat the classification.
+   */
+  answers(ctx: RequestContext, submissionId: string): Promise<SubmissionAnswer[]>;
+  consent(ctx: RequestContext, submissionId: string): Promise<ConsentRecord[]>;
+  reviewSubmission(
+    ctx: RequestContext,
+    submissionId: string,
+    status: FormSubmission["status"],
+    note?: string,
+  ): Promise<void>;
+  withdrawConsent(ctx: RequestContext, consentId: string): Promise<void>;
+
+  /** Erase answers whose retention has expired. Returns how many. */
+  redactExpired(ctx: RequestContext): Promise<{ submissions: number; answers: number }>;
+}
+
+/**
+ * The one surface that reads without a tenant context.
+ *
+ * A public form has no session by definition: somebody follows a link and
+ * fills it in. Every other read in this boundary takes a `RequestContext` and
+ * is scoped by it, and that rule cannot hold here — the slug is what
+ * identifies the organisation, and resolving it is necessarily unscoped.
+ *
+ * Rather than weaken `MissionRepository`, that exception is isolated into
+ * three methods with the narrowest possible reach, on the same reasoning that
+ * gives the Control Plane a separate identity model:
+ *
+ * - **It can only see published, open, `public` forms.** A `link` form, a
+ *   draft, or a closed one resolves to null. There is no parameter that widens
+ *   this.
+ * - **It returns no submissions and no answers.** Reading is one form's
+ *   published fields and nothing else.
+ * - **It cannot reach any other table.** Not people, not grants, not other
+ *   forms. A bug here exposes the questions on a form that was deliberately
+ *   published to the internet.
+ */
+export interface PublicFormRepository {
+  /** A published, open, public form. Null for anything else. */
+  resolveBySlug(slug: string): Promise<{ form: Form; version: FormVersion } | null>;
+  /** The fields of that form's published version, in order. */
+  fields(slug: string): Promise<FormField[]>;
+  /**
+   * Accept a submission against a public form.
+   *
+   * Rate limiting happens above this, in the server action, because it needs
+   * the request. Everything else — validation, sensitivity, consent, retention
+   * — is the same code the authenticated path runs, reached with a context
+   * synthesised from the form's own organisation.
+   */
+  submit(
+    slug: string,
+    init: Omit<FormSubmissionInit, "formId" | "source">,
+  ): Promise<FormSubmissionResult>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
@@ -797,6 +957,9 @@ export interface MissionRepository {
   reports: ReportRepository;
   relationships: RelationshipRepository;
   workspace: WorkspaceRepository;
+  forms: FormRepository;
+  /** Unscoped by necessity, and narrowed to almost nothing. See above. */
+  publicForms: PublicFormRepository;
   automation: AutomationRepository;
   audit: AuditRepository;
 }

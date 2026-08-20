@@ -17,7 +17,10 @@ import type {
   Programme,
   Automation,
   DomainEvent,
+  Form,
+  FormSubmission,
   Notification,
+  Person,
   Task,
   Relation,
   ReportApproval,
@@ -30,6 +33,15 @@ import type {
   OnboardingRun,
 } from "@/types/domain";
 import { assertKindMayNotStrengthen, createClaim } from "@/lib/knowledge";
+import { can } from "@/lib/permissions";
+import { resolvePersonByEmail } from "@/lib/logic/relationship-identity";
+import {
+  answersDueForErasure,
+  assessSpam,
+  checkPublishable,
+  retainUntil,
+  validateSubmission,
+} from "@/lib/forms";
 import {
   buildReportFromDefinition,
   buildReportSnapshot,
@@ -1562,6 +1574,39 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
       async getOrganisation(ctx, id) {
         return scopedFind(state.externalOrganisations, ctx, (o) => o.id === id);
       },
+      async upsertPersonByEmail(ctx, input) {
+        const people = scoped(state.people, ctx).filter(isLive);
+        const match = resolvePersonByEmail(people, input.email);
+        // Only a confident match attaches. A low-confidence match would merge
+        // two people on the strength of a shared mailbox, which is far harder
+        // to undo than a duplicate.
+        if (match && match.confidence === "high") return { person: match.record, created: false };
+
+        const now = stamp(ctx);
+        const person: Person = {
+          id: newId("person"),
+          organisationId: ctx.organisationId,
+          firstName: input.firstName?.trim() || input.email.split("@")[0] || "Unknown",
+          lastName: input.lastName?.trim() || "",
+          emails: [
+            {
+              id: newId("cp"),
+              kind: "email",
+              value: input.email,
+              isPrimary: true,
+              // Somebody typed it into a form. Nobody has confirmed it is
+              // theirs, and `provided` is what that state is called.
+              verification: "provided",
+            },
+          ],
+          phones: [],
+          tags: [],
+          isDemo: false,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.people.push(person);
+        return { person, created: true };
+      },
       async listPeople(ctx) {
         return scoped(state.people, ctx).filter(isLive);
       },
@@ -1800,6 +1845,364 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
      * is the one mutation a person is entitled to make, and it refuses a run
      * that is not actually awaiting approval.
      */
+
+    /**
+     * Forms.
+     *
+     * `submit` is the only write surface in the product a member of the public
+     * can reach, so everything that must be true of a submission is enforced
+     * here rather than by the caller: validation against the version that was
+     * answered, refusal of answers to hidden fields, sensitivity carried from
+     * the field onto the answer, consent recorded verbatim, and a retention
+     * date stamped on arrival.
+     *
+     * `answers` filters by capability rather than refusing outright. A role
+     * without `beneficiary_data:view` gets the submission without its special
+     * category answers, because refusing the whole thing would make ordinary
+     * review impossible and returning everything would defeat the
+     * classification.
+     */
+    forms: {
+      async list(ctx) {
+        return scoped(state.forms, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.forms, ctx, (f) => f.id === id);
+      },
+      async getBySlug(ctx, slug) {
+        const form = scopedFind(state.forms, ctx, (f) => f.slug === slug);
+        // A closed form resolves to null rather than to a form that refuses on
+        // submit: telling somebody the form exists and then rejecting their
+        // answers wastes their time twice.
+        return form && form.status === "open" ? form : null;
+      },
+      async versions(ctx, formId) {
+        return scoped(state.formVersions, ctx)
+          .filter((v) => v.formId === formId)
+          .sort((a, b) => a.versionNumber - b.versionNumber);
+      },
+      async getVersion(ctx, versionId) {
+        return scopedFind(state.formVersions, ctx, (v) => v.id === versionId);
+      },
+      async fields(ctx, versionId) {
+        return scoped(state.formFields, ctx)
+          .filter((f) => f.versionId === versionId)
+          .sort((a, b) => a.order - b.order);
+      },
+      async mappings(ctx, formId) {
+        return scoped(state.formMappings, ctx).filter((m) => m.formId === formId);
+      },
+
+      async saveDraft(ctx, input) {
+        const now = stamp(ctx);
+        const formId = input.form.id ?? newId("form");
+        const existing = scopedFind(state.forms, ctx, (f) => f.id === formId);
+
+        const form: Form = {
+          ...input.form,
+          id: formId,
+          organisationId: ctx.organisationId,
+          audit: existing
+            ? { ...existing.audit, updatedAt: now, updatedBy: ctx.userId }
+            : { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        if (existing) Object.assign(existing, form);
+        else state.forms.push(form);
+
+        // A new draft version every time, never an edit to a published one.
+        // Editing a published version would make every submission that
+        // answered it unreadable.
+        const versionNumber =
+          state.formVersions.filter(
+            (v) => v.formId === formId && v.organisationId === ctx.organisationId,
+          ).length + 1;
+        const versionId = newId("formv");
+        state.formVersions.push({
+          id: versionId,
+          organisationId: ctx.organisationId,
+          formId,
+          versionNumber,
+          status: "draft",
+          sections: input.sections,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        });
+
+        for (const field of input.fields) {
+          state.formFields.push({
+            ...field,
+            id: newId("formf"),
+            organisationId: ctx.organisationId,
+            versionId,
+          });
+        }
+
+        state.formMappings = state.formMappings.filter(
+          (m) => !(m.formId === formId && m.organisationId === ctx.organisationId),
+        );
+        for (const mapping of input.mappings) {
+          state.formMappings.push({
+            ...mapping,
+            id: newId("formm"),
+            organisationId: ctx.organisationId,
+            formId,
+            audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+          });
+        }
+
+        return { formId, versionId };
+      },
+
+      async publish(ctx, versionId) {
+        const version = scopedFind(state.formVersions, ctx, (v) => v.id === versionId);
+        if (!version) {
+          return { ok: false, problems: [{ code: "not_found", message: "No such version." }] };
+        }
+        const form = scopedFind(state.forms, ctx, (f) => f.id === version.formId);
+        if (!form) {
+          return { ok: false, problems: [{ code: "not_found", message: "No such form." }] };
+        }
+
+        const fields = scoped(state.formFields, ctx).filter((f) => f.versionId === versionId);
+        const problems = checkPublishable(form, fields);
+        if (problems.length > 0) return { ok: false, problems };
+
+        version.status = "published";
+        version.publishedAt = stamp(ctx);
+        version.publishedBy = ctx.userId;
+        form.currentVersionId = versionId;
+        form.audit.updatedAt = stamp(ctx);
+
+        for (const other of scoped(state.formVersions, ctx)) {
+          if (other.formId !== form.id || other.id === versionId) continue;
+          if (other.status !== "published") continue;
+          other.status = "retired";
+          other.retiredAt = stamp(ctx);
+        }
+
+        await recordAudit(ctx, {
+          action: "form.published",
+          entityType: "task",
+          entityId: form.id,
+          summary: `Published version ${version.versionNumber} of '${form.name}'`,
+        });
+
+        return { ok: true, problems: [] };
+      },
+
+      async submit(ctx, init) {
+        const form = scopedFind(state.forms, ctx, (f) => f.id === init.formId);
+        if (!form || form.status !== "open") {
+          return { ok: false, message: "That form is not accepting responses." };
+        }
+        if (!form.currentVersionId) {
+          return { ok: false, message: "That form has no published version." };
+        }
+        const versionId = form.currentVersionId;
+        const fields = scoped(state.formFields, ctx)
+          .filter((f) => f.versionId === versionId)
+          .sort((a, b) => a.order - b.order);
+
+        const now = ctx.now();
+        const problems = validateSubmission({ fields, values: init.values, now });
+        if (problems.length > 0) return { ok: false, problems };
+
+        const spam = assessSpam({
+          fields,
+          values: init.values,
+          honeypotValue: init.honeypotValue,
+          secondsOnPage: init.secondsOnPage,
+        });
+
+        const fieldByKey = new Map(fields.map((field) => [field.key, field]));
+        const submissionId = newId("sub");
+
+        const submission: FormSubmission = {
+          id: submissionId,
+          organisationId: ctx.organisationId,
+          formId: form.id,
+          versionId,
+          // Suspected spam is stored and flagged, never discarded. A false
+          // positive costs a person who needed help; a false negative costs
+          // somebody thirty seconds.
+          status: spam.suspected
+            ? "spam"
+            : init.source === "internal"
+              ? "awaiting_review"
+              : "awaiting_review",
+          source: init.source,
+          submittedAt: now.toISOString(),
+          submittedBy: init.source === "internal" ? ctx.userId : undefined,
+          sourceToken: init.sourceToken,
+          retainUntil: retainUntil(form, now),
+        };
+        state.formSubmissions.push(submission);
+
+        for (const [key, value] of Object.entries(init.values)) {
+          if (value === undefined) continue;
+          const field = fieldByKey.get(key);
+          if (!field) continue;
+          state.submissionAnswers.push({
+            id: newId("suba"),
+            organisationId: ctx.organisationId,
+            submissionId,
+            fieldKey: key,
+            fieldLabel: field.label,
+            fieldType: field.type,
+            // Carried from the field, never decided here. Classifying at
+            // write time would let two answers to the same question be
+            // classified differently.
+            sensitivity: field.sensitivity,
+            value,
+          });
+
+          if (field.type === "consent" && value.type === "boolean") {
+            state.consentRecords.push({
+              id: newId("consent"),
+              organisationId: ctx.organisationId,
+              submissionId,
+              versionId,
+              fieldKey: key,
+              // Verbatim from the version answered, so the wording somebody
+              // actually agreed to can always be recovered.
+              purpose: field.consentPurpose ?? field.label,
+              granted: value.boolean,
+              recordedAt: now.toISOString(),
+            });
+          }
+        }
+
+        return { ok: true, submissionId, spamScore: spam.score };
+      },
+
+      async submissions(ctx, formId) {
+        return scoped(state.formSubmissions, ctx)
+          .filter((s) => !formId || s.formId === formId)
+          .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+      },
+      async getSubmission(ctx, id) {
+        return scopedFind(state.formSubmissions, ctx, (s) => s.id === id);
+      },
+      async answers(ctx, submissionId) {
+        const mayReadSpecial = can(ctx.role, "beneficiary_data:view");
+        return scoped(state.submissionAnswers, ctx)
+          .filter((a) => a.submissionId === submissionId)
+          .filter((a) => mayReadSpecial || a.sensitivity !== "special_category");
+      },
+      async consent(ctx, submissionId) {
+        return scoped(state.consentRecords, ctx).filter((c) => c.submissionId === submissionId);
+      },
+      async reviewSubmission(ctx, submissionId, status, note) {
+        const submission = scopedFind(state.formSubmissions, ctx, (s) => s.id === submissionId);
+        if (!submission) return;
+        if (status === "rejected" && !note?.trim()) return;
+        submission.status = status;
+        submission.reviewedBy = ctx.userId;
+        submission.reviewedAt = stamp(ctx);
+        submission.reviewNote = note;
+      },
+      async withdrawConsent(ctx, consentId) {
+        const record = scopedFind(state.consentRecords, ctx, (c) => c.id === consentId);
+        if (!record || record.withdrawnAt) return;
+        // Recorded, never deleted. A deleted consent record cannot prove that
+        // consent was withdrawn.
+        record.withdrawnAt = stamp(ctx);
+      },
+
+      async redactExpired(ctx) {
+        const due = answersDueForErasure(scoped(state.formSubmissions, ctx), ctx.now());
+        if (due.length === 0) return { submissions: 0, answers: 0 };
+
+        let erased = 0;
+        for (const answer of scoped(state.submissionAnswers, ctx)) {
+          if (!due.includes(answer.submissionId) || answer.redacted) continue;
+          answer.value = { type: "text", text: "" };
+          answer.redacted = true;
+          answer.redactedAt = stamp(ctx);
+          erased += 1;
+        }
+
+        await recordAudit(ctx, {
+          action: "form.answers.redacted",
+          entityType: "task",
+          entityId: due[0]!,
+          summary: `Erased ${erased} answers across ${due.length} submissions whose retention period expired`,
+        });
+
+        // The submission rows stay. "Somebody submitted this on this date and
+        // the answers were deleted under our retention policy" is a true and
+        // useful statement, and deleting the row would make the erasure itself
+        // unprovable.
+        return { submissions: due.length, answers: erased };
+      },
+    },
+
+    /**
+     * The public form surface.
+     *
+     * Unscoped, because a slug is what identifies the organisation and there
+     * is no session to scope by. Narrowed to almost nothing in compensation:
+     * only `public` forms that are `open` and have a published version resolve
+     * at all, only that version's fields are readable, and no other table is
+     * reachable from here.
+     *
+     * The submit path synthesises a context from the form's own organisation
+     * and then calls the same `forms.submit` an authenticated caller uses, so
+     * validation, sensitivity classification, consent and retention are the
+     * same code rather than a second, laxer copy.
+     */
+    publicForms: {
+      async resolveBySlug(slug) {
+        const form = state.forms.find(
+          (candidate) =>
+            candidate.slug === slug &&
+            candidate.access === "public" &&
+            candidate.status === "open" &&
+            !candidate.audit.archivedAt,
+        );
+        if (!form?.currentVersionId) return null;
+        const version = state.formVersions.find(
+          (candidate) =>
+            candidate.id === form.currentVersionId &&
+            candidate.organisationId === form.organisationId &&
+            candidate.status === "published",
+        );
+        return version ? { form, version } : null;
+      },
+      async fields(slug) {
+        const resolved = await repository.publicForms.resolveBySlug(slug);
+        if (!resolved) return [];
+        return state.formFields
+          .filter(
+            (field) =>
+              field.versionId === resolved.version.id &&
+              field.organisationId === resolved.form.organisationId,
+          )
+          .sort((a, b) => a.order - b.order);
+      },
+      async submit(slug, init) {
+        const resolved = await repository.publicForms.resolveBySlug(slug);
+        if (!resolved) return { ok: false, message: "That form is not available." };
+
+        // A synthesised context, scoped to the form's own organisation and to
+        // nothing else. The acting user is the form's creator rather than a
+        // shared system identity, so the audit trail names somebody real.
+        const publicCtx: RequestContext = {
+          organisationId: resolved.form.organisationId,
+          userId: resolved.form.audit.createdBy ?? "public",
+          // The narrowest role that can write a submission. A public
+          // respondent must never inherit the capabilities of whoever built
+          // the form.
+          role: "contributor",
+          now: () => new Date(),
+        };
+
+        return repository.forms.submit(publicCtx, {
+          ...init,
+          formId: resolved.form.id,
+          source: "public",
+        });
+      },
+    },
     automation: {
       async list(ctx) {
         return scoped(state.automations, ctx).filter(isLive);

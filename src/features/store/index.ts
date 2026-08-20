@@ -26,6 +26,7 @@ import type {
   BudgetLine,
   Claim,
   ClaimConflict,
+  ConsentRecord,
   ClaimUsage,
   Commitment,
   Document,
@@ -39,6 +40,11 @@ import type {
   FinancialAllocation,
   FinancialTransaction,
   FitAssessment,
+  Form,
+  FormField,
+  FormMapping,
+  FormSubmission,
+  FormVersion,
   Fund,
   Funder,
   FundingOpportunity,
@@ -72,6 +78,8 @@ import type {
   ReportTemplateIngestion,
   ReportVersion,
   ScheduledJob,
+  SubmissionAnswer,
+  SubmissionAttachment,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -165,6 +173,16 @@ export interface StoreState {
   reportTemplateIngestions: ReportTemplateIngestion[];
   // MG-6. Events are what became true; automations react to them; runs record
   // what happened whether or not anything did.
+  // MG-7. A submission answers the version it was shown, so versions and
+  // fields are stored separately and never edited after publication.
+  forms: Form[];
+  formVersions: FormVersion[];
+  formFields: FormField[];
+  formMappings: FormMapping[];
+  formSubmissions: FormSubmission[];
+  submissionAnswers: SubmissionAnswer[];
+  submissionAttachments: SubmissionAttachment[];
+  consentRecords: ConsentRecord[];
   automations: Automation[];
   domainEvents: DomainEvent[];
   automationRuns: AutomationRun[];
@@ -245,6 +263,14 @@ export function createStoreState(): StoreState {
     reportApprovals: [],
     reportRequirements: clone(seed.reportRequirements ?? []),
     reportTemplateIngestions: [],
+    forms: clone(seed.forms ?? []),
+    formVersions: clone(seed.formVersions ?? []),
+    formFields: clone(seed.formFields ?? []),
+    formMappings: clone(seed.formMappings ?? []),
+    formSubmissions: [],
+    submissionAnswers: [],
+    submissionAttachments: [],
+    consentRecords: [],
     automations: clone(seed.automations ?? []),
     domainEvents: [],
     automationRuns: [],

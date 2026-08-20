@@ -265,3 +265,28 @@ test("22. testing an automation reports what it could not decide", async ({ page
   await expect(page.getByText(/if this ran now/i)).toBeVisible({ timeout: 15000 });
   await expect(page.getByText(/would send \d+ external communication/i)).toBeVisible();
 });
+
+/**
+ * MG-7 forms.
+ *
+ * The phase's test is whether a submission becomes graph records, so the
+ * journey checks that the list says what each form's answers *become* rather
+ * than only how many responses it has had. A page listing response counts
+ * would pass a smoke test and fail the phase.
+ */
+test("23. a form says what its answers become", async ({ page }) => {
+  await page.goto("/forms");
+
+  await expect(
+    page.getByRole("heading", { name: /what you ask people, and what their answers become/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/^Becomes$/i).first()).toBeVisible();
+  await expect(page.getByText(/indicator measurement/i).first()).toBeVisible();
+});
+
+test("24. a form states its lawful basis and its retention", async ({ page }) => {
+  await page.goto("/forms");
+
+  await expect(page.getByText(/lawful basis:/i).first()).toBeVisible();
+  await expect(page.getByText(/answers are erased \d+ days after they arrive/i)).toBeVisible();
+});

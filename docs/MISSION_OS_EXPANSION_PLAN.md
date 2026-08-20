@@ -45,7 +45,7 @@ Two facts govern everything below:
 | **MG-4** Mission Intelligence | Slice F | ✅ **Complete and verified** | Ran ahead of MG-8 and MG-6 by decision; see the record below for what that costs |
 | **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-7** Mission Forms | Parked in build spec | Not started | MG-1 (submissions must land as claims) |
+| **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-8** Finance Runtime | Slice E | Not started | **MG-1 SC2** — it has no tables |
 | **MG-9** Mission Portals | Parked | Not started | MG-2, MG-12 |
 | **MG-10** Fundraising | Parked | Not started | MG-1 SC2, MG-8 |
@@ -441,6 +441,58 @@ Each must answer the §10 question before it is scheduled: **how does this stren
 | Phase | The graph answer it must give |
 |---|---|
 | **MG-7 Forms** | A submission is not a form record. It is evidence, a claim about a beneficiary cohort, an indicator measurement and a relationship interaction. If a submission does not become a claim, the phase has built a form builder. |
+
+### Verification record — MG-7 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm test` | **890 passed**, 73 files (was 848 across 72) |
+| `npm run test:e2e` | **33/33** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**Did it build a form builder?** No, and the test above is the one that decides it. `form_mappings` says what each answer becomes; `projectSubmission` proposes; `applyProjection` acts only on what a reviewer accepted. The acceptance test walks six survey responses through to an interaction, an evidence item, a person record and two indicator measurements, and asserts each of them exists afterwards.
+
+**The design decision that changed the shape of the phase: one response is not a measurement.** The obvious implementation writes a survey answer onto `Indicator.currentValue`, which makes the progression rate whatever the most recent respondent said and lets the next response overwrite it. A measurement derived from a survey is an **aggregate over accepted responses, carrying its denominator**. That is why indicator mappings are handled separately from every other target: they are inherently cross-submission and a per-submission projection cannot see the others. Below five responses no percentage is produced at all — the count is reported instead, because publishing "75% progression" from three people is the most common way a survey becomes a misleading impact claim.
+
+**On beneficiaries, and what was deliberately not built.** §8 records the absence of a beneficiary entity as a decision, and §MG-12 names this phase as the one most likely to reverse it by accident. Beneficiary intake is in the brief's own list of purposes.
+
+What ships: the ability to *collect* intake answers, with a required sensitivity classification on every field, an enforced lawful basis, an enforced retention period, an AI exclusion and a separate capability to read them. What does not ship: any `beneficiaries` table, and any projection from a `special_category` answer into anything at all — not a person, not a claim, not an interaction summary. Those answers stay in `submission_answers` and are erased on schedule. **The seeded demo collects none**, because shipping seeded health or ethnicity data to demonstrate a control would be a strange way to demonstrate restraint; the refusals are proven in tests instead.
+
+**Sensitivity is a field property with no default.** Not nullable, no fallback. Classifying an answer after it exists is already too late: it has been unclassified for however long it sat there, and everything that read it in the meantime read it unclassified. The classification decides three things — whether the answer can ever reach a model, whether the form needs a retention period to be publishable, and which capability reads it.
+
+**Reuse, deliberately.** Form conditional logic is the MG-6 condition language over a bag of answers, not a second one. MG-6's own first instruction was not to build module-specific automation systems, and a form conditional language is exactly that in disguise. The reuse also pays: three-valued evaluation means a condition on a field the respondent has not reached is `unknown`, and unknown **hides** the field rather than showing it — a form that flickered open as somebody scrolled would be the alternative.
+
+**The one unauthenticated surface, and how it is bounded.** A public form has no session; a slug is what identifies the organisation, so resolving it is necessarily unscoped. Rather than weaken `MissionRepository`, that exception is a separate `PublicFormRepository` with three methods that can only see published, open, `public` forms, can read only that form's fields, and can reach no other table. The two public server actions live in their own file so the data-boundary test's `@public-action` exemption covers exactly them, rather than silently covering the six authorised actions beside them. A public submission always lands `awaiting_review`, so it changes nothing until a person decides what it becomes.
+
+**Mutation tests.** Four, all restored.
+
+1. Make `mayReachModel` return true for everything. **Two tests fail** — the AI exclusion is the control MG-12 conditioned this phase on.
+2. Remove the projection's sensitivity ceiling. **Two tests fail**: special category data would project into the knowledge layer, which report generation and AI grounding both read.
+3. Stop an overwrite forcing review. **The silent-overwrite test fails.** *Never mutate trusted data silently* is the brief's phrase; a form answer is an assertion, not a correction.
+4. Remove the minimum-responses floor on percentages. **Two tests fail**, including the acceptance test's companion.
+
+**Security review, against §13.**
+
+- **AI context exposure.** `partitionForModel` returns both halves. A context quietly containing one of three answers invites a model to reason as though it saw everything, so the withheld count travels with the visible set.
+- **Field-level sensitivity.** Implemented, required, and enforced at three separate points: publication, projection and read.
+- **Retention and deletion.** `redactExpired` blanks the answers and keeps the submission. "Somebody submitted this and the answers were deleted under our retention policy" is a true and useful statement; deleting the row would make the erasure itself unprovable.
+- **Consent.** Recorded verbatim from the version answered, so the wording somebody agreed to can always be recovered. Withdrawal is recorded and never deletes the grant — it was granted, and then withdrawn, and rewriting the first loses the second.
+- **Untrusted input.** Tenant-supplied validation patterns are length-bounded and anchored, so a pattern cannot be a denial of service and cannot pass a substring the designer meant to reject. An answer to a hidden field is refused rather than stored.
+- **Spam.** A honeypot, a timing check and content heuristics, scored rather than absolute, and a suspected submission is stored and flagged rather than discarded. No CAPTCHA: sending every respondent's browser fingerprint to a provider the organisation did not choose is a bad trade on a beneficiary-facing form. **A false positive is worse than a false negative** here — a missed spam costs somebody thirty seconds, a rejected genuine submission from a person who needed help is a failure nobody finds out about.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0024` is written and reviewed SQL, never applied. In particular the `forms_public_needs_slug` and consent-purpose constraints are enforced twice in the application and once in SQL that has never run.
+- **No form builder UI.** Forms are seeded and can be saved through a repository method; there is no editor. The field model is designed for one — enumerable types, declarative validation, a condition tree — and it is not built.
+- **No public form page.** The `PublicFormRepository` and `submitPublicForm` exist and are tested; there is no `/f/[slug]` route rendering them. That is a screen rather than a design question.
+- **No attachments.** `SubmissionAttachment` is modelled and no upload path exists, because file storage is MG-2's Supabase Storage and there is nowhere to put bytes.
+- **`external_organisation` and `relationship` mappings refuse.** Both need matching against existing records, which is a decision rather than a projection. Declared and refused clearly, as `assign_owner` is in MG-6.
+- **Retention runs when somebody presses a button.** Same standing consequence as MG-6's scheduler: no worker exists, and pretending otherwise would mean a retention policy that quietly never runs.
+
+---
+
 | **MG-10 Fundraising** | A donation touches supporter, fund, finance, programme, campaign, reporting, impact and stewardship. If it lives in a fundraising table, §11 of the brief has been violated. Requires MG-1 SC2 and MG-8. |
 | **MG-9 Portals** | External parties reading tenant data is the highest-risk surface in the product. It requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model of the kind the Control Plane already demonstrates. |
 | **MG-11 Integrations** | Provider independence (§12). Stripe, Xero, Gmail, Mailchimp, GoCardless and banking providers sit behind ports. No provider identifier ever enters a core entity. The `server/communications/provider.ts` boundary is the precedent. |

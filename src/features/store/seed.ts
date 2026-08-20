@@ -14,6 +14,10 @@ import type {
   ApplicationAnswer,
   AuditEvent,
   Automation,
+  Form,
+  FormField,
+  FormMapping,
+  FormVersion,
   Budget,
   BudgetLine,
   Claim,
@@ -1986,6 +1990,222 @@ export const reportRequirements: ReportRequirement[] = [
  * machinery behind it. The third is deliberately left `draft`: an automation
  * that fires the moment it is created is one nobody chose to switch on.
  */
+/**
+ * The Youth Futures outcome survey.
+ *
+ * Seeded because it is this phase's acceptance test made concrete: *a
+ * programme survey response can become participant interaction + indicator
+ * measurement + evidence without someone re-entering the information
+ * elsewhere.* Every field is mapped, and the mappings are what turn a
+ * submission from a row into three graph records.
+ *
+ * **No special category field, deliberately.** The engine supports Article 9
+ * data with a lawful basis, an enforced retention period and its own
+ * capability, and the demo workspace does not collect any. Shipping seeded
+ * health or ethnicity answers to demonstrate a control would be a strange way
+ * to demonstrate restraint; the refusals are proven in tests instead.
+ */
+export const forms: Form[] = [
+  {
+    id: "form-youth-survey",
+    organisationId: ORG_ID,
+    name: "Youth Futures outcome survey",
+    purpose: "outcome_measurement",
+    description:
+      "Sent to participants at the end of a mentoring cycle. Answers become indicator measurements and evidence.",
+    subject: { type: "programme", id: "prog-youth", label: "Youth Futures" },
+    currentVersionId: "formv-youth-survey-1",
+    // A link rather than a public URL: the organisation knows who was asked,
+    // which matters more here than reach.
+    access: "link",
+    slug: "youth-futures-outcomes",
+    status: "open",
+    confirmationMessage:
+      "Thank you. Your answers help us show what the programme achieved, and nothing identifying you is published.",
+    lawfulBasis: {
+      basis: "consent",
+      source: "Survey consent field, recorded per response",
+      recordedAt: "2026-04-01",
+      jurisdiction: "UK-GDPR",
+    },
+    retentionDays: 1095,
+    rateLimitPerHour: 20,
+    audit: stamp("2026-04-01"),
+  },
+];
+
+export const formVersions: FormVersion[] = [
+  {
+    id: "formv-youth-survey-1",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    versionNumber: 1,
+    status: "published",
+    sections: [
+      { key: "about", title: "About your time on the programme", order: 0 },
+      {
+        key: "outcome",
+        title: "What changed",
+        order: 1,
+      },
+      { key: "permission", title: "Permission", order: 2 },
+    ],
+    publishedAt: "2026-04-01T09:00:00Z",
+    publishedBy: "user-priya",
+    audit: stamp("2026-04-01"),
+  },
+];
+
+const surveyField = (
+  key: string,
+  label: string,
+  type: FormField["type"],
+  sensitivity: FormField["sensitivity"],
+  order: number,
+  extra: Partial<FormField> = {},
+): FormField => ({
+  id: `formf-${key}`,
+  organisationId: ORG_ID,
+  versionId: "formv-youth-survey-1",
+  sectionKey: extra.sectionKey ?? "about",
+  key,
+  label,
+  type,
+  required: false,
+  order,
+  sensitivity,
+  ...extra,
+});
+
+export const formFields: FormField[] = [
+  surveyField("respondent_role", "Were you a participant or a mentor?", "select", "internal", 0, {
+    required: true,
+    options: [
+      { value: "participant", label: "Participant" },
+      { value: "mentor", label: "Mentor" },
+    ],
+  }),
+  surveyField(
+    "progressed_to_eet",
+    "Did you move into education, employment or training?",
+    "checkbox",
+    "internal",
+    1,
+    {
+      // Only participants are asked. A mentor answering it would corrupt the
+      // progression figure, and the branching is what prevents that rather
+      // than a note in the guidance.
+      visibleWhen: {
+        type: "field",
+        field: "respondent_role",
+        operator: "eq",
+        value: "participant",
+      },
+      requiredWhen: {
+        type: "field",
+        field: "respondent_role",
+        operator: "eq",
+        value: "participant",
+      },
+    },
+  ),
+  surveyField("wellbeing_score", "How would you rate your confidence now, out of 10?", "scale", "internal", 2, {
+    sectionKey: "outcome",
+    validation: { min: 0, max: 10 },
+  }),
+  surveyField("what_changed", "What changed for you?", "textarea", "internal", 3, {
+    sectionKey: "outcome",
+    validation: { maxLength: 1200 },
+    help: "Anything you write here may be quoted anonymously if you give permission below.",
+  }),
+  surveyField("contact_name", "Your name", "text", "personal", 4, {
+    sectionKey: "permission",
+  }),
+  surveyField("contact_email", "Your email address", "email", "personal", 5, {
+    sectionKey: "permission",
+  }),
+  surveyField("quote_consent", "May we quote you anonymously?", "consent", "personal", 6, {
+    sectionKey: "permission",
+    required: true,
+    consentPurpose:
+      "Quoting your answer anonymously in reports to funders and on our website. You can withdraw this at any time.",
+  }),
+];
+
+/**
+ * What each answer becomes.
+ *
+ * The table that decides whether this is a form builder. Note that the two
+ * personal fields map to a `person` record and to `consent`, and nothing else:
+ * a name cannot become a claim, because the knowledge layer is read by report
+ * generation and by AI grounding.
+ */
+export const formMappings: FormMapping[] = [
+  {
+    id: "formm-1",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "progressed_to_eet",
+    target: "indicator_measurement",
+    predicate: "progression_into_eet",
+    targetRef: { type: "indicator", id: "ind-eet", label: "Progression into EET" },
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-2",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "wellbeing_score",
+    target: "indicator_measurement",
+    predicate: "wellbeing",
+    targetRef: { type: "indicator", id: "ind-wellbeing", label: "Improved wellbeing" },
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-3",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "what_changed",
+    target: "evidence",
+    predicate: "participant_account",
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-4",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "respondent_role",
+    target: "interaction",
+    predicate: "survey_response",
+    targetRef: { type: "programme", id: "prog-youth", label: "Youth Futures" },
+    requiresReview: false,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-5",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "contact_email",
+    target: "person",
+    predicate: "email",
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-6",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "quote_consent",
+    target: "consent",
+    predicate: "anonymous_quotation",
+    requiresReview: false,
+    audit: stamp("2026-04-01"),
+  },
+];
+
 export const automations: Automation[] = [
   {
     id: "auto-evidence-gap",

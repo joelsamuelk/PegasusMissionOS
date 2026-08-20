@@ -1,5 +1,6 @@
 import {
   Building2,
+  ClipboardList,
   FileText,
   FolderGit2,
   Handshake,
@@ -31,6 +32,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Programmes", href: "/programmes", icon: FolderGit2, group: "operate" },
   { label: "Impact", href: "/impact", icon: TrendingUp, group: "operate" },
   { label: "Evidence", href: "/evidence", icon: Library, group: "operate" },
+  { label: "Forms", href: "/forms", icon: ClipboardList, group: "operate" },
   { label: "Automations", href: "/automations", icon: Workflow, group: "organisation" },
   { label: "Organisation", href: "/organisation", icon: Building2, group: "organisation" },
   { label: "Team", href: "/team", icon: Users, group: "organisation" },
