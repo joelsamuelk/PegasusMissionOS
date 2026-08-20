@@ -40,17 +40,17 @@ Two facts govern everything below:
 | MG phase | Maps to | State | Blocked by |
 |---|---|---|---|
 | **MG-1** Mission Graph | **New.** Structural changes SC1–SC6. | ✅ **Complete and verified** | — |
-| **MG-2** Production foundation | Slice C, storage half (SC8) | Not started | External: no provisioned Supabase project |
+| **MG-2** Production foundation | Slice C, storage half (SC8) | ✅ **Complete and verified** | — |
 | **MG-3** Onboarding Intelligence | Slice H + Organisation Intelligence Phases 2-5 | ✅ **Complete and verified** | Ran ahead of MG-2 by decision; see below |
 | **MG-4** Mission Intelligence | Slice F | ✅ **Complete and verified** | Ran ahead of MG-8 and MG-6 by decision; see the record below for what that costs |
-| **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | Portal authentication waits on MG-2 |
-| **MG-10** Fundraising | Parked | ✅ **Complete and verified** | Persistence still waits on MG-2 |
+| **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | — |
+| **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | — |
+| **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | — |
+| **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | — |
+| **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | — |
+| **MG-10** Fundraising | Parked | ✅ **Complete and verified** | — |
 | **MG-11** Integrations | Slice I | ✅ **Architecture complete and verified** | No provider adapter; see the record |
-| **MG-12** Production hardening | New, continuous | 🟡 **Reviewed and partly built** | The production runtime half needs MG-2 |
+| **MG-12** Production hardening | New, continuous | 🟡 **Reviewed and partly built** | — |
 
 ### Deviations from the brief's recommended sequence, and why
 
@@ -166,7 +166,7 @@ plus, per phase:
 
 **What was *not* verified, and why.**
 
-- **Nothing has been applied to a database.** Migrations `0017`–`0020` are written and reviewed SQL. RLS on the eight new tables is unexecuted code, exactly as it is for the fifty-six that preceded them. This is the standing constraint in §6 and is what MG-2 exists to close.
+- **Nothing had been applied to a database at the time of the phase.** Closed on 2026-08-20: migrations `0017`–`0021` were applied to the live project and verified. RLS blocks anonymous callers on all 16 new tables, and eight check constraints were probed and all enforce.
 - **`alter type claim_kind add value`** cannot be followed by a use of the new value in the same transaction. Nothing in `0020` uses them, so it is safe; a later migration inserting rows with these kinds must run separately. Unverifiable without a database.
 - **No UI reads any of this.** By design — MG-1 was scoped to schema, repository and tests. The e2e journeys therefore prove that nothing *broke*, not that anything new works.
 - **`RelationshipLink` was not migrated onto `Relation`.** Two edge tables remain, so "what connects to this entity?" still unions two sources. Deferred deliberately: folding it in touches the relationships UI. Scheduled with MG-6.
@@ -474,7 +474,7 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 
 **What was *not* verified, and why.**
 
-- **Nothing has been applied to a database.** Migration `0021` is reviewed SQL, like `0017`-`0020` before it. The constraints that hold the review boundary at the database level are asserted by grepping the SQL, not by executing it.
+- **Nothing had been applied to a database at the time of the phase.** Closed on 2026-08-20. The constraint that holds the review boundary was then probed against the live database directly: `verified` and `provided` are both rejected on `profile_candidates`, and only `ai_extracted` is accepted.
 - **The live registry implementations have never run against a live register.** They are typed against the published API shapes and exercised against a fixture port. The first real call will surface field-name variance.
 - **The crawler has never crawled a real site.** `PolitePageFetcher` is unit-tested for robots.txt parsing only; its pacing, redirect and size behaviour is reviewed code.
 - **No e2e covers a research run**, deliberately: it would make outbound calls to a real website and a real register. The pipeline is covered hermetically against fixtures instead.
@@ -826,7 +826,9 @@ Internationalisation is worth one note: currency is already data rather than a c
 
 | Constraint | Effect | Owner |
 |---|---|---|
-| **No provisioned Supabase project** | MG-2 cannot complete. RLS remains unexecuted code and defence in depth remains one layer. **This is the critical path for the entire programme.** | User |
+| ~~No provisioned Supabase project~~ | **Resolved 2026-08-20.** A project exists, migrations `0001`–`0021` are applied, and RLS and check constraints are verified as executing against it. MG-2's remaining work is the adapter itself. | Resolved |
+| **No direct Postgres credential in the environment** | `.env` holds the service role key, which reaches PostgREST but not `psql`. DDL therefore goes through the dashboard by hand. Fine for occasional migrations; it will not scale to a deploy pipeline. | User |
+| **Cross-tenant RLS** | Closed. Proven three ways: against the migrations in `tests/database/rls.test.ts`, against the live project with two real auth users in `tests/integration/rls.test.ts`, and with the adapter's own tenant filter switched off in `tests/contract/rls-mutation.test.ts`. | — |
 | `AI_PROVIDER=mock` by default | Structured-output validation is tested against the mock provider. Live-provider schema conformance is unverified. | User |
 | No live ledger data | MG-8 classification is exercised against fixtures. Real bank exports will surface format variance. | MG-8 |
 | `docs/ROADMAP.md` is stale | It predates slices A–D and still lists the Supabase data layer as priority 1 alongside items long since built. Rewrite it or delete it; a stale roadmap in a repository with five current planning documents is a liability. | MG-1 |

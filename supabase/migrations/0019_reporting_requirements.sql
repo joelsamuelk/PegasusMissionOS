@@ -14,11 +14,19 @@
 -- indicator, and none of those is a foreign key. That is the whole reason the
 -- Relation primitive landed first in 0017.
 
-create type reporting_frequency as enum (
-  'one_off', 'monthly', 'quarterly', 'six_monthly', 'annual', 'on_completion'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'reporting_frequency') then
+    create type reporting_frequency as enum (
+      'one_off', 'monthly', 'quarterly', 'six_monthly', 'annual', 'on_completion'
+    );
+  end if;
+end $$;
 
-create type requirement_status as enum ('open', 'met', 'waived', 'overdue');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'requirement_status') then
+    create type requirement_status as enum ('open', 'met', 'waived', 'overdue');
+  end if;
+end $$;
 
 create table if not exists reporting_requirements (
   id uuid primary key default gen_random_uuid(),
@@ -64,10 +72,12 @@ create index if not exists reporting_requirements_due_idx
   on reporting_requirements (organisation_id, status, due_date);
 
 alter table reporting_requirements enable row level security;
+drop policy if exists reporting_requirements_member_all on reporting_requirements;
 create policy reporting_requirements_member_all on reporting_requirements for all
   using (is_org_member(organisation_id))
   with check (is_org_member(organisation_id));
 
+drop trigger if exists reporting_requirements_set_updated_at on reporting_requirements;
 create trigger reporting_requirements_set_updated_at
   before update on reporting_requirements
   for each row execute function set_updated_at();

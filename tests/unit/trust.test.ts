@@ -31,8 +31,18 @@ import { createTwoTenantHarness } from "../fixtures/two-tenant";
  */
 
 const MIGRATIONS = join(process.cwd(), "supabase", "migrations");
+/**
+ * Numbered migrations only.
+ *
+ * `APPLY_*.sql` files are consolidated copies of migrations that already
+ * appear here, so scanning them double-counts. They also break the `>= "0022"`
+ * comparison the checks below use to mean "added by this programme": "A" sorts
+ * after "0", so an apply file passes that filter whatever it contains, and
+ * `APPLY_0017_TO_0021.sql` arriving in a merge made these tests read a
+ * migration from before the programme started.
+ */
 const migrationSql = readdirSync(MIGRATIONS)
-  .filter((file) => file.endsWith(".sql"))
+  .filter((file) => /^\d{4}_.*\.sql$/.test(file))
   .map((file) => ({ file, sql: readFileSync(join(MIGRATIONS, file), "utf8") }));
 
 describe("the AI register cannot go stale", () => {
