@@ -1,6 +1,8 @@
 import { appConfig } from "@/lib/config";
 import { store } from "@/features/store";
 import { createInMemoryRepository } from "./in-memory/adapter";
+import { createSupabaseRepository } from "./supabase/adapter";
+import { createAnonClient } from "./supabase/client";
 import type { MissionRepository } from "./types";
 
 export type { MissionRepository } from "./types";
@@ -15,8 +17,24 @@ export type { MissionRepository } from "./types";
 
 let cached: MissionRepository | null = null;
 
+/**
+ * The adapter serving this request.
+ *
+ * Synchronous on purpose. `createAnonClient()` is async because it reads
+ * cookies, but making this async would push `await (await getRepository())`
+ * into thirty call sites for no benefit. Instead the Supabase adapter takes a
+ * client *factory* and awaits it inside each method, which is also the correct
+ * lifetime: the client carries the caller's session, so caching one across
+ * requests would serve one user's session to the next.
+ *
+ * The repository object itself is memoised. It holds no session, only the
+ * factory, so it is safe to share.
+ */
 export function getRepository(): MissionRepository {
-  if (!cached) cached = createInMemoryRepository(store);
+  if (cached) return cached;
+  cached = appConfig.isMockData
+    ? createInMemoryRepository(store)
+    : createSupabaseRepository(createAnonClient);
   return cached;
 }
 
@@ -79,8 +97,6 @@ export function describeRuntime(): RuntimeDescriptor {
   return {
     source,
     label: "In-memory demo data",
-    detail: appConfig.isMockData
-      ? "Seeded workspace held in the server process. Changes persist until restart."
-      : "Supabase credentials are configured, but the Supabase adapter is not yet implemented, so the seeded in-memory workspace is still serving every request.",
+    detail: "Seeded workspace held in the server process. Changes persist until restart.",
   };
 }

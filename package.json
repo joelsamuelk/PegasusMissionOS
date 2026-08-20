@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "test:integration": "node --env-file=.env ./node_modules/.bin/vitest run tests/integration"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
