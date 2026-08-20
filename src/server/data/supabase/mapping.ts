@@ -108,6 +108,12 @@ export function toColumns(input: Record<string, unknown>): Row {
   const out: Row = {};
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined) continue;
+    // The comment above was once only a comment. Dropping these is what makes
+    // it true: `organisationId` because the adapter supplies it from the
+    // request context, and `audit` because it is a projection of the audit
+    // columns rather than a column itself -- passing it through sends an
+    // object to a timestamptz.
+    if (key === "organisationId" || key === "audit") continue;
     out[toSnake(key)] = value;
   }
   return out;
