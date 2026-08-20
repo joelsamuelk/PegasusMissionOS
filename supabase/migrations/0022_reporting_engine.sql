@@ -61,6 +61,53 @@ create index if not exists report_versions_report_idx
   on report_versions (organisation_id, report_id, version_number desc);
 
 -- ---------------------------------------------------------------------------
+-- Report templates
+-- ---------------------------------------------------------------------------
+
+create type report_template_origin as enum ('built_in', 'cloned', 'ingested');
+
+create type report_type as enum (
+  'impact', 'funder', 'grant', 'programme', 'trustee', 'board_pack',
+  'annual', 'finance'
+);
+
+-- `report_definitions` is created here rather than altered. The entity has
+-- existed in the domain model since reporting was built, but only ever in the
+-- in-memory store: no migration gave it a table, so the Postgres side of
+-- reporting has been templateless. Ingested funder templates are the feature
+-- that makes that gap load-bearing, so the table lands with the columns that
+-- need it rather than in a migration of its own.
+create table if not exists report_definitions (
+  id uuid primary key default gen_random_uuid(),
+  organisation_id uuid not null references organisations(id) on delete cascade,
+
+  name text not null,
+  type report_type not null,
+  -- Section definitions are a shape the application owns, not a relation:
+  -- nothing joins to a section key, and every read wants all of them at once.
+  sections jsonb not null default '[]'::jsonb,
+
+  origin report_template_origin not null default 'built_in',
+  funder_id uuid references funders(id) on delete set null,
+  source_document_id uuid references documents(id) on delete set null,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid references users(id),
+  updated_by uuid references users(id),
+  archived_at timestamptz
+);
+
+create index if not exists report_definitions_org_idx
+  on report_definitions (organisation_id);
+create index if not exists report_definitions_funder_idx
+  on report_definitions (funder_id) where funder_id is not null;
+
+create trigger report_definitions_set_updated_at
+  before update on report_definitions
+  for each row execute function set_updated_at();
+
+-- ---------------------------------------------------------------------------
 -- Snapshots
 -- ---------------------------------------------------------------------------
 
@@ -234,17 +281,6 @@ create table if not exists report_template_ingestions (
 create index if not exists report_template_ingestions_org_idx
   on report_template_ingestions (organisation_id, status, created_at desc);
 
--- ---------------------------------------------------------------------------
--- Template provenance
--- ---------------------------------------------------------------------------
-
-create type report_template_origin as enum ('built_in', 'cloned', 'ingested');
-
-alter table report_definitions
-  add column if not exists origin report_template_origin not null default 'built_in',
-  add column if not exists funder_id uuid references funders(id) on delete set null,
-  add column if not exists source_document_id uuid;
-
 comment on column report_definitions.origin is
   'A built-in template is Pegasus''s; an ingested one is a funder''s and '
   'carries the authority of the document it came from. Readiness treats an '
@@ -260,6 +296,7 @@ alter table report_contributors enable row level security;
 alter table report_approvals enable row level security;
 alter table report_requirements enable row level security;
 alter table report_template_ingestions enable row level security;
+alter table report_definitions enable row level security;
 
 create policy report_versions_member_all on report_versions for all
   using (is_org_member(organisation_id)) with check (is_org_member(organisation_id));
@@ -270,6 +307,8 @@ create policy report_contributors_member_all on report_contributors for all
 create policy report_requirements_member_all on report_requirements for all
   using (is_org_member(organisation_id)) with check (is_org_member(organisation_id));
 create policy report_template_ingestions_member_all on report_template_ingestions for all
+  using (is_org_member(organisation_id)) with check (is_org_member(organisation_id));
+create policy report_definitions_member_all on report_definitions for all
   using (is_org_member(organisation_id)) with check (is_org_member(organisation_id));
 
 -- Approvals are append-only for the same reason audit events are: an approval
