@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { appConfig } from "@/lib/config";
 
 /**
@@ -36,12 +37,19 @@ function requireConfig(): { url: string; anonKey: string } {
 /**
  * A client bound to the caller's session, so RLS applies.
  *
+ * Memoised per request. The repository resolves a client for every query
+ * rather than holding one, because a client carries the caller's session and
+ * the repository is a process-lifetime singleton — so without this, a page
+ * making twenty reads would read cookies and construct a client twenty times.
+ * `cache()` is request-scoped, which is exactly the lifetime a session has:
+ * shared across one request, never across two.
+ *
  * Cookie writes are tolerated failing: Next forbids setting cookies from a
  * server component, and Supabase's session refresh attempts one. Middleware is
  * the supported place to refresh, so swallowing here is correct rather than
  * lazy — but only for the write path, never the read.
  */
-export async function createAnonClient(): Promise<SupabaseClient> {
+export const createAnonClient = cache(async function createAnonClient(): Promise<SupabaseClient> {
   const { url, anonKey } = requireConfig();
   const cookieStore = await cookies();
 
@@ -61,7 +69,7 @@ export async function createAnonClient(): Promise<SupabaseClient> {
       },
     },
   });
-}
+});
 
 /**
  * A client that bypasses row level security.
