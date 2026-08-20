@@ -430,6 +430,27 @@ export function createReportRepository(q: Query, deps: Deps): ReportRepository {
       });
       snapshot.versionId = version.id;
 
+      // The two rows reference each other, so neither can be written with its
+      // pointer already set. The snapshot lands first without a version, the
+      // version lands pointing at it, and the snapshot is then completed.
+      //
+      // The in-memory adapter assigned both pointers at once and was fine,
+      // because nothing checked. Postgres has the foreign keys, which is the
+      // better arrangement and the reason this ordering exists.
+      await q.insert(
+        ctx,
+        "report_snapshots",
+        {
+          id: snapshot.id,
+          reportId,
+          takenAt: snapshot.takenAt,
+          figures: snapshot.figures,
+          evidenceIds: snapshot.evidenceIds,
+          indicatorValues: snapshot.indicatorValues,
+          claimIds: snapshot.claimIds,
+        },
+        { audit: false },
+      );
       await q.insert(
         ctx,
         "report_versions",
@@ -447,19 +468,11 @@ export function createReportRepository(q: Query, deps: Deps): ReportRepository {
         },
         { audit: false },
       );
-      await q.insert(
+      await q.update(
         ctx,
         "report_snapshots",
-        {
-          id: snapshot.id,
-          reportId,
-          versionId: version.id,
-          takenAt: snapshot.takenAt,
-          figures: snapshot.figures,
-          evidenceIds: snapshot.evidenceIds,
-          indicatorValues: snapshot.indicatorValues,
-          claimIds: snapshot.claimIds,
-        },
+        snapshot.id,
+        { versionId: version.id },
         { audit: false },
       );
 
@@ -481,6 +494,11 @@ export function createReportRepository(q: Query, deps: Deps): ReportRepository {
     async addContributor(ctx, input) {
       const report = await q.maybeOne(ctx, "impact_reports", { id: input.reportId });
       if (!report) return null;
+      // A contributor who is not a member of this organisation would be an
+      // assignment nobody can act on, and a route to naming an outsider on a
+      // tenant record. The in-memory adapter refuses it and so must this one.
+      const member = await q.maybeOne(ctx, "organisation_members", { user_id: input.userId });
+      if (!member) return null;
       const row = await q.insert(
         ctx,
         "report_contributors",
@@ -578,7 +596,21 @@ export function createReportRepository(q: Query, deps: Deps): ReportRepository {
         ctx,
         "impact_report_sections",
         String(row.id),
-        { content, ...(provenance !== undefined ? { provenance } : {}) },
+        {
+          content,
+          // Provenance decides the citations. A section whose text came from a
+          // generation grounded in claims cites exactly those claims, and
+          // writing the text without them would leave the figures unresolvable
+          // -- which is the whole property `claimIds` exists to provide.
+          ...(provenance !== undefined
+            ? {
+                provenance,
+                claimIds: provenance.used
+                  .filter((ref) => ref.type === "claim")
+                  .map((ref) => ref.id),
+              }
+            : {}),
+        },
         { audit: false },
       );
     },

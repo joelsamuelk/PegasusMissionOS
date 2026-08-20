@@ -5,7 +5,7 @@ import { createRequestContext } from "@/server/context/request-context";
 import { createSupabaseRepository } from "@/server/data/supabase/adapter";
 import {
   contractDatabaseConfigured,
-  CONTRACT_USERS,
+  contractUsers,
   removeAuthUsers,
   seedAuthUsers,
   seedContractTenants,
@@ -39,26 +39,29 @@ import {
 const configured = contractDatabaseConfigured();
 const NOW = new Date("2026-07-21T10:00:00Z");
 
+/** This file seeds its own tenants, in their own id namespace. */
+const USERS = contractUsers("rls");
+
 describe.skipIf(!configured)("row level security is the second layer", () => {
   let service: SupabaseClient;
   let asA: SupabaseClient;
 
   beforeAll(async () => {
     service = serviceClient();
-    await seedContractTenants(service);
-    await seedAuthUsers(service);
-    asA = await signedInClient("a");
+    await seedContractTenants(service, "rls");
+    await seedAuthUsers(service, "rls");
+    asA = await signedInClient("a", "rls");
   }, 120_000);
 
   afterAll(async () => {
-    await removeAuthUsers(service);
-    await teardown(service);
+    await removeAuthUsers(service, "rls");
+    await teardown(service, "rls");
   });
 
   const ctxA = () =>
     createRequestContext({
-      organisationId: CONTRACT_USERS.a.organisationId,
-      userId: CONTRACT_USERS.a.id,
+      organisationId: USERS.a.organisationId,
+      userId: USERS.a.id,
       role: "owner",
       now: () => NOW,
     });
@@ -83,7 +86,7 @@ describe.skipIf(!configured)("row level security is the second layer", () => {
       await repo.programmes.list(ctxA()),
     ]) {
       for (const row of rows) {
-        expect(row.organisationId).toBe(CONTRACT_USERS.a.organisationId);
+        expect(row.organisationId).toBe(USERS.a.organisationId);
       }
     }
   });
@@ -95,7 +98,7 @@ describe.skipIf(!configured)("row level security is the second layer", () => {
     const foreignIds = await service
       .from("grants")
       .select("id")
-      .eq("organisation_id", CONTRACT_USERS.b.organisationId);
+      .eq("organisation_id", USERS.b.organisationId);
     const foreignGrantId = String((foreignIds.data ?? [])[0]?.id);
     expect(foreignGrantId).not.toBe("undefined");
 
@@ -107,13 +110,13 @@ describe.skipIf(!configured)("row level security is the second layer", () => {
     const before = await service
       .from("funding_opportunities")
       .select("stage")
-      .eq("organisation_id", CONTRACT_USERS.b.organisationId)
+      .eq("organisation_id", USERS.b.organisationId)
       .single();
 
     const foreign = await service
       .from("funding_opportunities")
       .select("id")
-      .eq("organisation_id", CONTRACT_USERS.b.organisationId)
+      .eq("organisation_id", USERS.b.organisationId)
       .single();
 
     await repo.funding.moveStage(ctxA(), String(foreign.data?.id), "successful");
@@ -121,7 +124,7 @@ describe.skipIf(!configured)("row level security is the second layer", () => {
     const after = await service
       .from("funding_opportunities")
       .select("stage")
-      .eq("organisation_id", CONTRACT_USERS.b.organisationId)
+      .eq("organisation_id", USERS.b.organisationId)
       .single();
     expect(after.data?.stage).toBe(before.data?.stage);
   });

@@ -305,8 +305,16 @@ export function createClaimRepository(
       );
       // Never let a supersede write reach across a tenant boundary, even if
       // the successor object was assembled elsewhere.
+      //
+      // The identifier is minted here rather than taken from the caller, for
+      // the same reason and by the same rule as `create`: a primary key is
+      // storage's to assign. The in-memory adapter honours whatever id the
+      // caller put on the successor, which works until the column is a uuid
+      // and the caller's id is a readable string. Callers use the returned
+      // claim, which is what makes this safe as well as correct.
       const record: Claim = {
         ...next,
+        id: crypto.randomUUID(),
         organisationId: ctx.organisationId,
         supersedes: String(previous.id),
       };

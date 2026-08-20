@@ -28,18 +28,39 @@ export function contractDatabaseConfigured(): boolean {
   );
 }
 
-/** Fixed ids, so a failed run leaves something recognisable to clean up. */
-const ORG_A = "11111111-1111-4111-8111-111111111111";
-const ORG_B = "22222222-2222-4222-8222-222222222222";
-const USER_A = "11111111-1111-4111-8111-1111111111a1";
-const USER_B = "22222222-2222-4222-8222-2222222222b1";
+/**
+ * Fixed ids, so a failed run leaves something recognisable to clean up.
+ *
+ * The leading digit is a **suite namespace**, and it is not decoration. Vitest
+ * runs test files in parallel, and both files that seed here also tear down;
+ * sharing one set of ids meant each suite deleting the other's organisation
+ * mid-run, which surfaced as foreign key violations on rows that had existed a
+ * moment earlier. Two namespaces, no shared rows, no race.
+ */
+type Suite = "contract" | "rls";
 
-const id = (tenant: "a" | "b", n: number) =>
-  tenant === "a"
-    ? `11111111-1111-4111-8111-${String(n).padStart(12, "0")}`
-    : `22222222-2222-4222-8222-${String(n).padStart(12, "0")}`;
+const NAMESPACE: Record<Suite, [string, string]> = {
+  contract: ["1", "2"],
+  rls: ["3", "4"],
+};
 
-const FIXTURES = {
+const ids = (suite: Suite) => {
+  const [a, b] = NAMESPACE[suite];
+  const build = (d: string, n: number) =>
+    `${d.repeat(8)}-${d.repeat(4)}-4${d.repeat(3)}-8${d.repeat(3)}-${String(n).padStart(12, "0")}`;
+  return {
+    ORG_A: build(a, 1_000_000_000_01),
+    ORG_B: build(b, 1_000_000_000_02),
+    USER_A: build(a, 1_000_000_000_11),
+    USER_B: build(b, 1_000_000_000_12),
+    id: (tenant: "a" | "b", n: number) => build(tenant === "a" ? a : b, n),
+  };
+};
+
+/** Everything one suite's fixtures resolve to. Nothing is shared between them. */
+function fixturesFor(suite: Suite) {
+  const { ORG_A, ORG_B, USER_A, USER_B, id } = ids(suite);
+  const FIXTURES = {
   funderA: id("a", 1),
   opportunityId: id("a", 2),
   applicationId: id("a", 3),
@@ -51,15 +72,17 @@ const FIXTURES = {
   evidenceId: id("a", 9),
   reportId: id("a", 10),
   claimId: id("a", 11),
-};
+  };
 
-const FOREIGN = {
+  const FOREIGN = {
   funderB: id("b", 1),
   opportunityId: id("b", 2),
   grantId: id("b", 3),
   evidenceId: id("b", 4),
   claimId: id("b", 5),
-};
+  };
+  return { ORG_A, ORG_B, USER_A, USER_B, FIXTURES, FOREIGN };
+}
 
 export function serviceClient(): SupabaseClient {
   return createClient(
@@ -78,10 +101,13 @@ export function serviceClient(): SupabaseClient {
  */
 const CONTRACT_PASSWORD = "pegasus-contract-suite-only";
 
-export const CONTRACT_USERS = {
-  a: { id: USER_A, organisationId: ORG_A, email: "contract-a@pegasus.test" },
-  b: { id: USER_B, organisationId: ORG_B, email: "contract-b@pegasus.test" },
-};
+export function contractUsers(suite: Suite = "contract") {
+  const { ORG_A, ORG_B, USER_A, USER_B } = fixturesFor(suite);
+  return {
+    a: { id: USER_A, organisationId: ORG_A, email: `contract-${suite}-a@pegasus.test` },
+    b: { id: USER_B, organisationId: ORG_B, email: `contract-${suite}-b@pegasus.test` },
+  };
+}
 
 /**
  * Create the auth users the RLS tests need.
@@ -93,8 +119,11 @@ export const CONTRACT_USERS = {
  * The ids match the `users` rows deliberately: `organisation_members.user_id`
  * has to equal `auth.uid()` for a policy to see the membership at all.
  */
-export async function seedAuthUsers(client: SupabaseClient): Promise<void> {
-  for (const user of Object.values(CONTRACT_USERS)) {
+export async function seedAuthUsers(
+  client: SupabaseClient,
+  suite: Suite = "contract",
+): Promise<void> {
+  for (const user of Object.values(contractUsers(suite))) {
     await client.auth.admin.deleteUser(user.id).catch(() => undefined);
     const { error } = await client.auth.admin.createUser({
       id: user.id,
@@ -106,15 +135,19 @@ export async function seedAuthUsers(client: SupabaseClient): Promise<void> {
   }
 }
 
-export async function removeAuthUsers(client: SupabaseClient): Promise<void> {
-  for (const user of Object.values(CONTRACT_USERS)) {
+export async function removeAuthUsers(
+  client: SupabaseClient,
+  suite: Suite = "contract",
+): Promise<void> {
+  for (const user of Object.values(contractUsers(suite))) {
     await client.auth.admin.deleteUser(user.id).catch(() => undefined);
   }
 }
 
 /** A client carrying a real session, so row level security applies to it. */
 export async function signedInClient(
-  who: keyof typeof CONTRACT_USERS,
+  who: "a" | "b",
+  suite: Suite = "contract",
 ): Promise<SupabaseClient> {
   const client = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -123,7 +156,7 @@ export async function signedInClient(
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
   const { error } = await client.auth.signInWithPassword({
-    email: CONTRACT_USERS[who].email,
+    email: contractUsers(suite)[who].email,
     password: CONTRACT_PASSWORD,
   });
   if (error) throw new Error(`Could not sign in the contract user: ${error.message}`);
@@ -131,7 +164,8 @@ export async function signedInClient(
 }
 
 /** Remove everything this module writes, in dependency order. */
-export async function teardown(client: SupabaseClient): Promise<void> {
+export async function teardown(client: SupabaseClient, suite: Suite = "contract"): Promise<void> {
+  const { ORG_A, ORG_B, USER_A, USER_B } = fixturesFor(suite);
   const byOrg = [
     "claim_sources",
     "claim_usages",
@@ -159,17 +193,20 @@ export async function teardown(client: SupabaseClient): Promise<void> {
   await client.from("users").delete().in("id", [USER_A, USER_B]);
 }
 
-async function seed(client: SupabaseClient): Promise<void> {
-  await teardown(client);
+async function seed(client: SupabaseClient, suite: Suite): Promise<void> {
+  const { ORG_A, ORG_B, USER_A, USER_B, FIXTURES, FOREIGN } = fixturesFor(suite);
+  await teardown(client, suite);
 
   const insert = async (table: string, rows: Record<string, unknown>[]) => {
     const { error } = await client.from(table).insert(rows);
     if (error) throw new Error(`Seeding ${table} failed: ${error.message}`);
   };
 
+  // Emails carry the suite too. `users.email` is unique across the table, so
+  // two suites seeding the same address collide even though their ids do not.
   await insert("users", [
-    { id: USER_A, email: "contract-a@pegasus.test", name: "Contract A" },
-    { id: USER_B, email: "contract-b@pegasus.test", name: "Contract B" },
+    { id: USER_A, email: `contract-${suite}-a@pegasus.test`, name: "Contract A" },
+    { id: USER_B, email: `contract-${suite}-b@pegasus.test`, name: "Contract B" },
   ]);
   await insert("organisations", [
     {
@@ -281,6 +318,20 @@ async function seed(client: SupabaseClient): Promise<void> {
     },
   ]);
 
+  // A report with no sections is a report `saveSection` cannot write to and
+  // `cutVersion` pins nothing from, which would make the version tests pass
+  // for the wrong reason.
+  await insert("impact_report_sections", [
+    {
+      organisation_id: ORG_A, report_id: FIXTURES.reportId, key: "executive_summary",
+      title: "Executive summary", type: "narrative", content: "", claim_ids: [], ord: 0,
+    },
+    {
+      organisation_id: ORG_A, report_id: FIXTURES.reportId, key: "outcomes",
+      title: "Outcomes", type: "metrics", content: "", claim_ids: [], ord: 1,
+    },
+  ]);
+
   await insert("claims", [
     {
       id: FIXTURES.claimId, organisation_id: ORG_A,
@@ -305,15 +356,19 @@ async function seed(client: SupabaseClient): Promise<void> {
 
 const NOW = new Date("2026-07-21T10:00:00Z");
 
-export async function seedContractTenants(client: SupabaseClient): Promise<void> {
-  await seed(client);
+export async function seedContractTenants(
+  client: SupabaseClient,
+  suite: Suite = "contract",
+): Promise<void> {
+  await seed(client, suite);
 }
 
 export async function createSupabaseContractHarness(
   options: AdapterOptions = {},
 ): Promise<ContractHarness> {
   const client = serviceClient();
-  await seed(client);
+  const { ORG_A, ORG_B, USER_A, USER_B, FIXTURES, FOREIGN } = fixturesFor("contract");
+  await seed(client, "contract");
 
   return {
     repo: createSupabaseRepository(async () => client, options),
@@ -340,6 +395,6 @@ export async function createSupabaseContractHarness(
       evidenceId: FOREIGN.evidenceId,
       claimId: FOREIGN.claimId,
     },
-    teardown: () => teardown(client).then(() => undefined),
+    teardown: () => teardown(client, "contract").then(() => undefined),
   };
 }
