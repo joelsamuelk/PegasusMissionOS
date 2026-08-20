@@ -51,6 +51,26 @@ function fail(action: string, table: string, error: PostgrestError): never {
   throw new Error(`Could not ${action} ${table}: ${error.message}`);
 }
 
+/**
+ * Postgres's "invalid input syntax for type" error.
+ *
+ * Every id in the schema is a uuid, so a caller passing something that is not
+ * one -- a slug, a truncated id, a value from another system -- makes PostgREST
+ * refuse the comparison rather than return no rows.
+ *
+ * That must not surface as an error. The contract requires the same answer for
+ * "not yours" and "not there", so that a caller cannot probe another tenant's
+ * id space by comparing responses; an id that is not a uuid is a third way of
+ * not existing and has to be answered identically. The in-memory adapter gets
+ * this free, which is exactly the kind of divergence a shared contract exists
+ * to catch.
+ */
+const INVALID_TEXT_REPRESENTATION = "22P02";
+
+function isUnmatchable(error: PostgrestError): boolean {
+  return error.code === INVALID_TEXT_REPRESENTATION;
+}
+
 /** The columns every read selects. `*` throughout; projection is the mapper's job. */
 const ALL = "*";
 
@@ -112,7 +132,10 @@ export class Query {
     const { order } = options;
     if (order) query = query.order(order.column, { ascending: order.ascending ?? true });
     const { data, error } = await query;
-    if (error) fail("read", table, error);
+    if (error) {
+      if (isUnmatchable(error)) return [];
+      fail("read", table, error);
+    }
     return (data ?? []) as unknown as Row[];
   }
 
@@ -128,7 +151,10 @@ export class Query {
       query = query.eq(column, value);
     }
     const { data, error } = await query.limit(1).maybeSingle();
-    if (error) fail("read", table, error);
+    if (error) {
+      if (isUnmatchable(error)) return null;
+      fail("read", table, error);
+    }
     return (data as unknown as Row | null) ?? null;
   }
 
@@ -180,7 +206,12 @@ export class Query {
       query = query.eq("organisation_id", ctx.organisationId);
     }
     const { data, error } = await query.select().maybeSingle();
-    if (error) fail("update", table, error);
+    if (error) {
+      // An update naming an id that cannot exist changed nothing, which is the
+      // same outcome as an update naming another tenant's row.
+      if (isUnmatchable(error)) return null;
+      fail("update", table, error);
+    }
     return (data as unknown as Row | null) ?? null;
   }
 
@@ -199,7 +230,7 @@ export class Query {
       query = query.eq("organisation_id", ctx.organisationId);
     }
     const { error } = await query;
-    if (error) fail("delete from", table, error);
+    if (error && !isUnmatchable(error)) fail("delete from", table, error);
   }
 
   /**
@@ -217,7 +248,10 @@ export class Query {
     if (values.length === 0) return [];
     const client = await this.getClient();
     const { data, error } = await this.scoped(client, ctx, table).in(column, [...values]);
-    if (error) fail("read", table, error);
+    if (error) {
+      if (isUnmatchable(error)) return [];
+      fail("read", table, error);
+    }
     return (data ?? []) as unknown as Row[];
   }
 
