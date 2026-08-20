@@ -27,7 +27,15 @@ Recorded because an architecture document that describes intentions rather than 
 
 MG-1 is complete and is schema, repository and tests only: **no page reads any of it yet**, by design.
 
-The single most consequential fact below is unchanged by that work: `getRepository()` in [`src/server/data/index.ts`](../src/server/data/index.ts) returns the in-memory adapter unconditionally. Authentication resolves a genuine Supabase session and membership ([`src/server/context/supabase-context.ts`](../src/server/context/supabase-context.ts)), and then that authenticated context reads seeded demonstration data. Every statement about tenant isolation in this document is a statement about application-layer scoping, proven by a two-tenant test suite, and **not yet** about Postgres row level security, which no code has ever exercised. Migrations `0017`–`0020` are written and reviewed; they have never been applied to a database.
+The single most consequential fact below is unchanged by that work: `getRepository()` in [`src/server/data/index.ts`](../src/server/data/index.ts) returns the in-memory adapter unconditionally. Authentication resolves a genuine Supabase session and membership ([`src/server/context/supabase-context.ts`](../src/server/context/supabase-context.ts)), and then that authenticated context reads seeded demonstration data. Every statement about tenant isolation in this document was, until 2026-08-20, a statement about application-layer scoping only. That is no longer wholly true, and the change is worth stating precisely rather than broadly.
+
+**Migrations `0001`–`0021` are now applied to a live Supabase project.** Executed and verified there:
+
+- **Row level security blocks an anonymous caller** on every tenant table tested, old and new. The public anon key returns `[]` from all 16 new tables and a hard `42501` from `internal_users`.
+- **Check constraints enforce.** Eight were probed with writes designed to be rejected; all eight returned `23514`. Among them `profile_candidates_never_self_verified`: the database refuses to store an extracted candidate as `verified` or `provided`, accepting only `ai_extracted`. The MG-3 review boundary holds at the storage layer, not only in TypeScript.
+- **The extended `claim_kind` enum** carries all seven values in the intended order.
+
+**Still not proven**, and the reason it matters: RLS blocking *anonymous* is the easy half. The claim defence in depth actually makes is that **an authenticated member of tenant A cannot read tenant B**, and that needs two real auth users and a session round-trip. It lands with MG-2, and until then `getRepository()` still returns the in-memory adapter, so no page reads any of this.
 
 ---
 
