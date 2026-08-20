@@ -20,7 +20,6 @@ import type {
   Form,
   FormSubmission,
   Donation,
-  ExternalIdentity,
   GiftAidClaim,
   IntegrationConnection,
   IntegrationMapping,
