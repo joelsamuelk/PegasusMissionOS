@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import type { RequestContext } from "@/server/context/request-context";
+import { HAS_CREATED_BY, HAS_UPDATED_AT, HAS_UPDATED_BY } from "./audit-columns";
 import { type Row, toColumns } from "./mapping";
 
 /**
@@ -120,9 +121,10 @@ export class Query {
   ): Promise<Row> {
     const columns = toColumns(values);
     columns.organisation_id = ctx.organisationId;
+    // Only stamp columns the table actually has. Most tables have none.
     if (options.audit !== false) {
-      columns.created_by ??= ctx.userId;
-      columns.updated_by ??= ctx.userId;
+      if (HAS_CREATED_BY.has(table)) columns.created_by ??= ctx.userId;
+      if (HAS_UPDATED_BY.has(table)) columns.updated_by ??= ctx.userId;
     }
     const { data, error } = await this.client
       .from(table)
@@ -149,8 +151,11 @@ export class Query {
   ): Promise<Row | null> {
     const columns = toColumns(values);
     if (options.audit !== false) {
-      columns.updated_by = ctx.userId;
-      columns.updated_at = ctx.now().toISOString();
+      if (HAS_UPDATED_BY.has(table)) columns.updated_by = ctx.userId;
+      // `updated_at` also has a trigger on most tables. Setting it explicitly
+      // keeps the injected clock authoritative: tests pin `ctx.now()`, and a
+      // trigger firing `now()` would quietly overwrite it with wall time.
+      if (HAS_UPDATED_AT.has(table)) columns.updated_at = ctx.now().toISOString();
     }
     let query = this.client.from(table).update(columns).eq("id", id);
     if (this.tenantFilter === "on") {
@@ -226,4 +231,13 @@ export interface Deps {
    * people, so one is not a view over the other.
    */
   recordActivity(ctx: RequestContext, verb: string, target: string): Promise<void>;
+  /**
+   * The graph, so a repository can record an edge without restating the
+   * two-endpoint tenant check.
+   *
+   * `evidence.support` is the reason: it delegates to `graph.connect` in both
+   * adapters rather than writing its own check, which is the kind of
+   * duplication that ends with one copy being weaker than the other.
+   */
+  graph: import("../types").GraphRepository;
 }

@@ -3,7 +3,7 @@ import type { GrantRepository } from "../../types";
 import { arrayFrom, auditFrom, numberFrom, type Row } from "../mapping";
 import type { Deps, Query } from "../query";
 
-function mapGrant(row: Row): Grant {
+export function mapGrant(row: Row): Grant {
   return {
     id: String(row.id),
     organisationId: String(row.organisation_id),

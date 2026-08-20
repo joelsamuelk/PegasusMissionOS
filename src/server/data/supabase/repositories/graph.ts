@@ -34,7 +34,10 @@ function mapRelation(row: Row): Relation {
   };
 }
 
-export function createGraphRepository(q: Query, deps: Deps): GraphRepository {
+export function createGraphRepository(
+  q: Query,
+  deps: Pick<Deps, "audit">,
+): GraphRepository {
   /**
    * Does this entity exist, and does it belong to the caller's tenant?
    *

@@ -45,14 +45,18 @@ export function createSupabaseRepository(
   options: AdapterOptions = {},
 ): MissionRepository {
   const q = new Query(client, options.tenantFilter ?? "on");
-  // Audit is built first: other repositories record events through it.
   const audit = createAuditRepository(q);
-  const deps: Deps = { audit, recordActivity: createActivityRecorder(q) };
+  const recordActivity = createActivityRecorder(q);
+  // Audit and graph are built first: other repositories record events through
+  // the one and edges through the other. Both depend only on what precedes
+  // them, so the order is a fact about the dependency graph, not a convention.
+  const graph = createGraphRepository(q, { audit });
+  const deps: Deps = { audit, recordActivity, graph };
   return {
     name: "supabase",
     organisations: createOrganisationRepository(q, deps),
     claims: createClaimRepository(q, deps),
-    graph: createGraphRepository(q, deps),
+    graph,
     documents: createDocumentRepository(q, deps),
     onboarding: createOnboardingRepository(q, deps),
     strategy: createStrategyRepository(q, deps),
