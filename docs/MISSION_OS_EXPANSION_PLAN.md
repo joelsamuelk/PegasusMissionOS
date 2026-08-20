@@ -42,7 +42,7 @@ Two facts govern everything below:
 | **MG-1** Mission Graph | **New.** Structural changes SC1–SC6. | ✅ **Complete and verified** | — |
 | **MG-2** Production foundation | Slice C, storage half (SC8) | Not started | External: no provisioned Supabase project |
 | **MG-3** Onboarding Intelligence | Slice H + Organisation Intelligence Phases 2-5 | ✅ **Complete and verified** | Ran ahead of MG-2 by decision; see below |
-| **MG-4** Mission Intelligence | Slice F | Not started | Value depends on MG-8, MG-6 |
+| **MG-4** Mission Intelligence | Slice F | ✅ **Complete and verified** | Ran ahead of MG-8 and MG-6 by decision; see the record below for what that costs |
 | **MG-5** Reporting Engine | Slice D | 🟡 ~70% | MG-2 for persistence |
 | **MG-6** Mission Automations | Slice G + automation beyond attention | Not started | MG-2 |
 | **MG-7** Mission Forms | Parked in build spec | Not started | MG-1 (submissions must land as claims) |
@@ -257,6 +257,48 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 **Scope:** tool registry with typed schemas over the existing pure functions; context assembly from authorised claims only; the policy layer (permissions, PII minimisation, injection defence, approval gates); routing across the six intelligence kinds; structured output validated before persistence; execution records capturing feature, prompt version, provider, model, claim IDs used, validation result, fallback state and human review state.
 
 **Security review:** this is the phase where a model gets closest to the graph. Confirm: the tool registry cannot expose a repository method directly; every tool applies the caller's capabilities, not the orchestrator's; untrusted document and transaction text never enters an instruction channel (audit finding S4, still only partly closed).
+
+### Verification record — MG-4 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — three pre-existing warnings in `control-plane/supabase.ts`, untouched by this phase |
+| `npm test` | **753 passed**, 70 files (was 712 across 69) |
+| `npm run test:e2e` | **26/26** in mock mode, including three new Mission Intelligence journeys |
+| `npm run build` | succeeds |
+
+**What was built.** A deterministic intelligence layer in `src/lib/intelligence/` — nine single-domain detectors, four cross-domain rules, a brief assembler and ten question handlers, all pure functions over a `MissionSnapshot`. A scoped context assembler in `src/server/intelligence/mission-context.ts`. A service and server actions over both. One page, `/intelligence`, plus a nav entry.
+
+**The ordering deviation, and what it cost.** §2 argued MG-4 should follow MG-8 and MG-6 so the orchestrator has a tool set worth orchestrating. It ran ahead of both, and the cost is real and is visible in the output rather than hidden:
+
+- **The finance detectors have almost nothing to read.** The seeded workspace has two funds and two transactions, so `unrestricted_runway` never fires and `grant_ending_programme_dependency_low_runway` currently fires on its two-leg branch — the grant is the programme's sole funder — rather than on the three-leg branch the brief describes. The rule is written for both and the branch it took is stated in its own `detail` text. When MG-8 supplies a ledger, the third leg starts firing without a code change.
+- **There is no scheduler**, so the Morning Brief is a page a person opens rather than something that arrives. §9 link 12 remains MG-6's.
+- **There is no tool registry.** What was built instead is narrower and, on reflection, is the right first half: the model is handed *findings*, never callable capabilities. A registry is worth building when there are enough deterministic tools that routing between them is a real decision. There are currently nine detectors and four rules, and they all run every time.
+
+**The design decision most worth recording.** The brief asks for answers separated into FACTS, CALCULATIONS, INFERENCES, ASSUMPTIONS, RECOMMENDATIONS and UNKNOWNS. The first five are `ClaimKind`, which already exists — reusing it means `effectiveClaimKind`'s weakest-link rule still governs, where a parallel enum would have routed around it. **UNKNOWNS are not a kind.** An unknown has no producer, no workings and no confidence; it has a reason, and `UnknownReason` is the eight-value vocabulary §8 of the architecture document said the product must be able to say and could only say six of. `cannot_calculate` and `not_applicable` now exist outside finance for the first time, and the second is specifically the one a zero impersonates: *this organisation holds no unrestricted fund* and *this organisation has nought months of runway* are different statements and no longer render identically.
+
+**Mutation tests.** Four, all required, all restored.
+
+1. Close the ending WYCA grant. **Two composites disappear** — the programme-dependency rule and the major-funder rule both lose their grant leg. If either had survived, it was never a conjunction.
+2. Evidence every Digital Bridge outcome. **The report-readiness composite disappears** while the single-domain "report is due" finding survives, which is the assertion that a due report is not on its own the cross-domain finding.
+3. Delete the `requires` edges. **`promised_outcome_not_currently_provable` goes silent**, proving it traverses the graph rather than pattern-matching free text. This rule could not have been written before MG-1.
+4. Request transaction narratives as a `programme_lead`. **They are withheld and the withholding is recorded**, rather than the request silently succeeding.
+
+**Security review, against §13.** Three findings, all closed in this phase.
+
+- **AI context exposure.** `assembleMissionContext` has no method that fetches everything. A context is a set of named scopes, each gated on a capability, and a scope the acting role cannot read is not fetched at all — it is recorded in `withheld` with the capability that was missing. The smallest unit anything can request is a scope; the largest is the set the caller personally holds.
+- **Transaction narratives.** The expansion plan flagged these as MG-8's security item. They are honoured now, at the moment the field first becomes reachable by a model: excluded from grounding by default, and gated on `finance:manage` even when explicitly requested. The deterministic engine still reads them — computing an unallocated total requires the ledger — so the gap between *what the engine reasons over* and *what the model is shown* is where the sensitivity lives, and it is enforced by two different functions rather than by remembering to redact.
+- **Untrusted text (S4).** Evidence, programme summaries, fund restriction purposes and priority descriptions all pass through `sanitiseSourceText` before reaching grounding. Where injection is suspected the passage is replaced *and said so in the channel the model reads*, because a silently stripped passage invites the model to fill the gap.
+
+**A routing bug the tests caught, worth keeping.** "What should I worry about this month?" routed to the *what changed* handler, because that handler matched on the word "month". A question about the present was being answered with a change log. Period words no longer route; change words do. The suggestion order and the routing order are now separate lists over the same handlers — routing is ordered by specificity so a broad matcher cannot swallow a narrow question, and suggestion is ordered by usefulness so the acceptance question is offered first.
+
+**What was *not* verified, and why.**
+
+- **No live provider.** Narration is exercised against the deterministic mock. Live-provider conformance to the grounding contract is unverified, which is the standing constraint in §6.
+- **Nothing is persisted.** A `MissionBrief` is computed per request and thrown away. The brief specification names `MissionBrief` as reusable and it is reusable as a *type*; there is no `mission_briefs` table, so "show me the brief you gave the board in March" is not answerable. That needs MG-2, and adding a table before the adapter exists would be the fifth deferral of the thing that most needs doing.
+- **Every engine still runs on every page render.** This is the performance precondition §MG-6 names, and it is now measurably worse than before because there are thirteen more engines. At demo scale it is 6ms. At tenant scale it is MG-6's problem and it did not get smaller.
+- **`RelationshipLink` is still a second edge table.** The context assembler unions it with `evidences` relations so that no detector has to know, which is the right containment but is not the fix. Still scheduled with MG-6.
 
 ---
 

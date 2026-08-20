@@ -214,6 +214,36 @@ function command(context: AiContext): string {
     : "I can answer using your organisation's approved data. Try asking about deadlines, your funding pipeline, or missing evidence.";
 }
 
+/**
+ * Mission Intelligence narration.
+ *
+ * The mock's job here is the same as the live provider's and is deliberately
+ * dull: restate what it was given, in order, without adding anything. Because
+ * the brief is fully assembled before either provider is called, the mock's
+ * output is a legitimate answer rather than a degraded one — which is why a
+ * provider outage downgrades the prose and never the reasoning.
+ */
+function missionNarration(context: AiContext): string {
+  const lines: string[] = [];
+  if (context.question) lines.push(`In answer to: ${context.question}`);
+  if (context.guidance) lines.push(context.guidance);
+  const findings = context.programmeData;
+  if (findings.length === 0) {
+    lines.push(
+      "There is nothing in the assembled brief to report. That is a statement about what has been recorded, not a statement that nothing is happening.",
+    );
+  } else {
+    lines.push("");
+    findings.forEach((f) => lines.push(`- ${f.label}: ${f.value}`));
+  }
+  if (context.evidence.length > 0) {
+    lines.push("");
+    lines.push("Questions the records cannot answer:");
+    context.evidence.forEach((e) => lines.push(`- ${e.label}: ${e.value}`));
+  }
+  return lines.filter((line) => line !== undefined).join("\n").trim();
+}
+
 const GENERATORS: Record<AiFeature, (c: AiContext) => string> = {
   draft_answer: draftAnswer,
   improve_clarity: improveClarity,
@@ -224,6 +254,8 @@ const GENERATORS: Record<AiFeature, (c: AiContext) => string> = {
   report_section: reportSection,
   summarise_pipeline: summarisePipeline,
   command: command,
+  mission_brief: missionNarration,
+  mission_answer: missionNarration,
 };
 
 export class MockAiProvider implements AiProvider {

@@ -6,6 +6,7 @@ import {
   Landmark,
   LayoutGrid,
   Library,
+  Radar,
   Settings,
   Target,
   TrendingUp,
@@ -21,6 +22,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Command Centre", href: "/dashboard", icon: LayoutGrid, group: "operate" },
+  { label: "Intelligence", href: "/intelligence", icon: Radar, group: "operate" },
   { label: "Relationships", href: "/relationships", icon: Handshake, group: "operate" },
   { label: "Funding", href: "/funding", icon: Target, group: "operate" },
   { label: "Applications", href: "/applications", icon: FileText, group: "operate" },

@@ -142,3 +142,53 @@ test("14. the audit does not exist before there is anything to audit", async ({ 
   // Not an empty audit full of zeroes, which would read as a verdict.
   await expect(page.getByRole("heading", { name: /no audit yet/i })).toBeVisible();
 });
+
+/**
+ * MG-4 Mission Intelligence.
+ *
+ * The phase's acceptance condition is that the answer is cross-domain rather
+ * than a per-module summary, so the journey checks for the thing no single
+ * module could produce: a finding labelled with two areas, showing the
+ * separate signals that combined. A page that rendered ten grant findings and
+ * ten finance findings would pass a smoke test and fail the phase.
+ */
+test("15. Mission Intelligence surfaces a cross-domain finding with its reasoning", async ({
+  page,
+}) => {
+  await page.goto("/intelligence");
+
+  await expect(page.getByRole("heading", { name: /what needs attention/i })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /across more than one area/i }),
+  ).toBeVisible();
+
+  // The combination the brief names: a programme losing its funding.
+  await expect(page.getByText(/loses its funding when/i).first()).toBeVisible();
+
+  // The reasoning is on the page, not behind a disclosure.
+  await expect(page.getByText(/why this is here/i).first()).toBeVisible();
+
+  // Citations resolve to records a reader can open.
+  await expect(page.getByText(/based on/i).first()).toBeVisible();
+});
+
+test("16. Mission Intelligence says what it cannot tell you", async ({ page }) => {
+  await page.goto("/intelligence");
+
+  await expect(
+    page.getByRole("heading", { name: /what mission os cannot tell you/i }),
+  ).toBeVisible();
+  // A named reason, never a blank and never a zero.
+  await expect(page.getByText(/cannot calculate|no evidence|not measured/i).first()).toBeVisible();
+});
+
+test("17. Ask Mission OS answers the acceptance question with citations", async ({ page }) => {
+  await page.goto("/intelligence");
+
+  await page
+    .getByRole("button", { name: /what are the five most important things/i })
+    .click();
+
+  await expect(page.getByText(/^Answer$/i).first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/^Sources$/i).first()).toBeVisible({ timeout: 15000 });
+});
