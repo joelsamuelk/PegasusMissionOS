@@ -423,7 +423,11 @@ describe("the Finance Command Centre explains every figure", () => {
     const position = await loadFinancePosition(h.ctxA, h.repo);
     expect(position.runway.known).toBe(true);
     if (!position.runway.known) return;
-    expect(position.runway.number).toBeCloseTo(2.5, 1);
+    // 3.4 months, not the 2.5 this asserted before MG-10. The difference is
+    // the seeded spring appeal: donations become transactions in the general
+    // fund and therefore move the runway, which is the fundraising acceptance
+    // chain reaching finance without a second entry.
+    expect(position.runway.number).toBeCloseTo(3.4, 1);
     expect(position.runway.workings).toMatch(/net monthly burn/);
     expect(position.runway.caveat).toMatch(/burn rate continues/);
   });

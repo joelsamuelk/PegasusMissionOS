@@ -13,8 +13,14 @@ import type {
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Appeal,
   Automation,
+  Campaign,
+  Donation,
   Form,
+  GiftAidDeclaration,
+  RecurringCommitment,
+  SupporterProfile,
   Portal,
   PortalGrantRecord,
   PortalIdentity,
@@ -1078,6 +1084,35 @@ export const people: Person[] = [
     tags: ["funder-contact"],
     isDemo: true,
     audit: stamp("2026-05-19", "2026-07-09"),
+  },
+  /**
+   * An individual supporter.
+   *
+   * Added by MG-10. Every other seeded person is a professional contact at a
+   * funder or a partner; a fundraising phase needs somebody who gives their
+   * own money, and the distinction matters because Gift Aid, stewardship and
+   * recognition preferences all apply to individuals and to nobody else.
+   */
+  {
+    id: "per-rowan",
+    organisationId: ORG_ID,
+    firstName: "Rowan",
+    lastName: "Whitfield",
+    emails: [
+      { id: "cp-rowan-1", kind: "email", value: "rowan.whitfield@example.org", label: "Personal", isPrimary: true, verification: "provided" },
+    ],
+    phones: [],
+    location: { city: "Leeds", country: "United Kingdom" },
+    communicationPreferences: operationalContact(),
+    consent: {
+      basis: "consent",
+      source: "Spring appeal donation form",
+      recordedAt: "2026-03-14",
+      jurisdiction: "UK-GDPR",
+    },
+    tags: ["individual-supporter"],
+    isDemo: true,
+    audit: stamp("2026-03-14"),
   },
   {
     id: "per-nadia",
@@ -2220,6 +2255,206 @@ export const formMappings: FormMapping[] = [
  * rule the phase exists to make structural, and a seed where everything was
  * shared would demonstrate the opposite.
  */
+/**
+ * A spring appeal, and one supporter's giving.
+ *
+ * Seeded to walk the acceptance chain the expansion plan sets: *Person →
+ * Relationship → Donation → Fund → Finance → Programme where restricted →
+ * Reporting → Stewardship, without duplicate records.*
+ *
+ * Note what is **not** here. No donation carries an amount. Every one points
+ * at a transaction in `transactions`, which is why the spring appeal's total
+ * appears in the Finance Command Centre's income figure without anybody
+ * entering it twice.
+ */
+export const campaigns: Campaign[] = [
+  {
+    id: "camp-spring-2026",
+    organisationId: ORG_ID,
+    name: "Spring appeal 2026",
+    description:
+      "Unrestricted appeal to individual supporters, funding the core costs behind Youth Futures.",
+    targetMinorUnits: 1_500_000,
+    currency: "GBP",
+    startsOn: "2026-03-01",
+    endsOn: "2026-05-31",
+    fundId: "fund-general",
+    costMinorUnits: 120_000,
+    status: "closed",
+    audit: stamp("2026-02-14"),
+  },
+];
+
+export const appeals: Appeal[] = [
+  {
+    id: "appeal-spring-letter",
+    organisationId: ORG_ID,
+    campaignId: "camp-spring-2026",
+    name: "Spring letter",
+    channel: "cheque",
+    sentOn: "2026-03-04",
+    audienceSize: 420,
+    costMinorUnits: 84_000,
+    audit: stamp("2026-02-14"),
+  },
+  {
+    id: "appeal-spring-email",
+    organisationId: ORG_ID,
+    campaignId: "camp-spring-2026",
+    name: "Spring email",
+    channel: "card",
+    sentOn: "2026-03-11",
+    audienceSize: 1_180,
+    costMinorUnits: 36_000,
+    audit: stamp("2026-02-14"),
+  },
+];
+
+/**
+ * The gifts, and the transactions underneath them.
+ *
+ * The transactions are appended to the finance ledger by `donationLedger()`
+ * below, so there is exactly one record of each amount and it is the one the
+ * accounts see.
+ */
+const SEEDED_GIFTS: {
+  id: string;
+  txnId: string;
+  personId?: string;
+  amount: number;
+  receivedOn: string;
+  channel: Donation["channel"];
+  appealId: string;
+  anonymous?: boolean;
+  thanked?: boolean;
+  giftAidDeclarationId?: string;
+}[] = [
+  {
+    id: "don-1",
+    txnId: "txn-don-1",
+    personId: "per-rowan",
+    amount: 25_000,
+    receivedOn: "2026-03-14",
+    channel: "card",
+    appealId: "appeal-spring-email",
+    thanked: true,
+    giftAidDeclarationId: "gad-rowan",
+  },
+  {
+    id: "don-2",
+    txnId: "txn-don-2",
+    personId: "per-rowan",
+    amount: 50_000,
+    receivedOn: "2026-04-02",
+    channel: "card",
+    appealId: "appeal-spring-email",
+    thanked: true,
+    giftAidDeclarationId: "gad-rowan",
+  },
+  {
+    id: "don-3",
+    txnId: "txn-don-3",
+    amount: 100_000,
+    receivedOn: "2026-03-20",
+    channel: "cheque",
+    appealId: "appeal-spring-letter",
+    // Anonymous to the public. The organisation could not identify this donor
+    // at all, so no Gift Aid is claimable on it.
+    anonymous: true,
+  },
+  {
+    id: "don-4",
+    txnId: "txn-don-4",
+    personId: "per-nadia",
+    amount: 15_000,
+    receivedOn: "2026-03-18",
+    channel: "cheque",
+    appealId: "appeal-spring-letter",
+    // Deliberately unthanked, so the stewardship engine has something true to
+    // find. A seed where everything is in order demonstrates nothing.
+  },
+];
+
+export const donations: Donation[] = SEEDED_GIFTS.map((gift) => ({
+  id: gift.id,
+  organisationId: ORG_ID,
+  transactionId: gift.txnId,
+  personId: gift.personId,
+  kind: "one_off",
+  channel: gift.channel,
+  receivedOn: gift.receivedOn,
+  campaignId: "camp-spring-2026",
+  appealId: gift.appealId,
+  anonymous: gift.anonymous ?? false,
+  restricted: false,
+  giftAidDeclarationId: gift.giftAidDeclarationId,
+  giftAidClaimed: false,
+  thankedAt: gift.thanked ? `${gift.receivedOn}T16:00:00Z` : undefined,
+  audit: stamp(gift.receivedOn),
+}));
+
+/** The money behind the seeded gifts. One record of each amount, in finance. */
+function donationLedger(): FinancialTransaction[] {
+  return SEEDED_GIFTS.map((gift) => ({
+    id: gift.txnId,
+    organisationId: ORG_ID,
+    date: gift.receivedOn,
+    description: gift.anonymous
+      ? "Anonymous donation, spring appeal"
+      : `Donation, spring appeal (${gift.channel})`,
+    amount: gbp(gift.amount),
+    direction: "income" as const,
+    category: "Donations received",
+    restricted: false,
+    fundId: "fund-general",
+    source: "manual" as const,
+    verificationState: "provided" as const,
+  }));
+}
+
+export const recurringCommitments: RecurringCommitment[] = [
+  {
+    id: "rec-rowan",
+    organisationId: ORG_ID,
+    personId: "per-rowan",
+    amountMinorUnits: 2_000,
+    currency: "GBP",
+    frequency: "monthly",
+    channel: "direct_debit",
+    startedOn: "2026-05-01",
+    status: "active",
+    audit: stamp("2026-05-01"),
+  },
+];
+
+export const giftAidDeclarations: GiftAidDeclaration[] = [
+  {
+    id: "gad-rowan",
+    organisationId: ORG_ID,
+    personId: "per-rowan",
+    fullName: "Rowan Whitfield",
+    addressLine: "14 Cardigan Road",
+    postcode: "LS6 1LJ",
+    taxpayerConfirmed: true,
+    declaredOn: "2026-03-14",
+    scope: "enduring",
+    audit: stamp("2026-03-14"),
+  },
+];
+
+export const supporterProfiles: SupporterProfile[] = [
+  {
+    id: "sup-rowan",
+    organisationId: ORG_ID,
+    personId: "per-rowan",
+    stewardId: "user-james",
+    stage: "regular",
+    recognitionPreference: "named",
+    doNotSolicit: false,
+    audit: stamp("2026-03-14"),
+  },
+];
+
 export const portals: Portal[] = [
   {
     id: "portal-funder",
@@ -2722,6 +2957,9 @@ export const transactions: FinancialTransaction[] = [
    * were written for.
    */
   ...unrestrictedLedger(),
+  // MG-10. The money behind the seeded gifts. One record of each amount, and
+  // it is the one the accounts see.
+  ...donationLedger(),
 ];
 
 /**

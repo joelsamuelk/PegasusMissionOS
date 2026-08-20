@@ -1,6 +1,13 @@
 import type {
   Activity,
   ActivityEvent,
+  Appeal,
+  Campaign,
+  Donation,
+  GiftAidClaim,
+  GiftAidDeclaration,
+  RecurringCommitment,
+  SupporterProfile,
   AIGeneration,
   Application,
   ApplicationAnswer,
@@ -1143,6 +1150,98 @@ export interface PortalAccessRepository {
   message(slug: string, email: string, body: string): Promise<string | null>;
 }
 
+/**
+ * Fundraising.
+ *
+ * `recordDonation` is the method the phase is judged on. It writes a
+ * `FinancialTransaction` **and** a `Donation` in one call, so a gift is money
+ * and a fundraising fact at the same moment rather than two entries somebody
+ * has to keep in step. There is deliberately no way to create a donation
+ * without creating the transaction underneath it.
+ */
+export interface DonationInit {
+  /** Exactly one, or neither where the gift is genuinely anonymous. */
+  personId?: string;
+  externalOrganisationId?: string;
+  amountMinorUnits: number;
+  currency: string;
+  receivedOn: string;
+  channel: Donation["channel"];
+  kind?: Donation["kind"];
+  /** Which pot it lands in. Required: money has to be somewhere. */
+  fundId: string;
+  campaignId?: string;
+  appealId?: string;
+  recurringCommitmentId?: string;
+  anonymous?: boolean;
+  restricted?: boolean;
+  restrictionPurpose?: string;
+  /** What the gift funds, where it is restricted to one thing. */
+  programmeId?: string;
+  benefitValueMinorUnits?: number;
+  note?: string;
+  description?: string;
+}
+
+export interface DonationResult {
+  ok: boolean;
+  donationId?: string;
+  transactionId?: string;
+  allocationId?: string;
+  /** The supporter profile created or found. */
+  supporterProfileId?: string;
+  message?: string;
+}
+
+export interface FundraisingRepository {
+  campaigns(ctx: RequestContext): Promise<Campaign[]>;
+  getCampaign(ctx: RequestContext, id: string): Promise<Campaign | null>;
+  appeals(ctx: RequestContext, campaignId?: string): Promise<Appeal[]>;
+  donations(ctx: RequestContext, options?: { campaignId?: string; personId?: string }): Promise<Donation[]>;
+  getDonation(ctx: RequestContext, id: string): Promise<Donation | null>;
+  recurringCommitments(ctx: RequestContext): Promise<RecurringCommitment[]>;
+
+  /**
+   * Record a gift.
+   *
+   * Writes the transaction, the donation and the allocation together. A
+   * donation without a transaction would be a pledge, and recording a gift the
+   * bank has not seen as income is how a fundraising total stops matching the
+   * accounts.
+   */
+  recordDonation(ctx: RequestContext, init: DonationInit): Promise<DonationResult>;
+  markThanked(ctx: RequestContext, donationId: string): Promise<void>;
+
+  supporterProfiles(ctx: RequestContext): Promise<SupporterProfile[]>;
+  getSupporterProfile(
+    ctx: RequestContext,
+    party: { personId?: string; externalOrganisationId?: string },
+  ): Promise<SupporterProfile | null>;
+  saveSupporterProfile(
+    ctx: RequestContext,
+    input: Omit<SupporterProfile, "id" | "organisationId" | "audit"> & { id?: string },
+  ): Promise<string | null>;
+
+  giftAidDeclarations(ctx: RequestContext, personId?: string): Promise<GiftAidDeclaration[]>;
+  recordGiftAidDeclaration(
+    ctx: RequestContext,
+    input: Omit<GiftAidDeclaration, "id" | "organisationId" | "audit">,
+  ): Promise<string | null>;
+  /**
+   * Assemble a claim for a period.
+   *
+   * Assembles and validates. It never files: Pegasus does not submit to HMRC,
+   * and a submission that looked as though it had happened and had not would
+   * be discovered by HMRC rather than by the charity.
+   */
+  assembleGiftAidClaim(
+    ctx: RequestContext,
+    periodStart: string,
+    periodEnd: string,
+  ): Promise<{ claimId: string; claimableMinorUnits: number; refused: number }>;
+  giftAidClaims(ctx: RequestContext): Promise<GiftAidClaim[]>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
@@ -1165,6 +1264,7 @@ export interface MissionRepository {
   forms: FormRepository;
   /** Unscoped by necessity, and narrowed to almost nothing. See above. */
   publicForms: PublicFormRepository;
+  fundraising: FundraisingRepository;
   portals: PortalRepository;
   /** The portal user's side. Returns projections, never records. */
   portalAccess: PortalAccessRepository;

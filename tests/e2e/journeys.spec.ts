@@ -347,3 +347,29 @@ test("28. a portal preview shows the projection, not the record", async ({ page 
   await expect(page.getByText(/Youth Futures programme grant/i).first()).toBeVisible();
   await expect(page.getByText(/^Not shown:/i).first()).toBeVisible();
 });
+
+/**
+ * MG-10 fundraising.
+ *
+ * Two things the journey checks, both of them absences: no engagement score
+ * anywhere, and a campaign reporting net alongside gross. A page showing only
+ * the gross figure is the one repeated in a trustee meeting.
+ */
+test("29. supporters have a stage and its signals, not a score", async ({ page }) => {
+  await page.goto("/supporters");
+
+  await expect(
+    page.getByRole("heading", { name: /who gives, where they are, and what to do next/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/there is no engagement score/i)).toBeVisible();
+  await expect(page.getByText(/^Why$/i).first()).toBeVisible();
+  await expect(page.getByText(/^Next:/i).first()).toBeVisible();
+});
+
+test("30. a campaign reports net alongside gross", async ({ page }) => {
+  await page.goto("/supporters");
+
+  await expect(page.getByRole("heading", { name: /campaigns/i })).toBeVisible();
+  await expect(page.getByText(/net/i).first()).toBeVisible();
+  await expect(page.getByText(/gifts from \d+ donors/i).first()).toBeVisible();
+});

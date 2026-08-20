@@ -1710,6 +1710,357 @@ export interface ReportTemplateIngestion {
 }
 
 
+// --- Supporters, fundraising and stewardship (MG-10) --------------------
+
+/**
+ * Fundraising.
+ *
+ * Two instructions govern this phase and they pull in opposite directions.
+ * The brief says *DO NOT create a second CRM; `Person` and
+ * `ExternalOrganisation` remain canonical identities.* The expansion plan says
+ * a donation *touches supporter, fund, finance, programme, campaign,
+ * reporting, impact and stewardship, and if it lives in a fundraising table,
+ * §11 has been violated.*
+ *
+ * Resolving them decided three things, and they are the phase.
+ *
+ * **A `Donation` is not money.** It holds a `transactionId` and no amount of
+ * its own. The money is a `FinancialTransaction` in a `Fund`, attributed by a
+ * `FinancialAllocation`, exactly as a grant payment is — so a donation reaches
+ * the Finance Command Centre, the runway calculation and a funder report
+ * without anybody entering it twice. What `Donation` carries is the
+ * *fundraising* facts: which campaign, which appeal, which channel, whether it
+ * was anonymous, whether Gift Aid applies.
+ *
+ * **There is no `DonationAllocation`.** The brief lists one; `FinancialAllocation`
+ * already is one, and it already records the method and the basis that make an
+ * attribution defensible. A second allocation table would need reconciling
+ * with the first, and the copy that lost would be the one nobody was looking
+ * at.
+ *
+ * **`SupporterProfile` holds no identity.** No name, no email, no address.
+ * Those are `Person`, which is canonical. What it holds is what is genuinely
+ * fundraising-specific and belongs nowhere else: a steward, a stewardship
+ * stage, and how somebody wishes to be thanked.
+ */
+
+export type DonationChannel =
+  | "bank_transfer"
+  | "direct_debit"
+  | "standing_order"
+  | "card"
+  | "cash"
+  | "cheque"
+  | "platform"
+  | "payroll_giving"
+  | "legacy"
+  | "in_kind";
+
+export type DonationKind = "one_off" | "recurring_payment" | "legacy" | "in_kind";
+
+/**
+ * A gift, as a fundraising record.
+ *
+ * The money lives in `transactionId`. This record exists to say what the money
+ * *was*: whose gift, to which appeal, through which channel, and under what
+ * conditions.
+ */
+export interface Donation {
+  id: UUID;
+  organisationId: UUID;
+
+  /**
+   * The money. Required, and the reason this phase is not a second ledger.
+   *
+   * A donation without a transaction would be a pledge, and a pledge is a
+   * `RecurringCommitment` or nothing at all. Recording a gift the bank has not
+   * seen as income is how a fundraising total stops matching the accounts.
+   */
+  transactionId: UUID;
+
+  /** Who gave. Exactly one, or neither where the gift is genuinely anonymous. */
+  personId?: UUID;
+  externalOrganisationId?: UUID;
+
+  kind: DonationKind;
+  channel: DonationChannel;
+  receivedOn: ISODate;
+
+  campaignId?: UUID;
+  appealId?: UUID;
+  /** The recurring arrangement this payment belongs to, where it does. */
+  recurringCommitmentId?: UUID;
+
+  /**
+   * Anonymous to the public, not to the organisation.
+   *
+   * A charity must be able to identify its donors for due diligence and for
+   * Gift Aid, so `personId` may be set on an anonymous gift. What `anonymous`
+   * means is that the name is withheld from anything a third party sees: a
+   * report, a supporter wall, a portal. Conflating the two would either break
+   * due diligence or publish a name somebody asked to keep private.
+   */
+  anonymous: boolean;
+
+  /** Whether the donor placed a restriction on it. */
+  restricted: boolean;
+  /** What the restriction says, where there is one. */
+  restrictionPurpose?: string;
+
+  /** Gift Aid, where the donor has a declaration covering this gift. */
+  giftAidDeclarationId?: UUID;
+  giftAidClaimed: boolean;
+
+  /**
+   * A benefit the donor received, in minor units.
+   *
+   * HMRC's benefit rules disqualify a gift from Gift Aid above set limits, so
+   * the value has to be recorded rather than assumed to be nil.
+   */
+  benefitValueMinorUnits?: number;
+
+  note?: string;
+  thankedAt?: ISODate;
+  audit: AuditStamp;
+}
+
+export type RecurringFrequency = "monthly" | "quarterly" | "annual";
+
+/**
+ * A standing arrangement to give.
+ *
+ * Distinct from a `Donation`, and the distinction is what stops a fundraising
+ * total counting money nobody has received: a commitment is an intention, and
+ * each payment against it is a separate `Donation` with its own transaction.
+ */
+export interface RecurringCommitment {
+  id: UUID;
+  organisationId: UUID;
+  personId?: UUID;
+  externalOrganisationId?: UUID;
+  amountMinorUnits: number;
+  currency: CurrencyCode;
+  frequency: RecurringFrequency;
+  channel: DonationChannel;
+  startedOn: ISODate;
+  /** Set when the arrangement ends, whether by the donor or by the charity. */
+  endedOn?: ISODate;
+  endedReason?: string;
+  campaignId?: UUID;
+  status: "active" | "paused" | "ended";
+  audit: AuditStamp;
+}
+
+/**
+ * A fundraising campaign.
+ *
+ * The brief lists `FundraisingGoal` separately. It is folded in here as
+ * `targetMinorUnits`, because a campaign with several simultaneous monetary
+ * targets is not something charities of this size run, and a separate table
+ * would be an empty join for every organisation that does not.
+ *
+ * `raised` is deliberately absent. A stored total is a second source of truth
+ * that goes stale the moment a donation is corrected; the total is the sum of
+ * the donations pointing at the campaign, which is one query and always right.
+ */
+export interface Campaign {
+  id: UUID;
+  organisationId: UUID;
+  name: string;
+  description?: string;
+  targetMinorUnits?: number;
+  currency: CurrencyCode;
+  startsOn: ISODate;
+  endsOn?: ISODate;
+  /** Where restricted income from this campaign lands. */
+  fundId?: UUID;
+  /** What the campaign funds, where it funds one thing. */
+  programmeId?: UUID;
+  /** Direct cost of running it, so net income is computable rather than assumed. */
+  costMinorUnits?: number;
+  status: "planned" | "active" | "closed";
+  audit: AuditStamp;
+}
+
+/** One ask within a campaign: a mailing, an event, an appeal week. */
+export interface Appeal {
+  id: UUID;
+  organisationId: UUID;
+  campaignId: UUID;
+  name: string;
+  channel: DonationChannel;
+  sentOn?: ISODate;
+  /** How many people were asked. Needed for a response rate that means anything. */
+  audienceSize?: number;
+  costMinorUnits?: number;
+  audit: AuditStamp;
+}
+
+/**
+ * A public page that collects donations for a campaign.
+ *
+ * Thin on purpose. The form behind it is a `Form` with purpose `donation`,
+ * built in MG-7 and carrying its own consent, sensitivity and spam controls; a
+ * second form engine here would be exactly the module-specific duplication the
+ * architecture keeps refusing.
+ */
+export interface FundraisingPage {
+  id: UUID;
+  organisationId: UUID;
+  campaignId: UUID;
+  slug: string;
+  headline: string;
+  body?: string;
+  /** The donation form served on it. */
+  formId?: UUID;
+  /** Whether the running total is shown publicly. */
+  showTotal: boolean;
+  status: "draft" | "live" | "closed";
+  audit: AuditStamp;
+}
+
+/**
+ * A UK Gift Aid declaration.
+ *
+ * Modelled against what HMRC actually requires rather than against what is
+ * convenient. Four things make a declaration valid, and all four are here
+ * because a claim missing any of them is one the charity has to repay:
+ *
+ * - the donor's **full name and home address**, because HMRC matches on them;
+ * - a statement that they are a **UK taxpayer** who has paid at least as much
+ *   income or capital gains tax as every charity will reclaim;
+ * - the **date** it was given;
+ * - whether it is **enduring** — covering past four years and all future gifts
+ *   — or applies to a single donation.
+ *
+ * The address is the one field on this record that is personal data the
+ * relationship layer deliberately does not hold. It lives here because Gift
+ * Aid is the lawful basis for holding it, which is the rule §8 states: a
+ * lawful basis first, not an available column.
+ */
+export interface GiftAidDeclaration {
+  id: UUID;
+  organisationId: UUID;
+  /** Gift Aid applies to individuals only. A company cannot make one. */
+  personId: UUID;
+  fullName: string;
+  /** Required by HMRC. House number or name plus postcode is the minimum. */
+  addressLine: string;
+  postcode: string;
+  /** The donor's confirmation that they pay enough UK tax. */
+  taxpayerConfirmed: boolean;
+  declaredOn: ISODate;
+  /** Enduring declarations cover the previous four years and all future gifts. */
+  scope: "enduring" | "single_donation";
+  /** For a single-donation declaration. */
+  donationId?: UUID;
+  cancelledOn?: ISODate;
+  cancelledReason?: string;
+  audit: AuditStamp;
+}
+
+/**
+ * A claim to HMRC.
+ *
+ * *Do not fake live HMRC submission*, from the brief. Nothing here submits
+ * anything: a claim is assembled, validated against the declaration rules, and
+ * left in `ready` for somebody to file through HMRC's own service. `submit` is
+ * a port with no implementation, and `reference` is filled in by a human who
+ * filed it.
+ */
+export interface GiftAidClaim {
+  id: UUID;
+  organisationId: UUID;
+  periodStart: ISODate;
+  periodEnd: ISODate;
+  donationIds: UUID[];
+  /** 25% of qualifying gifts, in minor units. Computed, never entered. */
+  claimableMinorUnits: number;
+  currency: CurrencyCode;
+  status: "draft" | "ready" | "filed" | "settled";
+  /** Filled in by whoever filed it with HMRC. Pegasus never files. */
+  hmrcReference?: string;
+  filedBy?: UUID;
+  filedOn?: ISODate;
+  audit: AuditStamp;
+}
+
+/**
+ * Where a supporter is in their relationship with the organisation.
+ *
+ * A named stage, not a score. *Do not create manipulative engagement scoring*,
+ * from the brief, and the reason is not squeamishness: a score compresses
+ * several different situations into one number and then invites somebody to
+ * act on the number. A supporter who gave once and has not been thanked, and a
+ * supporter who gave for six years and stopped, are different problems, and
+ * "engagement 34" says neither.
+ */
+export type StewardshipStageKey =
+  | "new"
+  | "thanked"
+  | "regular"
+  | "major"
+  | "lapsing"
+  | "lapsed"
+  | "corporate"
+  | "trust_or_foundation"
+  | "potential_major";
+
+export interface StewardshipStage {
+  key: StewardshipStageKey;
+  label: string;
+  /** What this stage means, in the words a fundraiser would use. */
+  description: string;
+  /** The next thing to do. A stage with no action is a label. */
+  suggestedAction: string;
+}
+
+/**
+ * The fundraising-specific record for a supporter.
+ *
+ * Holds **no identity**: no name, no email, no address. Those are `Person`,
+ * which is canonical and which this points at. What is here is what belongs
+ * nowhere else — who stewards them, where they are in the relationship, and
+ * how they wish to be recognised.
+ */
+export interface SupporterProfile {
+  id: UUID;
+  organisationId: UUID;
+  /** Exactly one. Identity stays canonical. */
+  personId?: UUID;
+  externalOrganisationId?: UUID;
+  /** The internal person accountable for the relationship. */
+  stewardId?: UUID;
+  stage: StewardshipStageKey;
+  /** Set by a human, overriding the derived stage. Requires a reason. */
+  stageOverride?: { stage: StewardshipStageKey; reason: string; setBy?: UUID; setAt: ISODate };
+  /** How they wish to be thanked and listed. Never inferred. */
+  recognitionPreference?: "named" | "anonymous" | "ask_each_time";
+  /** Whether they have asked not to be approached for money. */
+  doNotSolicit: boolean;
+  doNotSolicitReason?: string;
+  notes?: string;
+  audit: AuditStamp;
+}
+
+/** A planned sequence of stewardship actions for one supporter. */
+export interface StewardshipPlan {
+  id: UUID;
+  organisationId: UUID;
+  supporterProfileId: UUID;
+  name: string;
+  steps: {
+    key: string;
+    title: string;
+    dueAt?: ISODate;
+    completedAt?: ISODate;
+    /** The task created for it, so the plan does not become a second to-do list. */
+    taskId?: UUID;
+  }[];
+  status: "active" | "complete" | "abandoned";
+  audit: AuditStamp;
+}
+
 // --- Portals (MG-9) ------------------------------------------------------
 
 /**

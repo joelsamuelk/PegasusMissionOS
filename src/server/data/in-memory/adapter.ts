@@ -19,8 +19,12 @@ import type {
   DomainEvent,
   Form,
   FormSubmission,
+  Donation,
+  GiftAidClaim,
+  GiftAidDeclaration,
   Notification,
   Person,
+  SupporterProfile,
   PortalGrantRecord,
   PortalMembership,
   PortalMessage,
@@ -42,6 +46,7 @@ import { can } from "@/lib/permissions";
 import { resolvePersonByEmail } from "@/lib/logic/relationship-identity";
 import { allocateSharedCost } from "@/lib/finance-intelligence/allocate";
 import { classifyRows, detectDuplicates, parseStatementCsv } from "@/lib/finance";
+import { assembleClaim } from "@/lib/fundraising";
 import {
   capabilityPermitted,
   decideAccess,
@@ -2441,6 +2446,321 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
      * organisation deciding to share something outside it, which is why every
      * one is audited and why `share` refuses rather than defaults.
      */
+
+    /**
+     * Fundraising.
+     *
+     * `recordDonation` is the method this phase is judged on. It writes the
+     * transaction, the donation and the allocation in one call, so a gift is
+     * money and a fundraising fact at the same moment. There is deliberately
+     * no path here that creates a donation without the transaction underneath
+     * it: that would be a pledge recorded as income, which is how a
+     * fundraising total stops matching the accounts.
+     */
+    fundraising: {
+      async campaigns(ctx) {
+        return scoped(state.campaigns, ctx).filter(isLive);
+      },
+      async getCampaign(ctx, id) {
+        return scopedFind(state.campaigns, ctx, (campaign) => campaign.id === id);
+      },
+      async appeals(ctx, campaignId) {
+        return scoped(state.appeals, ctx).filter(
+          (appeal) => !campaignId || appeal.campaignId === campaignId,
+        );
+      },
+      async donations(ctx, options) {
+        return scoped(state.donations, ctx)
+          .filter(isLive)
+          .filter((donation) => !options?.campaignId || donation.campaignId === options.campaignId)
+          .filter((donation) => !options?.personId || donation.personId === options.personId)
+          .sort((a, b) => b.receivedOn.localeCompare(a.receivedOn));
+      },
+      async getDonation(ctx, id) {
+        return scopedFind(state.donations, ctx, (donation) => donation.id === id);
+      },
+      async recurringCommitments(ctx) {
+        return scoped(state.recurringCommitments, ctx);
+      },
+
+      async recordDonation(ctx, init) {
+        if (init.amountMinorUnits <= 0) {
+          return { ok: false, message: "A donation must be a positive amount." };
+        }
+        if (init.personId && init.externalOrganisationId) {
+          return {
+            ok: false,
+            message: "A gift comes from a person or an organisation, not both.",
+          };
+        }
+        if (init.personId && !entityExists(ctx, { type: "person", id: init.personId })) {
+          return { ok: false, message: "That person is not in this organisation." };
+        }
+        if (
+          init.externalOrganisationId &&
+          !entityExists(ctx, {
+            type: "external_organisation",
+            id: init.externalOrganisationId,
+          })
+        ) {
+          return { ok: false, message: "That organisation is not in this organisation's records." };
+        }
+        const fund = scopedFind(state.funds, ctx, (candidate) => candidate.id === init.fundId);
+        if (!fund) return { ok: false, message: "That fund could not be found." };
+        // A restricted gift whose restriction is unstated cannot be honoured,
+        // and is the same failure the fund constraint guards against.
+        if (init.restricted && !init.restrictionPurpose?.trim()) {
+          return {
+            ok: false,
+            message: "A restricted gift needs its restriction stated. Otherwise it cannot be honoured.",
+          };
+        }
+
+        const now = stamp(ctx);
+
+        // The money first, and only once.
+        const transaction: FinancialTransaction = {
+          id: newId("txn"),
+          organisationId: ctx.organisationId,
+          date: init.receivedOn,
+          description:
+            init.description ??
+            (init.anonymous ? "Anonymous donation" : `Donation (${init.channel})`),
+          amount: { minorUnits: init.amountMinorUnits, currency: init.currency },
+          direction: "income",
+          category: "Donations received",
+          restricted: init.restricted ?? false,
+          fundId: fund.id,
+          source: "manual",
+          // Somebody entered it. Nobody has reconciled it against a bank line.
+          verificationState: "provided",
+        };
+        state.transactions.push(transaction);
+
+        const donation: Donation = {
+          id: newId("don"),
+          organisationId: ctx.organisationId,
+          transactionId: transaction.id,
+          personId: init.personId,
+          externalOrganisationId: init.externalOrganisationId,
+          kind: init.kind ?? "one_off",
+          channel: init.channel,
+          receivedOn: init.receivedOn,
+          campaignId: init.campaignId,
+          appealId: init.appealId,
+          recurringCommitmentId: init.recurringCommitmentId,
+          anonymous: init.anonymous ?? false,
+          restricted: init.restricted ?? false,
+          restrictionPurpose: init.restrictionPurpose,
+          giftAidClaimed: false,
+          benefitValueMinorUnits: init.benefitValueMinorUnits,
+          note: init.note,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.donations.push(donation);
+
+        /**
+         * Attribution, where the gift is restricted to something.
+         *
+         * A restricted gift that nothing attributes is money the organisation
+         * has promised to spend on a thing and cannot show it spent on that
+         * thing. An unrestricted gift is deliberately left unallocated: it is
+         * core income, and forcing it onto a programme would be the
+         * apportionment fiction MG-8 exists to avoid.
+         */
+        let allocationId: string | undefined;
+        if (init.programmeId && init.restricted) {
+          const allocated = await repository.finance.allocate(ctx, {
+            transactionId: transaction.id,
+            fundId: fund.id,
+            programmeId: init.programmeId,
+            amount: transaction.amount,
+            allocationMethod: "direct",
+            allocationBasis: "direct",
+            allocationNote: `Restricted gift: ${init.restrictionPurpose}`,
+            restricted: true,
+            effectiveDate: init.receivedOn,
+            verificationState: "provided",
+            createdBy: ctx.userId,
+          });
+          allocationId = allocated ?? undefined;
+        }
+
+        // A supporter profile, so the gift has somewhere to be stewarded from.
+        // Created rather than required, because a first gift should not need
+        // somebody to set up a record before it can be recorded.
+        let supporterProfileId: string | undefined;
+        const party = init.personId
+          ? { personId: init.personId }
+          : init.externalOrganisationId
+            ? { externalOrganisationId: init.externalOrganisationId }
+            : null;
+        if (party) {
+          const existing = scopedFind(
+            state.supporterProfiles,
+            ctx,
+            (profile) =>
+              (party.personId !== undefined && profile.personId === party.personId) ||
+              (party.externalOrganisationId !== undefined &&
+                profile.externalOrganisationId === party.externalOrganisationId),
+          );
+          if (existing) supporterProfileId = existing.id;
+          else {
+            const profile: SupporterProfile = {
+              id: newId("sup"),
+              organisationId: ctx.organisationId,
+              ...party,
+              stage: init.externalOrganisationId ? "corporate" : "new",
+              doNotSolicit: false,
+              audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+            };
+            state.supporterProfiles.push(profile);
+            supporterProfileId = profile.id;
+          }
+        }
+
+        await recordAudit(ctx, {
+          action: "donation.recorded",
+          entityType: "donation",
+          entityId: donation.id,
+          summary: `Recorded a ${(init.amountMinorUnits / 100).toFixed(2)} donation${init.anonymous ? " (anonymous)" : ""} into ${fund.name}`,
+        });
+
+        return {
+          ok: true,
+          donationId: donation.id,
+          transactionId: transaction.id,
+          allocationId,
+          supporterProfileId,
+        };
+      },
+
+      async markThanked(ctx, donationId) {
+        const donation = scopedFind(state.donations, ctx, (row) => row.id === donationId);
+        if (!donation || donation.thankedAt) return;
+        donation.thankedAt = stamp(ctx);
+        donation.audit.updatedAt = stamp(ctx);
+      },
+
+      async supporterProfiles(ctx) {
+        return scoped(state.supporterProfiles, ctx).filter(isLive);
+      },
+      async getSupporterProfile(ctx, party) {
+        return scopedFind(
+          state.supporterProfiles,
+          ctx,
+          (profile) =>
+            (party.personId !== undefined && profile.personId === party.personId) ||
+            (party.externalOrganisationId !== undefined &&
+              profile.externalOrganisationId === party.externalOrganisationId),
+        );
+      },
+      async saveSupporterProfile(ctx, input) {
+        const now = stamp(ctx);
+        const existing = input.id
+          ? scopedFind(state.supporterProfiles, ctx, (profile) => profile.id === input.id)
+          : null;
+
+        // An override without a reason is not auditable by whoever picks the
+        // relationship up next, which is the same rule the relationship health
+        // override follows.
+        if (input.stageOverride && !input.stageOverride.reason.trim()) return null;
+
+        if (existing) {
+          Object.assign(existing, input, {
+            id: existing.id,
+            organisationId: existing.organisationId,
+            audit: { ...existing.audit, updatedAt: now, updatedBy: ctx.userId },
+          });
+          return existing.id;
+        }
+
+        const profile: SupporterProfile = {
+          ...input,
+          id: newId("sup"),
+          organisationId: ctx.organisationId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.supporterProfiles.push(profile);
+        return profile.id;
+      },
+
+      async giftAidDeclarations(ctx, personId) {
+        return scoped(state.giftAidDeclarations, ctx).filter(
+          (declaration) => !personId || declaration.personId === personId,
+        );
+      },
+      async recordGiftAidDeclaration(ctx, input) {
+        if (!entityExists(ctx, { type: "person", id: input.personId })) return null;
+        // Refused rather than stored incomplete: HMRC matches a claim on these
+        // details, and a declaration missing any of them is one the charity
+        // would have to repay.
+        if (!input.fullName.trim() || !input.addressLine.trim() || !input.postcode.trim()) {
+          return null;
+        }
+        const now = stamp(ctx);
+        const declaration: GiftAidDeclaration = {
+          ...input,
+          id: newId("gad"),
+          organisationId: ctx.organisationId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.giftAidDeclarations.push(declaration);
+        return declaration.id;
+      },
+
+      async assembleGiftAidClaim(ctx, periodStart, periodEnd) {
+        const donations = scoped(state.donations, ctx).filter(
+          (donation) => donation.receivedOn >= periodStart && donation.receivedOn <= periodEnd,
+        );
+        const declarations = scoped(state.giftAidDeclarations, ctx);
+        const transactions = scoped(state.transactions, ctx);
+
+        const assembly = assembleClaim(
+          donations.map((donation) => ({
+            donation,
+            amountMinorUnits:
+              transactions.find((t) => t.id === donation.transactionId)?.amount.minorUnits ?? 0,
+            declaration: declarations.find(
+              (candidate) =>
+                candidate.id === donation.giftAidDeclarationId ||
+                (candidate.scope === "enduring" && candidate.personId === donation.personId),
+            ),
+          })),
+        );
+
+        const claim: GiftAidClaim = {
+          id: newId("gac"),
+          organisationId: ctx.organisationId,
+          periodStart,
+          periodEnd,
+          donationIds: assembly.eligible.map((entry) => entry.donationId),
+          claimableMinorUnits: assembly.totalClaimableMinorUnits,
+          currency: "GBP",
+          // Never `filed`. Pegasus assembles and validates; a person files it
+          // through HMRC's own service and records the reference.
+          status: assembly.eligible.length > 0 ? "ready" : "draft",
+          audit: { createdAt: stamp(ctx), updatedAt: stamp(ctx), createdBy: ctx.userId },
+        };
+        state.giftAidClaims.push(claim);
+
+        await recordAudit(ctx, {
+          action: "giftaid.claim.assembled",
+          entityType: "donation",
+          entityId: claim.id,
+          summary: `Assembled a Gift Aid claim: ${assembly.eligible.length} eligible gifts, ${assembly.refused.length} refused, ${(assembly.totalClaimableMinorUnits / 100).toFixed(2)} claimable. Not filed.`,
+        });
+
+        return {
+          claimId: claim.id,
+          claimableMinorUnits: assembly.totalClaimableMinorUnits,
+          refused: assembly.refused.length,
+        };
+      },
+      async giftAidClaims(ctx) {
+        return scoped(state.giftAidClaims, ctx);
+      },
+    },
     portals: {
       async list(ctx) {
         return scoped(state.portals, ctx).filter(isLive);

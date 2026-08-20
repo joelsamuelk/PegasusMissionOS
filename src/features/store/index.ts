@@ -14,6 +14,14 @@
 import type {
   Activity,
   ActivityEvent,
+  Appeal,
+  Campaign,
+  Donation,
+  GiftAidClaim,
+  GiftAidDeclaration,
+  RecurringCommitment,
+  StewardshipPlan,
+  SupporterProfile,
   AIGeneration,
   Application,
   ApplicationAnswer,
@@ -189,6 +197,16 @@ export interface StoreState {
   // rather than a value.
   // MG-9. Identities are not users, grants are per record, and views live in
   // code because a field allowlist is not data an organisation should edit.
+  // MG-10. A donation points at a transaction and carries no amount: the
+  // money is finance, and this is what the money was.
+  campaigns: Campaign[];
+  appeals: Appeal[];
+  donations: Donation[];
+  recurringCommitments: RecurringCommitment[];
+  giftAidDeclarations: GiftAidDeclaration[];
+  giftAidClaims: GiftAidClaim[];
+  supporterProfiles: SupporterProfile[];
+  stewardshipPlans: StewardshipPlan[];
   portals: Portal[];
   portalIdentities: PortalIdentity[];
   portalMemberships: PortalMembership[];
@@ -285,6 +303,14 @@ export function createStoreState(): StoreState {
     reportApprovals: [],
     reportRequirements: clone(seed.reportRequirements ?? []),
     reportTemplateIngestions: [],
+    campaigns: clone(seed.campaigns ?? []),
+    appeals: clone(seed.appeals ?? []),
+    donations: clone(seed.donations ?? []),
+    recurringCommitments: clone(seed.recurringCommitments ?? []),
+    giftAidDeclarations: clone(seed.giftAidDeclarations ?? []),
+    giftAidClaims: [],
+    supporterProfiles: clone(seed.supporterProfiles ?? []),
+    stewardshipPlans: [],
     portals: clone(seed.portals ?? []),
     portalIdentities: clone(seed.portalIdentities ?? []),
     portalMemberships: clone(seed.portalMemberships ?? []),

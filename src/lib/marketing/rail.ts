@@ -15,6 +15,7 @@ export const NAV_LABELS = [
   "Command Centre",
   "Intelligence",
   "Relationships",
+  "Supporters",
   "Funding",
   "Applications",
   "Grants",

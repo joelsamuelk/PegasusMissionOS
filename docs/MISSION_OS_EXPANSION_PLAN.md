@@ -48,7 +48,7 @@ Two facts govern everything below:
 | **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | Portal authentication waits on MG-2 |
-| **MG-10** Fundraising | Parked | Not started | MG-1 SC2, MG-8 |
+| **MG-10** Fundraising | Parked | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-11** Integrations | Slice I | Not started | MG-2 |
 | **MG-12** Production hardening | New, continuous | Ongoing | — |
 
@@ -544,6 +544,58 @@ What ships: the ability to *collect* intake answers, with a required sensitivity
 ---
 
 | **MG-10 Fundraising** | A donation touches supporter, fund, finance, programme, campaign, reporting, impact and stewardship. If it lives in a fundraising table, §11 of the brief has been violated. Requires MG-1 SC2 and MG-8. |
+
+### Verification record — MG-10 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm test` | **1,001 passed**, 76 files (was 970 across 75) |
+| `npm run test:e2e` | **39/39** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**Two instructions pulled against each other, and resolving them is the phase.** The brief says *DO NOT create a second CRM*; this plan says a donation living in a fundraising table violates §11. Three decisions came out of that.
+
+**A `Donation` carries no amount.** It holds a `transactionId` and nothing else about money. The gift is a `FinancialTransaction` in a `Fund`, attributed by a `FinancialAllocation`, exactly as a grant payment is. The evidence that this works is not a test I wrote: **an existing MG-8 test broke.** The demo organisation's unrestricted runway moved from 2.5 months to 3.4, because the seeded spring appeal is income in the general fund. Nobody entered those gifts twice, and the finance position knew about them without being told.
+
+**There is no `DonationAllocation`, no `FundraisingGoal`, and no identity on `SupporterProfile`.** The first is `FinancialAllocation`, which already records the method and basis that make an attribution defensible. The second is `Campaign.targetMinorUnits`. The third is `Person`, which is canonical — the supporter profile holds a steward, a stage and a recognition preference, and no name, email or address. A test asserts the absence.
+
+**`Campaign` has no `raised` column.** A stored total is a second source of truth that goes stale at the first correction. It is the sum of the donations pointing at the campaign.
+
+**Gift Aid, modelled against HMRC rather than against convenience.** Six refusals, each one a gift a naïve implementation would happily claim and each one money the charity would have to repay: a company gift, a declaration with no address, an unconfirmed taxpayer, a gift after cancellation, a gift outside the four-year reach of an enduring declaration, and a benefit above the banded limit. `assembleClaim` reports the refusals **alongside** the eligible gifts, because a run that silently dropped forty would look like a small claim rather than a data problem.
+
+*Do not fake live HMRC submission.* `submitGiftAidClaim` throws, and the message says why: a mock returning a plausible reference number is the version somebody would believe, and the discrepancy would be found by HMRC rather than by the charity. `GiftAidClaim.status` never reaches `filed` without a human recording the reference.
+
+**Stewardship is a stage, not a score**, and the reason is not squeamishness about metrics. A score compresses several different situations into one number and invites somebody to act on the number. A supporter who gave once last month and has not been thanked, and one who gave for six years and stopped, are different problems requiring opposite responses — "engagement 34" says neither, and a test asserts the two produce different suggested actions. Every stage carries an action, because a stage with none is a label and labels are what scores become.
+
+**Nothing is called major on this product's opinion.** `majorGiftThresholdMinorUnits` is passed in, and where it is absent no supporter is major: £5,000 is transformational to one charity and routine to another. The supporters page derives a proxy — a tenth of the largest active grant — and **says on the page that it is a crude proxy for a figure the organisation should set**.
+
+**Mutation tests.** Three, all restored.
+
+1. Stop `recordDonation` writing the transaction. **Two acceptance-chain tests fail.** This is the phase's central claim.
+2. Let Gift Aid claim a company gift. **Two tests fail**, including the claim assembly.
+3. Give the stewardship engine a default major-gift threshold. **The "calls nobody a major donor without a threshold" test fails.**
+
+**Security review, against §13.**
+
+- **Anonymity is to the public, not to the organisation.** A charity must identify donors for due diligence and Gift Aid, so `personId` may be set on an anonymous gift; what `anonymous` withholds is the name from anything a third party sees. Conflating the two would either break due diligence or publish a name somebody asked to keep private.
+- **A home address exists on exactly one record**, `GiftAidDeclaration`, because Gift Aid is the lawful basis for holding it. That is §8's rule applied: a lawful basis first, not an available column. `Person` still carries no address.
+- **Declarations are insertable and cancellable, never editable.** Rewriting the address or the date after a claim was made on it would destroy the evidence for that claim.
+- **A restricted gift with no stated restriction is refused**, the same failure `funds_restricted_needs_purpose` guards against.
+- **`unique (transaction_id)` on donations.** Two donations against one transaction would double-count a gift in every campaign total.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0027` is written and reviewed SQL, never applied.
+- **No donation entry form.** `recordDonation` exists and is tested; the surface is read-only. A donation form is an MG-7 `Form` with purpose `donation`, and wiring its mappings through to `recordDonation` is the obvious next step and is not done.
+- **No fundraising page rendering.** `FundraisingPage` is modelled and nothing serves one, for the same reason no portal login exists: a public donation page needs payment handling, which is MG-11's provider work.
+- **No payment provider.** Stripe, GoCardless and JustGiving are named in MG-11. A donation is recorded after the money arrived; nothing here takes a payment.
+- **`StewardshipPlan` has no engine.** The type and table exist; nothing generates or advances a plan. The stage and its suggested action are what ships, and a plan is the next layer.
+- **The major-gift proxy is a proxy.** Stated on the page and in the code, and it should be replaced by an organisation setting the first time anybody uses this for real.
+
+---
+
 | **MG-9 Portals** | External parties reading tenant data is the highest-risk surface in the product. It requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model of the kind the Control Plane already demonstrates. |
 
 ### Verification record — MG-9 ✅
