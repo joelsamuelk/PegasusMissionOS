@@ -29,5 +29,6 @@ export const NAV_LABELS = [
   "Integrations",
   "Organisation",
   "Team",
+  "Trust Centre",
   "Settings",
 ] as const;

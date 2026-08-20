@@ -50,7 +50,7 @@ Two facts govern everything below:
 | **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | Portal authentication waits on MG-2 |
 | **MG-10** Fundraising | Parked | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-11** Integrations | Slice I | ✅ **Architecture complete and verified** | No provider adapter; see the record |
-| **MG-12** Production hardening | New, continuous | Ongoing | — |
+| **MG-12** Production hardening | New, continuous | 🟡 **Reviewed and partly built** | The production runtime half needs MG-2 |
 
 ### Deviations from the brief's recommended sequence, and why
 
@@ -715,6 +715,78 @@ Two items deserve standing attention because the expansion increases them most:
 
 - **AI context exposure.** Every phase adds data a model might see. The default is exclusion; inclusion is a decision recorded in the context builder, not an accident of a `select *`.
 - **Beneficiary and case data.** Currently absent by design ([`MISSION_GRAPH_ARCHITECTURE.md`](./MISSION_GRAPH_ARCHITECTURE.md) §8). It must not arrive as a side effect of MG-7 or MG-9. If it is introduced, sensitivity, retention, deletion and redaction are designed in the same change, never after.
+
+### Verification record — MG-12 🟡 *(reviewed and partly built)*
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm test` | **1,062 passed**, 78 files (was 1,035 across 77) |
+| `npm run test:e2e` | **44/44** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**This phase is not complete, and could not be.** Its "Complete" list opens with *production Postgres runtime* and continues through backups, restore testing, observability and job monitoring. Every one of those needs a provisioned database, which is the standing constraint in §6. Marking MG-12 green would have been the single most misleading thing in this document.
+
+What was done instead is the half that does not need one: **the review, and the machinery that keeps its findings true.**
+
+**The durable artefact is the invariants, not the page.** Seven new machine-checked properties, each of which fails the build rather than becoming quietly wrong:
+
+- The **AI register covers every feature**. Adding one without an entry fails a test, which is the only way a register like this stays true rather than becoming a document somebody updated once.
+- **No trust statement claims a certification**, and every `upheld` statement carries somewhere it can be checked.
+- **Portal tables have no policy that is not `is_org_member`**. A policy granting a portal identity direct row access would be the most dangerous single change available to that schema.
+- **The integration schema has nowhere to store a secret** — no `access_token`, `refresh_token`, `api_key` or `client_secret` column, asserted by pattern rather than by review.
+- **Form fields require a sensitivity with no default.**
+- **Append-only tables have no delete or blanket policy**: `report_approvals`, `automation_runs`, `automation_failures`, `sync_runs`.
+- **Money is an integer in every migration this programme added.**
+
+**The Trust Centre leads with what is not true.** Twenty-eight statements, of which **nine are `not_yet` or `partial` and two are `declined`**, and the unmet list is rendered first rather than in a footnote. The brief's line was *do not claim certifications not actually obtained*; the page states plainly that nothing is certified against ISO 27001, SOC 2 or Cyber Essentials, that no backup has ever been taken or restored, that there are no subprocessors because none is engaged, and that row level security has never been executed. A trust page with nothing on that list is a marketing page, and a test now enforces that this one has rows on it.
+
+**SSO, SCIM and data residency are recorded as `declined`, with reasons.** The brief says not to build expensive enterprise features before anybody has asked. Building multi-region storage for a product with no customers would be the most expensive available way to look serious.
+
+**Where AI is used, enumerated.** Eleven entries, each naming what the model sees, **what it can never see**, what it produces, and that it cannot change a record. The second of those is the half nobody volunteers and is the half an organisation actually needs.
+
+**Data export and a deletion plan.** The export reads through the same tenant-scoped boundary as every screen — an export using a privileged path would be the largest exfiltration surface in the product — and reports a count per collection so completeness is checkable. The deletion plan says **before** the decision which records survive and why: audit events, AI generation records, published report versions, claims and accounting records, each with its reason.
+
+**Mutation tests.** Four, all restored.
+
+1. Add an AI feature without registering it. **The register test fails.**
+2. Claim the certification. **The no-certification test fails.**
+3. Give a portal table a `for select using (true)` policy. **The portal policy test fails.**
+4. Add an `access_token` column to the integration schema. **The secrets test fails.**
+
+**A test of mine was wrong, and the fix is worth recording.** The export isolation test asserted that tenant B's export contains no "Henderson". It failed — and not because anything leaked: the two-tenant fixture builds tenant B's profile by cloning tenant A's and re-pointing the organisation id, so A's *words* genuinely appear inside B's *own* record. A text assertion cannot distinguish "leaked from A" from "the fixture copied A's prose into B", which makes it the wrong assertion for the thing that matters. It now asserts that every record carrying an `organisationId` carries B's, and that no A-only identifier appears.
+
+### Security review — the whole programme, MG-4 to MG-11
+
+Against §13's list, with the findings rather than a set of ticks.
+
+| Item | Finding |
+|---|---|
+| **Tenant isolation** | Upheld and tested in every phase suite. One **real defect found and fixed in MG-6**: `relationship_links` predates `Relation`'s endpoint check and never had one, so a correctly-scoped row could point at another tenant's record. The two-tenant fixture had carried a planted cross-tenant pointer since it was written and nothing had followed it until `connectionsFor` did. |
+| **RLS** | Enabled on all 100+ tables and enforced by an invariant test. **Never executed.** This is the programme's largest outstanding risk and it belongs to MG-2. |
+| **Authentication** | Unchanged by this programme. Two surfaces were added that need one and do not have one: the public form path (works, unauthenticated by design, rate limited) and portal login (does not exist). |
+| **Authorisation** | Upheld. `data-boundary.test.ts` counts actions against gates. The two deliberately public actions were **moved into their own file** so the `@public-action` exemption covers exactly them rather than the six authorised actions beside them. |
+| **Field-level sensitivity** | Built in MG-7. Required on every form field, no default, and it decides AI exposure, retention and read capability. **Not yet consulted by portal projection**, which is its own allowlist; the two are consistent today only because no view names a form answer. |
+| **Audit** | Every consequential action records one. Append-only at the RLS layer; a convention of the adapter until MG-2. |
+| **Retention** | Enforced for form answers, and `RETENTION_RULES` records one honest gap: interactions and messages have no policy. |
+| **Deletion** | Planned honestly, not executed. |
+| **Consent** | Recorded verbatim from the form version answered, and withdrawal never deletes the grant. |
+| **Data export** | Built, tenant-scoped, enumerable. |
+| **Data minimisation** | The strongest result of the programme. **No beneficiary entity was created**, through both the phase that collects intake data and the phase that shows records to outsiders. `Person` still carries no address; the one address in the product is on a Gift Aid declaration, where Gift Aid is the lawful basis for it. |
+| **Encryption** | Not addressed. Transport and at-rest encryption are properties of a deployment that does not exist. |
+| **Provider credentials** | The schema has nowhere to put one, asserted by test. |
+| **AI context exposure** | The item this plan flagged as deserving standing attention. Personal and special category data is **filtered before assembly rather than redacted after**; transaction narratives are excluded by default and capability-gated even when requested; context is a named set of scopes each gated on a role, with withholding recorded. |
+
+**What was *not* verified, and why.**
+
+- **Everything requiring a database.** Backups, restore testing, observability, error tracking, job monitoring, provider monitoring and the production runtime are untouched. They are the majority of this phase's "Complete" list.
+- **Deletion is planned, not performed.** `planDeletion` is accurate about what would survive; nothing executes it.
+- **No penetration test, no dependency audit, no threat model.** None was run. The security review here is a reading of this codebase against a checklist, by the person who wrote it, which is the weakest form of review there is and should be treated as a starting point for a real one.
+- **The Trust Centre is internal.** It is a page inside the product, not a public one. An organisation evaluating Pegasus cannot read it before signing up, which is when they most need to.
+- **`declined` is a judgement, not a decision.** Nobody has asked for SSO, and nobody has been asked whether they want it.
+
+---
 
 ---
 

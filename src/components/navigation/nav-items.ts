@@ -13,6 +13,7 @@ import {
   PoundSterling,
   Radar,
   Settings,
+  ShieldCheck,
   Target,
   TrendingUp,
   Users,
@@ -44,5 +45,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Integrations", href: "/integrations", icon: Plug, group: "organisation" },
   { label: "Organisation", href: "/organisation", icon: Building2, group: "organisation" },
   { label: "Team", href: "/team", icon: Users, group: "organisation" },
+  { label: "Trust Centre", href: "/trust", icon: ShieldCheck, group: "organisation" },
   { label: "Settings", href: "/settings", icon: Settings, group: "organisation" },
 ];

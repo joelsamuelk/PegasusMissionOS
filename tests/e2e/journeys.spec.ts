@@ -398,3 +398,40 @@ test("32. Beacon states what it cannot supply", async ({ page }) => {
   // Beacon's own guide says relationships are not reachable through the API.
   await expect(page.getByText(/cannot supply relationship/i)).toBeVisible();
 });
+
+/**
+ * MG-12 the Trust Centre.
+ *
+ * The acceptance test for the phase is *credible for an organisation to trust
+ * with real information, not merely impressive in a demonstration*, and almost
+ * the whole difference is what the page is willing to say is not true. So the
+ * journey checks the unmet list is there and is first.
+ */
+test("33. the Trust Centre leads with what is not yet true", async ({ page }) => {
+  await page.goto("/trust");
+
+  await expect(page.getByRole("heading", { name: /what is true, and what is not yet/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /what is not yet true/i })).toBeVisible();
+  await expect(page.getByText(/statements below are not fully true today/i)).toBeVisible();
+});
+
+test("34. the Trust Centre claims no certification and says where AI is used", async ({ page }) => {
+  await page.goto("/trust");
+
+  // It appears twice on purpose: once in the unmet list at the top and once
+  // in the security section, so a reader cannot miss it either way.
+  await expect(page.getByText(/ISO 27001, SOC 2 or Cyber Essentials/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /where ai is used/i }).first()).toBeVisible();
+  // The half nobody volunteers.
+  await expect(page.getByText(/what it can never see/i).first()).toBeVisible();
+});
+
+test("35. the Trust Centre says what a deletion request would not remove", async ({ page }) => {
+  await page.goto("/trust");
+
+  await expect(
+    page.getByRole("heading", { name: /what is kept, and what cannot be deleted/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/would survive a deletion request/i)).toBeVisible();
+  await expect(page.getByText(/audit records/i).first()).toBeVisible();
+});
