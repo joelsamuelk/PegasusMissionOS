@@ -248,4 +248,13 @@ export interface Deps {
    * same claim the rest of the product sees, sources and all.
    */
   claims: import("../types").ClaimRepository;
+  /**
+   * Finance, so a gift is attributed by the same code that attributes any
+   * other cost.
+   *
+   * `fundraising.recordDonation` writes an allocation for a restricted gift
+   * and calls `finance.allocate` to do it, which is what keeps the endpoint
+   * check and the method-and-basis requirement in one implementation.
+   */
+  finance: import("../types").FinanceRepository;
 }

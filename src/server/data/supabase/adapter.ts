@@ -52,7 +52,8 @@ export function createSupabaseRepository(
   // them, so the order is a fact about the dependency graph, not a convention.
   const graph = createGraphRepository(q, { audit });
   const claims = createClaimRepository(q, { audit });
-  const deps: Deps = { audit, recordActivity, graph, claims };
+  const finance = createFinanceRepository(q, { audit });
+  const deps: Deps = { audit, recordActivity, graph, claims, finance };
   return {
     name: "supabase",
     organisations: createOrganisationRepository(q, deps),
@@ -61,7 +62,7 @@ export function createSupabaseRepository(
     documents: createDocumentRepository(q, deps),
     onboarding: createOnboardingRepository(q, deps),
     strategy: createStrategyRepository(q, deps),
-    finance: createFinanceRepository(q, deps),
+    finance,
     requirements: createRequirementRepository(q, deps),
     funding: createFundingRepository(q, deps),
     applications: createApplicationRepository(q, deps),

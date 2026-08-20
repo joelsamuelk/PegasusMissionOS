@@ -235,7 +235,10 @@ function mapCandidate(row: Row): TransactionCandidateRecord {
   };
 }
 
-export function createFinanceRepository(q: Query, deps: Deps): FinanceRepository {
+export function createFinanceRepository(
+  q: Query,
+  deps: Pick<Deps, "audit">,
+): FinanceRepository {
   type Ctx = Parameters<FinanceRepository["funds"]>[0];
 
   async function entityExists(ctx: Ctx, ref: EntityReference): Promise<boolean> {
