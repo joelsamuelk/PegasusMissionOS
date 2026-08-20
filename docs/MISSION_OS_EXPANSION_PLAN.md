@@ -18,7 +18,7 @@ Verified, not asserted. `npm run typecheck` clean; `npm test` **633 passed** acr
 |---|---|---|
 | A — Legacy data path removal | ✅ Complete | ✅ Confirmed. `getRepository()` is the only path; `data-boundary.test.ts` fails the build if anything outside `src/server/data/` imports the store. |
 | B — Knowledge / Claims + `0004` | ✅ Complete | ✅ Confirmed. Claims, sources, supports, usages, conflicts, all persisted in schema and implemented in-memory. |
-| C — Supabase adapter + auth | ⏳ "Next" | 🟡 **Split.** Auth is **done** — `resolveSupabaseRequestContext` validates session and membership properly. Permission enforcement is **done**. **The data adapter does not exist.** `src/server/data/supabase/` contains a client, a mapping helper and middleware, and no repository. |
+| C — Supabase adapter + auth | ✅ Done | Auth was already done. The adapter now implements all 255 methods across 24 repositories, `getRepository()` branches on configuration, and RLS is executed code rather than a plan — see `docs/SUPABASE_ADAPTER.md`. |
 | D — Reporting engine | 🟡 In progress | ✅ Matches. Generic types, 12 templates, 9-state lifecycle, deterministic readiness, claim-pinned sections, neutral export. Creation, format adapters and legacy migration outstanding. |
 | E — Finance vertical | ⏳ Planned | Confirmed. 4,809 lines of tested calculation, **zero product consumers**, zero tables. |
 | F — Intelligence orchestrator | ⏳ Planned | Confirmed. Four AI entry points call `runAi` directly; no router, no policy layer. |

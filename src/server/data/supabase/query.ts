@@ -30,23 +30,6 @@ export interface AdapterOptions {
   tenantFilter?: TenantFilter;
 }
 
-/**
- * A method that has no Supabase implementation yet.
- *
- * It throws rather than returning an empty result on purpose. A repository
- * method that returns `[]` when it means "not written" renders a page reading
- * "no grants" to an organisation that has grants, and nothing anywhere reports
- * a fault. A thrown error is a visible outage; a silent empty list is data
- * loss that looks like a product decision.
- */
-export function notImplemented(repository: string, method: string): never {
-  throw new Error(
-    `${repository}.${method} has no Supabase implementation. ` +
-      `The in-memory adapter has one; this method has not been ported yet. ` +
-      `See src/server/data/supabase/README.md for the porting order.`,
-  );
-}
-
 function fail(action: string, table: string, error: PostgrestError): never {
   throw new Error(`Could not ${action} ${table}: ${error.message}`);
 }
