@@ -3,6 +3,7 @@
 **Status:** Living document. Updated at the end of every implementation slice.
 **Sequencing authority:** [`PEGASUS_PRODUCTION_BUILD_SPEC.md`](./PEGASUS_PRODUCTION_BUILD_SPEC.md) — the target below is unchanged, but the *order* it is reached in is now defined there, organised around six foundational systems and a unified Knowledge / Claims layer.
 **Companion documents:** [`PEGASUS_ARCHITECTURE_AUDIT.md`](./PEGASUS_ARCHITECTURE_AUDIT.md), [`PEGASUS_IMPLEMENTATION_PLAN.md`](./PEGASUS_IMPLEMENTATION_PLAN.md) (superseded), [`RELATIONSHIPS_COMMUNICATIONS_ARCHITECTURE.md`](./RELATIONSHIPS_COMMUNICATIONS_ARCHITECTURE.md)
+**Mission Graph:** §4 below is formalised in [`MISSION_GRAPH_ARCHITECTURE.md`](./MISSION_GRAPH_ARCHITECTURE.md), which walks the required traversals against the working tree and records which are representable.
 
 > **Product promise:** Enter knowledge once. Use it everywhere. Prove everything. Learn continuously.
 

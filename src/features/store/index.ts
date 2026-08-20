@@ -12,19 +12,29 @@
  */
 
 import type {
+  Activity,
   ActivityEvent,
   AIGeneration,
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Budget,
+  BudgetLine,
   Claim,
   ClaimConflict,
   ClaimUsage,
   Commitment,
+  Document,
+  DocumentSource,
+  DocumentVersion,
   EvidenceItem,
   EvidenceLink,
   ExternalOrganisation,
+  ExtractedClaim,
+  FinancialAllocation,
+  FinancialTransaction,
   FitAssessment,
+  Fund,
   Funder,
   FundingOpportunity,
   Grant,
@@ -33,22 +43,43 @@ import type {
   GrantReport,
   ImpactReport,
   Indicator,
+  IndicatorMeasurement,
   Interaction,
   Notification,
+  OnboardingRun,
   OpportunityQuestion,
   Organisation,
   OrganisationMember,
   OrganisationProfile,
   Outcome,
+  Output,
   Person,
   Programme,
   ProgrammeGrantLink,
+  Relation,
   Relationship,
   RelationshipLink,
+  ReportingRequirement,
+  StrategicPriority,
   Task,
   User,
 } from "@/types/domain";
+import type {
+  ProfileCandidate,
+  ResearchSource,
+} from "@/lib/organisation-intelligence/types";
 import * as seed from "./seed";
+
+/** A reviewer's decision on one candidate, recorded rather than inferred. */
+export interface CandidateDecisionRecord {
+  runId: string;
+  candidateId: string;
+  organisationId: string;
+  decision: "confirm" | "edit" | "reject";
+  editedValue?: string;
+  at: string;
+  by?: string;
+}
 
 export interface StoreState {
   users: User[];
@@ -69,8 +100,36 @@ export interface StoreState {
   programmeGrantLinks: ProgrammeGrantLink[];
   outcomes: Outcome[];
   indicators: Indicator[];
+  indicatorMeasurements: IndicatorMeasurement[];
   evidenceItems: EvidenceItem[];
   evidenceLinks: EvidenceLink[];
+  /**
+   * Mission Graph (MG-1): delivery entities, money, strategy and the edges
+   * between them. `relations` is the general edge table; it is what stops each
+   * of these needing a join table of its own.
+   */
+  activities: Activity[];
+  outputs: Output[];
+  strategicPriorities: StrategicPriority[];
+  reportingRequirements: ReportingRequirement[];
+  funds: Fund[];
+  transactions: FinancialTransaction[];
+  allocations: FinancialAllocation[];
+  budgets: Budget[];
+  budgetLines: BudgetLine[];
+  relations: Relation[];
+  /**
+   * Onboarding (MG-3): documents, and the research runs that produced
+   * candidate organisational context awaiting review.
+   */
+  documents: Document[];
+  documentVersions: DocumentVersion[];
+  documentSources: DocumentSource[];
+  extractedClaims: ExtractedClaim[];
+  onboardingRuns: OnboardingRun[];
+  researchSources: (ResearchSource & { runId: string })[];
+  profileCandidates: (ProfileCandidate & { runId: string })[];
+  candidateDecisions: CandidateDecisionRecord[];
   /** Relationship layer: canonical external parties and how we relate to them. */
   externalOrganisations: ExternalOrganisation[];
   people: Person[];
@@ -118,8 +177,27 @@ export function createStoreState(): StoreState {
     programmeGrantLinks: clone(seed.programmeGrantLinks),
     outcomes: clone(seed.outcomes),
     indicators: clone(seed.indicators),
+    indicatorMeasurements: clone(seed.indicatorMeasurements),
     evidenceItems: clone(seed.evidenceItems),
     evidenceLinks: clone(seed.evidenceLinks),
+    activities: clone(seed.activities),
+    outputs: clone(seed.outputs),
+    strategicPriorities: clone(seed.strategicPriorities),
+    reportingRequirements: clone(seed.reportingRequirements),
+    funds: clone(seed.funds),
+    transactions: clone(seed.transactions),
+    allocations: clone(seed.allocations),
+    budgets: clone(seed.budgets),
+    budgetLines: clone(seed.budgetLines),
+    relations: clone(seed.relations),
+    documents: [],
+    documentVersions: [],
+    documentSources: [],
+    extractedClaims: [],
+    onboardingRuns: [],
+    researchSources: [],
+    profileCandidates: [],
+    candidateDecisions: [],
     externalOrganisations: clone(seed.externalOrganisations),
     people: clone(seed.people),
     relationships: clone(seed.relationships),

@@ -8,15 +8,21 @@
  */
 
 import type {
+  Activity,
   ActivityEvent,
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Budget,
+  BudgetLine,
   Claim,
   Commitment,
   EvidenceItem,
   EvidenceLink,
   ExternalOrganisation,
+  FinancialAllocation,
+  FinancialTransaction,
+  Fund,
   Funder,
   FundingOpportunity,
   Grant,
@@ -25,6 +31,7 @@ import type {
   GrantReport,
   ImpactReport,
   Indicator,
+  IndicatorMeasurement,
   Interaction,
   Notification,
   OpportunityQuestion,
@@ -32,11 +39,15 @@ import type {
   OrganisationMember,
   OrganisationProfile,
   Outcome,
+  Output,
   Person,
   Programme,
   ProgrammeGrantLink,
+  Relation,
   Relationship,
   RelationshipLink,
+  ReportingRequirement,
+  StrategicPriority,
   Task,
   User,
 } from "@/types/domain";
@@ -1998,4 +2009,288 @@ export const claims: Claim[] = [
     conflictsWith: [],
     audit: stamp("2026-07-17"),
   },
+];
+
+// --- Mission Graph: strategy, delivery, money and edges (MG-1) -----------
+
+/**
+ * The §9 acceptance chain, seeded.
+ *
+ * The architecture brief poses one chain as the test of whether the model is
+ * real: a restricted gift enters a fund, part of it pays for an activity, that
+ * activity contributes to an output, the output to an outcome, the outcome is
+ * measured by an indicator, evidence supports the measurement, and a funder
+ * requires that outcome in its report.
+ *
+ * Everything below is that chain, laid over the Henderson Trust grant and the
+ * Youth Futures programme the demo workspace already had. Nothing here is a
+ * new story: it is the existing story finally connected up.
+ */
+
+export const strategicPriorities: StrategicPriority[] = [
+  {
+    id: "sp-youth-opportunity",
+    organisationId: ORG_ID,
+    title: "Young people reach a positive destination",
+    description:
+      "Every young person we work with moves into education, employment or training, and stays there.",
+    periodLabel: "2025-2028",
+    order: 1,
+    status: "active",
+    ownerId: "user-amara",
+    audit: stamp("2025-01-15"),
+  },
+  {
+    id: "sp-digital-inclusion",
+    organisationId: ORG_ID,
+    title: "No young person is excluded by lack of digital access",
+    periodLabel: "2025-2028",
+    order: 2,
+    status: "active",
+    ownerId: "user-james",
+    audit: stamp("2025-01-15"),
+  },
+];
+
+export const activities: Activity[] = [
+  {
+    id: "act-mentoring",
+    organisationId: ORG_ID,
+    programmeId: "prog-youth",
+    title: "One-to-one mentoring",
+    description: "Matched mentoring over six months, fortnightly sessions.",
+    startDate: "2025-04-01",
+    endDate: "2027-03-31",
+    status: "active",
+    ownerId: "user-priya",
+    location: "Leeds and Bradford",
+    audit: stamp("2025-04-01", "2026-07-01"),
+  },
+  {
+    id: "act-workshops",
+    organisationId: ORG_ID,
+    programmeId: "prog-youth",
+    title: "Employability workshops",
+    description: "Weekly group workshops covering applications, interviews and workplace skills.",
+    startDate: "2025-04-01",
+    status: "active",
+    ownerId: "user-priya",
+    audit: stamp("2025-04-01"),
+  },
+  {
+    id: "act-employer-days",
+    organisationId: ORG_ID,
+    programmeId: "prog-youth",
+    title: "Employer taster days",
+    status: "active",
+    ownerId: "user-james",
+    audit: stamp("2025-05-12"),
+  },
+];
+
+export const outputs: Output[] = [
+  {
+    id: "outp-mentoring-matches",
+    organisationId: ORG_ID,
+    programmeId: "prog-youth",
+    title: "Mentoring matches made",
+    unit: "matches",
+    targetValue: 60,
+    currentValue: 41,
+    reportingPeriod: "2025 to 2026",
+    audit: stamp("2025-04-10", "2026-07-05"),
+  },
+  {
+    id: "outp-young-people",
+    organisationId: ORG_ID,
+    programmeId: "prog-youth",
+    title: "Young people supported",
+    unit: "people",
+    targetValue: 240,
+    currentValue: 168,
+    reportingPeriod: "2025 to 2026",
+    audit: stamp("2025-04-10", "2026-07-05"),
+  },
+];
+
+/**
+ * Measurement history.
+ *
+ * `IndicatorMeasurement` existed in the model with nowhere to live, so
+ * `updateIndicator` overwrote `currentValue` and the previous reading was
+ * gone. A trend cannot be computed from a single number, and a report cannot
+ * cite the reading it was written against once that reading is lost.
+ */
+export const indicatorMeasurements: IndicatorMeasurement[] = [
+  { id: "meas-eet-2025h2", organisationId: ORG_ID, indicatorId: "ind-eet", value: 46, recordedAt: "2025-12-31", note: "First six-month follow-up cohort.", recordedBy: "user-priya" },
+  { id: "meas-eet-2026h1", organisationId: ORG_ID, indicatorId: "ind-eet", value: 58, recordedAt: "2026-06-30", note: "Second follow-up cohort.", recordedBy: "user-priya" },
+  { id: "meas-supported-2026", organisationId: ORG_ID, indicatorId: "ind-supported", value: 168, recordedAt: "2026-07-05", recordedBy: "user-priya" },
+];
+
+export const funds: Fund[] = [
+  {
+    id: "fund-henderson-youth",
+    organisationId: ORG_ID,
+    name: "Henderson Trust: Youth Futures",
+    description: "Restricted funding for the Youth Futures programme.",
+    restriction: "restricted",
+    currency: "GBP",
+    restrictionPurpose:
+      "Delivery of the Youth Futures employability and mentoring programme in Leeds and Bradford.",
+    originRef: { type: "grant", id: "grant-henderson", label: "Youth Futures programme grant" },
+    openedAt: "2025-04-01",
+    status: "open",
+    audit: stamp("2025-04-01"),
+  },
+  {
+    id: "fund-general",
+    organisationId: ORG_ID,
+    name: "General funds",
+    restriction: "unrestricted",
+    currency: "GBP",
+    openedAt: "2019-04-01",
+    status: "open",
+    audit: stamp("2019-04-01"),
+  },
+];
+
+const gbp = (minorUnits: number) => ({ minorUnits, currency: "GBP" });
+
+export const transactions: FinancialTransaction[] = [
+  {
+    id: "txn-henderson-tranche-1",
+    organisationId: ORG_ID,
+    date: "2025-04-14",
+    description: "The Henderson Trust: Youth Futures grant, first tranche",
+    amount: gbp(4_750_000),
+    direction: "income",
+    category: "Grant income",
+    counterparty: "The Henderson Trust",
+    restricted: true,
+    grantId: "grant-henderson",
+    fundId: "fund-henderson-youth",
+    source: "manual",
+    verificationState: "verified",
+  },
+  {
+    id: "txn-mentoring-coord-q1",
+    organisationId: ORG_ID,
+    date: "2026-05-29",
+    description: "Mentoring coordinator, May 2026",
+    amount: gbp(400_000),
+    direction: "expenditure",
+    category: "Staff costs",
+    restricted: true,
+    grantId: "grant-henderson",
+    fundId: "fund-henderson-youth",
+    source: "manual",
+    verificationState: "verified",
+  },
+];
+
+export const allocations: FinancialAllocation[] = [
+  {
+    id: "alloc-mentoring-may",
+    organisationId: ORG_ID,
+    transactionId: "txn-mentoring-coord-q1",
+    fundId: "fund-henderson-youth",
+    programmeId: "prog-youth",
+    grantId: "grant-henderson",
+    activityId: "act-mentoring",
+    amount: gbp(400_000),
+    allocationMethod: "direct",
+    allocationBasis: "direct",
+    allocationNote: "Coordinator post is wholly assigned to mentoring delivery.",
+    restricted: true,
+    effectiveDate: "2026-05-29",
+    verificationState: "verified",
+    createdBy: "user-tom",
+    verifiedBy: "user-tom",
+    verifiedAt: "2026-06-02",
+  },
+];
+
+export const budgets: Budget[] = [
+  {
+    id: "budget-youth-2026",
+    organisationId: ORG_ID,
+    name: "Youth Futures 2026 to 2027",
+    programmeId: "prog-youth",
+    grantId: "grant-henderson",
+    currency: "GBP",
+    periodStart: "2026-04-01",
+    periodEnd: "2027-03-31",
+    status: "approved",
+    approvedBy: "user-amara",
+    approvedAt: "2026-03-18",
+    audit: stamp("2026-02-20", "2026-03-18"),
+  },
+];
+
+export const budgetLines: BudgetLine[] = [
+  { id: "bl-youth-staff", organisationId: ORG_ID, budgetId: "budget-youth-2026", label: "Mentoring coordinator", category: "Staff costs", plannedAmount: gbp(4_800_000), target: { type: "activity", id: "act-mentoring" } },
+  { id: "bl-youth-workshops", organisationId: ORG_ID, budgetId: "budget-youth-2026", label: "Workshop delivery", category: "Direct delivery", plannedAmount: gbp(1_200_000), target: { type: "activity", id: "act-workshops" } },
+];
+
+/**
+ * What the funder actually asked for.
+ *
+ * `Grant.conditions` says "Report against agreed outcome indicators" in free
+ * text, which cannot drive anything. This says *which* outcome, through
+ * `requires` edges below, so report readiness can name the indicator that has
+ * not been measured this period.
+ */
+export const reportingRequirements: ReportingRequirement[] = [
+  {
+    id: "req-henderson-interim",
+    organisationId: ORG_ID,
+    grantId: "grant-henderson",
+    title: "Interim report: progression outcomes",
+    description:
+      "Progress against the agreed progression outcome, with supporting evidence and a financial utilisation statement.",
+    frequency: "six_monthly",
+    dueDate: "2026-08-28",
+    evidenceTypes: ["evaluation", "statistic"],
+    status: "open",
+    audit: stamp("2025-03-30"),
+  },
+];
+
+export const relations: Relation[] = [
+  // Strategy owns delivery.
+  { id: "rel-sp-youth-prog", organisationId: ORG_ID, from: { type: "strategic_priority", id: "sp-youth-opportunity" }, to: { type: "programme", id: "prog-youth" }, kind: "pursues", audit: stamp("2025-04-01") },
+  { id: "rel-sp-digital-prog", organisationId: ORG_ID, from: { type: "strategic_priority", id: "sp-digital-inclusion" }, to: { type: "programme", id: "prog-digital" }, kind: "pursues", audit: stamp("2025-09-01") },
+
+  // The results chain: activity → output → outcome.
+  { id: "rel-act-mentoring-outp", organisationId: ORG_ID, from: { type: "activity", id: "act-mentoring" }, to: { type: "output", id: "outp-mentoring-matches" }, kind: "contributes_to", audit: stamp("2025-04-10") },
+  { id: "rel-act-workshops-outp", organisationId: ORG_ID, from: { type: "activity", id: "act-workshops" }, to: { type: "output", id: "outp-young-people" }, kind: "contributes_to", audit: stamp("2025-04-10") },
+  { id: "rel-act-employer-outp", organisationId: ORG_ID, from: { type: "activity", id: "act-employer-days" }, to: { type: "output", id: "outp-young-people" }, kind: "contributes_to", audit: stamp("2025-05-12") },
+  {
+    id: "rel-outp-matches-outcome",
+    organisationId: ORG_ID,
+    from: { type: "output", id: "outp-mentoring-matches" },
+    to: { type: "outcome", id: "out-youth-eet" },
+    kind: "contributes_to",
+    // Partial and stated as such. Mentoring is one route into a positive
+    // destination, not the only one, and an unweighted edge would let a
+    // roll-up attribute the whole outcome to it.
+    weight: 0.45,
+    note: "Mentoring is one of three contributing routes; weighting agreed with the programme lead.",
+    audit: stamp("2025-04-10"),
+  },
+  { id: "rel-outp-people-outcome", organisationId: ORG_ID, from: { type: "output", id: "outp-young-people" }, to: { type: "outcome", id: "out-youth-eet" }, kind: "contributes_to", weight: 0.55, audit: stamp("2025-04-10") },
+
+  // Evidence reaches the measurement, not only the ambition.
+  { id: "rel-ev-progression-meas", organisationId: ORG_ID, from: { type: "evidence", id: "ev-stat-progression" }, to: { type: "indicator_measurement", id: "meas-eet-2026h1" }, kind: "evidences", audit: stamp("2026-06-30") },
+  { id: "rel-ev-eval-meas", organisationId: ORG_ID, from: { type: "evidence", id: "ev-eval-2025" }, to: { type: "indicator_measurement", id: "meas-eet-2025h2" }, kind: "evidences", audit: stamp("2026-01-20") },
+  { id: "rel-ev-eval-indicator", organisationId: ORG_ID, from: { type: "evidence", id: "ev-eval-2025" }, to: { type: "indicator", id: "ind-eet" }, kind: "evidences", audit: stamp("2026-01-20") },
+
+  // What the funder requires.
+  { id: "rel-req-outcome", organisationId: ORG_ID, from: { type: "reporting_requirement", id: "req-henderson-interim" }, to: { type: "outcome", id: "out-youth-eet" }, kind: "requires", audit: stamp("2025-03-30") },
+  { id: "rel-req-indicator", organisationId: ORG_ID, from: { type: "reporting_requirement", id: "req-henderson-interim" }, to: { type: "indicator", id: "ind-eet" }, kind: "requires", audit: stamp("2025-03-30") },
+
+  // Money into delivery.
+  { id: "rel-fund-programme", organisationId: ORG_ID, from: { type: "fund", id: "fund-henderson-youth" }, to: { type: "programme", id: "prog-youth" }, kind: "funds", audit: stamp("2025-04-01") },
+  { id: "rel-alloc-activity", organisationId: ORG_ID, from: { type: "allocation", id: "alloc-mentoring-may" }, to: { type: "activity", id: "act-mentoring" }, kind: "allocated_to", audit: stamp("2026-05-29") },
+  { id: "rel-txn-fund", organisationId: ORG_ID, from: { type: "transaction", id: "txn-henderson-tranche-1" }, to: { type: "fund", id: "fund-henderson-youth" }, kind: "held_in", audit: stamp("2025-04-14") },
 ];

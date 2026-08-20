@@ -1,10 +1,17 @@
 import type {
+  Activity,
   ActivityEvent,
   AIGeneration,
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Budget,
+  BudgetLine,
   Claim,
+  Document,
+  DocumentSource,
+  DocumentVersion,
+  ExtractedClaim,
   ClaimConflict,
   ClaimUsage,
   Commitment,
@@ -12,7 +19,10 @@ import type {
   EvidenceItem,
   EvidenceType,
   ExternalOrganisation,
+  FinancialAllocation,
+  FinancialTransaction,
   FitAssessment,
+  Fund,
   Funder,
   FundingOpportunity,
   Grant,
@@ -21,21 +31,32 @@ import type {
   GrantReport,
   ImpactReport,
   Indicator,
+  IndicatorMeasurement,
   Interaction,
   Notification,
   OpportunityQuestion,
+  OnboardingRun,
   Organisation,
   OrganisationMember,
   OrganisationProfile,
   Outcome,
+  Output,
   Person,
   Programme,
+  Relation,
+  RelationKind,
   Relationship,
   RelationshipLink,
+  ReportingRequirement,
+  StrategicPriority,
   Task,
   User,
 } from "@/types/domain";
 import type { ClaimInit } from "@/lib/knowledge";
+import type {
+  ProfileCandidate,
+  ResearchSource,
+} from "@/lib/organisation-intelligence/types";
 import type { RequestContext } from "@/server/context/request-context";
 
 /**
@@ -125,6 +146,17 @@ export interface ProgrammeRepository {
   indicatorsForProgramme(ctx: RequestContext, programmeId: string): Promise<Indicator[]>;
   allIndicators(ctx: RequestContext): Promise<Indicator[]>;
   getIndicator(ctx: RequestContext, id: string): Promise<Indicator | null>;
+  /**
+   * Delivery units, as entities rather than the deprecated string arrays on
+   * `Programme`. A string cannot receive an allocation or contribute to an
+   * output, which is why these exist.
+   */
+  activities(ctx: RequestContext, programmeId: string): Promise<Activity[]>;
+  getActivity(ctx: RequestContext, id: string): Promise<Activity | null>;
+  outputs(ctx: RequestContext, programmeId: string): Promise<Output[]>;
+  getOutput(ctx: RequestContext, id: string): Promise<Output | null>;
+  getOutcome(ctx: RequestContext, id: string): Promise<Outcome | null>;
+  measurements(ctx: RequestContext, indicatorId: string): Promise<IndicatorMeasurement[]>;
   updateIndicator(
     ctx: RequestContext,
     indicatorId: string,
@@ -142,6 +174,22 @@ export interface EvidenceRepository {
     targetType: string,
     targetId: string,
   ): Promise<EvidenceItem[]>;
+  /**
+   * Evidence supporting any graph entity, through `evidences` relations.
+   *
+   * `forTarget` reads the legacy `EvidenceLink` table, whose target enum stops
+   * at `outcome`. Evidence could therefore support the ambition but not the
+   * number that establishes it — the gap MG-1 exists partly to close. New
+   * callers use this; `forTarget` remains for the shipped call sites.
+   */
+  forEntity(ctx: RequestContext, entity: EntityReference): Promise<EvidenceItem[]>;
+  /** Link evidence to any entity. Returns null if either side is out of tenant. */
+  support(
+    ctx: RequestContext,
+    evidenceId: string,
+    entity: EntityReference,
+    note?: string,
+  ): Promise<string | null>;
   add(
     ctx: RequestContext,
     item: {
@@ -311,10 +359,234 @@ export interface ClaimRepository {
   ): Promise<void>;
 }
 
+/**
+ * The Mission Graph's edge surface.
+ *
+ * Strong, single-meaning edges stay as foreign keys. This carries the
+ * many-to-many, cross-domain ones — the results chain, evidence support,
+ * funder requirements — whose *existence is itself information*.
+ */
+export interface RelationInit {
+  from: EntityReference;
+  to: EntityReference;
+  kind: RelationKind;
+  role?: string;
+  weight?: number;
+  note?: string;
+}
+
+export interface GraphRepository {
+  list(ctx: RequestContext): Promise<Relation[]>;
+  /** Edges leaving an entity, optionally of one kind. */
+  from(ctx: RequestContext, entity: EntityReference, kind?: RelationKind): Promise<Relation[]>;
+  /** Edges arriving at an entity, optionally of one kind. */
+  to(ctx: RequestContext, entity: EntityReference, kind?: RelationKind): Promise<Relation[]>;
+  /**
+   * Record an edge.
+   *
+   * Returns null when either endpoint is missing or belongs to another tenant.
+   * Both ends are checked, not just the row's `organisationId`: this is the
+   * first table where a row can point at anything, so a correctly-scoped row
+   * could otherwise still reach across the boundary.
+   */
+  connect(ctx: RequestContext, init: RelationInit): Promise<Relation | null>;
+  disconnect(ctx: RequestContext, id: string): Promise<void>;
+  /**
+   * Everything reachable from an entity by following one kind of edge.
+   *
+   * Cycle-safe and depth-bounded. This is the traversal the §9 acceptance
+   * chain runs on: from an activity, following `contributes_to`, reach the
+   * outcome it ultimately serves.
+   */
+  reach(
+    ctx: RequestContext,
+    from: EntityReference,
+    kind: RelationKind,
+    options?: { maxDepth?: number; direction?: "forward" | "backward" },
+  ): Promise<EntityReference[]>;
+}
+
+/**
+ * Money, as records rather than as a scalar on a grant.
+ *
+ * The calculation engine in `lib/finance-intelligence` is unchanged by this
+ * interface and knows nothing about it. This supplies the inputs it has never
+ * had; it does not re-implement any of its arithmetic.
+ */
+export interface FinanceRepository {
+  funds(ctx: RequestContext): Promise<Fund[]>;
+  getFund(ctx: RequestContext, id: string): Promise<Fund | null>;
+  transactions(ctx: RequestContext): Promise<FinancialTransaction[]>;
+  transactionsForFund(ctx: RequestContext, fundId: string): Promise<FinancialTransaction[]>;
+  getTransaction(ctx: RequestContext, id: string): Promise<FinancialTransaction | null>;
+  allocations(ctx: RequestContext): Promise<FinancialAllocation[]>;
+  /** Allocations attributing money to one delivery entity. */
+  allocationsFor(ctx: RequestContext, entity: EntityReference): Promise<FinancialAllocation[]>;
+  budgets(ctx: RequestContext): Promise<Budget[]>;
+  budgetLines(ctx: RequestContext, budgetId: string): Promise<BudgetLine[]>;
+  recordTransaction(
+    ctx: RequestContext,
+    input: Omit<FinancialTransaction, "id" | "organisationId">,
+  ): Promise<string>;
+  /**
+   * Attribute money to delivery.
+   *
+   * Returns null when the target is missing or out of tenant. An allocation
+   * always carries its method and basis — there is deliberately no overload
+   * that omits them, because a figure whose apportionment cannot be explained
+   * is exactly what makes cost-per-outcome indefensible.
+   */
+  allocate(
+    ctx: RequestContext,
+    input: Omit<FinancialAllocation, "id" | "organisationId">,
+  ): Promise<string | null>;
+}
+
+export interface StrategyRepository {
+  priorities(ctx: RequestContext): Promise<StrategicPriority[]>;
+  getPriority(ctx: RequestContext, id: string): Promise<StrategicPriority | null>;
+  /** Programmes a priority pursues, through `pursues` relations. */
+  programmesFor(ctx: RequestContext, priorityId: string): Promise<Programme[]>;
+}
+
+export interface RequirementRepository {
+  list(ctx: RequestContext): Promise<ReportingRequirement[]>;
+  get(ctx: RequestContext, id: string): Promise<ReportingRequirement | null>;
+  forGrant(ctx: RequestContext, grantId: string): Promise<ReportingRequirement[]>;
+  /**
+   * What a requirement actually asks for, resolved through `requires` edges.
+   *
+   * This is the method that turns "what did we promise this funder?" from a
+   * search over free text into a traversal.
+   */
+  requires(ctx: RequestContext, requirementId: string): Promise<EntityReference[]>;
+}
+
+/**
+ * Documents.
+ *
+ * The separation between `Document`, `DocumentVersion` and `DocumentSource` is
+ * carried through the interface deliberately: `addVersion` exists and there is
+ * no `replaceContent`, because a corrected annual report must not silently
+ * rewrite the bytes that a claim was extracted from and a report cited.
+ */
+export interface DocumentRepository {
+  list(ctx: RequestContext): Promise<Document[]>;
+  get(ctx: RequestContext, id: string): Promise<Document | null>;
+  versions(ctx: RequestContext, documentId: string): Promise<DocumentVersion[]>;
+  currentVersion(ctx: RequestContext, documentId: string): Promise<DocumentVersion | null>;
+  sources(ctx: RequestContext, documentId: string): Promise<DocumentSource[]>;
+  /**
+   * Create a document and its first version.
+   *
+   * Returns the existing version when `contentHash` matches one already held:
+   * re-uploading identical bytes is not a new version, and treating it as one
+   * would duplicate every claim extracted from it.
+   */
+  create(
+    ctx: RequestContext,
+    input: {
+      title: string;
+      kind: Document["kind"];
+      containsPersonalData: boolean;
+      reportingPeriod?: string;
+      tags?: string[];
+      version: Omit<
+        DocumentVersion,
+        "id" | "organisationId" | "documentId" | "version" | "createdAt"
+      >;
+      source: Omit<DocumentSource, "id" | "organisationId" | "documentId" | "versionId">;
+    },
+  ): Promise<{ document: Document; version: DocumentVersion; deduplicated: boolean }>;
+  addVersion(
+    ctx: RequestContext,
+    documentId: string,
+    version: Omit<
+      DocumentVersion,
+      "id" | "organisationId" | "documentId" | "version" | "createdAt"
+    >,
+  ): Promise<DocumentVersion | null>;
+
+  extractedClaims(ctx: RequestContext, documentId: string): Promise<ExtractedClaim[]>;
+  saveExtractedClaims(
+    ctx: RequestContext,
+    claims: Omit<ExtractedClaim, "id" | "organisationId" | "createdAt" | "status">[],
+  ): Promise<ExtractedClaim[]>;
+  setExtractedClaimStatus(
+    ctx: RequestContext,
+    id: string,
+    status: ExtractedClaim["status"],
+    claimId?: string,
+  ): Promise<void>;
+}
+
+export type CandidateDecision = "confirm" | "edit" | "reject";
+
+/**
+ * Onboarding research, persisted.
+ *
+ * Persisted rather than held in a request for a reason that is not
+ * convenience: research reaches out to someone's website and to registers that
+ * charge per call. A run lost on refresh gets repeated, which is rude to the
+ * first and expensive to the second.
+ */
+export interface OnboardingRepository {
+  runs(ctx: RequestContext): Promise<OnboardingRun[]>;
+  getRun(ctx: RequestContext, id: string): Promise<OnboardingRun | null>;
+  /** The most recent run, which is what the review screen shows. */
+  latestRun(ctx: RequestContext): Promise<OnboardingRun | null>;
+  startRun(
+    ctx: RequestContext,
+    input: OnboardingRun["input"],
+  ): Promise<OnboardingRun>;
+  updateRun(
+    ctx: RequestContext,
+    id: string,
+    patch: Partial<Pick<OnboardingRun, "stage" | "status" | "counts" | "degraded" | "completedAt">>,
+  ): Promise<void>;
+
+  sources(ctx: RequestContext, runId: string): Promise<ResearchSource[]>;
+  saveSources(ctx: RequestContext, runId: string, sources: ResearchSource[]): Promise<void>;
+
+  candidates(ctx: RequestContext, runId: string): Promise<ProfileCandidate[]>;
+  getCandidate(ctx: RequestContext, id: string): Promise<ProfileCandidate | null>;
+  saveCandidates(
+    ctx: RequestContext,
+    runId: string,
+    candidates: ProfileCandidate[],
+  ): Promise<void>;
+
+  /**
+   * Record a reviewer's decision.
+   *
+   * This is the one transition in the whole pipeline a person must make, so it
+   * takes an actor from the context and writes an audit record. Returns null
+   * when the candidate is missing or belongs to another tenant.
+   */
+  decide(
+    ctx: RequestContext,
+    candidateId: string,
+    decision: CandidateDecision,
+    editedValue?: string,
+  ): Promise<{ candidate: ProfileCandidate; claimId?: string } | null>;
+  /** Decisions already made in this run, keyed by candidate id. */
+  decisions(
+    ctx: RequestContext,
+    runId: string,
+  ): Promise<Record<string, { decision: CandidateDecision; at: string; by?: string }>>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
   claims: ClaimRepository;
+  /** The Mission Graph's cross-domain edges. */
+  graph: GraphRepository;
+  documents: DocumentRepository;
+  onboarding: OnboardingRepository;
+  strategy: StrategyRepository;
+  finance: FinanceRepository;
+  requirements: RequirementRepository;
   funding: FundingRepository;
   applications: ApplicationRepository;
   grants: GrantRepository;

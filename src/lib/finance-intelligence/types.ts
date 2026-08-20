@@ -25,14 +25,34 @@ import type {
 
 // --- Money ---------------------------------------------------------------
 
-/** ISO 4217. Currency is data, not a constant (target architecture §10). */
-export type CurrencyCode = string;
+/**
+ * Money, transactions and allocations now live in `types/domain.ts`.
+ *
+ * They were designed here and were **promoted** by MG-1, on the same reasoning
+ * that promoted `ClaimKind`: the Mission Graph attributes money, so the money
+ * model is not a finance-module concern and the data boundary should not have
+ * to import a calculation library to describe a row.
+ *
+ * They are re-exported under their existing names so that the nineteen
+ * modules in this directory, and their tests, are unchanged.
+ */
+export type {
+  AllocationBasis,
+  AllocationMethod,
+  CurrencyCode,
+  FinancialAllocation,
+  FinancialTransaction,
+  Money,
+  TransactionDirection,
+  TransactionSource,
+} from "@/types/domain";
 
-export interface Money {
-  /** Integer minor units (pence, cents). Never fractional. */
-  readonly minorUnits: number;
-  readonly currency: CurrencyCode;
-}
+// Also brought into local scope: the types below are written in terms of them.
+import type {
+  AllocationMethod,
+  CurrencyCode,
+  Money,
+} from "@/types/domain";
 
 // --- References and periods ---------------------------------------------
 
@@ -104,101 +124,6 @@ export interface DataQuality {
 }
 
 // --- Transactions --------------------------------------------------------
-
-export type TransactionDirection = "income" | "expenditure";
-
-export type TransactionSource =
-  | "bank_feed"
-  | "accounting_system"
-  | "manual"
-  | "import";
-
-export interface FinancialTransaction {
-  id: UUID;
-  organisationId: UUID;
-  accountId?: UUID;
-  date: ISODate;
-  description: string;
-  amount: Money;
-  direction: TransactionDirection;
-  /** Chart-of-accounts or expenditure category, as classified. */
-  category?: string;
-  counterparty?: string;
-  /** Whether the money carries a funder restriction. */
-  restricted: boolean;
-  /** Set only where the transaction is unambiguously attributable. */
-  grantId?: UUID;
-  source: TransactionSource;
-  verificationState: VerificationState;
-}
-
-// --- Allocation ----------------------------------------------------------
-
-/**
- * How the attribution was made. Distinct from `AllocationBasis`, which says
- * *what the apportionment was driven by*.
- */
-export type AllocationMethod =
-  | "direct"
-  | "proportional"
-  | "shared_cost"
-  | "manual"
-  | "suggested"
-  | "unknown";
-
-/** The driver behind a proportional or shared-cost apportionment (§5). */
-export type AllocationBasis =
-  | "direct"
-  | "headcount"
-  | "programme_expenditure"
-  | "staff_time"
-  | "participant_volume"
-  | "equal"
-  | "custom_percentage"
-  | "unallocated";
-
-/**
- * The layer between money and delivery.
- *
- * An allocation always records its method, its basis and its confidence, so
- * that a figure built on eight estimated apportionments can never be presented
- * with the same authority as one built on eight invoices.
- */
-export interface FinancialAllocation {
-  id: UUID;
-  organisationId: UUID;
-
-  transactionId?: UUID;
-  budgetLineId?: UUID;
-  programmeId?: UUID;
-  grantId?: UUID;
-  activityId?: UUID;
-  workstreamId?: UUID;
-  outcomeId?: UUID;
-  strategicPriorityId?: UUID;
-
-  amount: Money;
-
-  allocationMethod: AllocationMethod;
-  allocationBasis?: AllocationBasis;
-  /** Free-text explanation shown next to the figure, e.g. "42% of programme expenditure". */
-  allocationNote?: string;
-
-  /** 0..1 — how well the method fits this cost. Never a truth claim. */
-  confidence?: number;
-
-  /** Whether the money was restricted at source. */
-  restricted?: boolean;
-
-  /** Date the allocation applies to; drives period roll-ups. */
-  effectiveDate: ISODate;
-
-  verificationState: VerificationState;
-
-  createdBy?: UUID;
-  verifiedBy?: UUID;
-  verifiedAt?: ISODate;
-}
 
 // --- Cost hierarchy ------------------------------------------------------
 

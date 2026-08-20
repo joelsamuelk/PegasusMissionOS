@@ -1,6 +1,7 @@
 import { authorityFor, pagePriority } from "./authority";
 import { classifyDocument, classifyPage } from "./classify";
 import { extractFromPage } from "./extract";
+import { extractFromDocument, htmlToBlocks } from "./extract-document";
 import { reconcile } from "./reconcile";
 import { isSameSite, looksLikeDocument, normaliseUrl } from "./url";
 import type {
@@ -208,8 +209,21 @@ export async function researchWebsite(
       makeId: () => makeId("cand"),
     });
 
+    // The structured extractors above read identity well and read *lists* not
+    // at all, so a site with a clear "Our programmes" heading yielded nothing
+    // about programmes. The same block extractor documents use handles that,
+    // rather than a second implementation of the same idea for HTML.
+    const fromBlocks = extractFromDocument({
+      source,
+      organisationId,
+      documentKind: "other",
+      blocks: htmlToBlocks(result.html),
+      extractedAt: now().toISOString(),
+      makeId: () => makeId("cand"),
+    });
+
     source.extractionStatus = "extracted";
-    candidates.push(...extracted);
+    candidates.push(...extracted, ...fromBlocks);
     sources.push(source);
   }
 
