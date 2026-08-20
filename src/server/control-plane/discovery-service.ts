@@ -115,15 +115,33 @@ function interleave<T>(lists: T[][]): T[] {
   return out;
 }
 
+/**
+ * The wall-clock budget a run may spend inside providers.
+ *
+ * Every term is a separate network call and each provider allows itself eight
+ * seconds, so an unbounded run is minutes long — longer than the platform will
+ * keep the request alive. A killed request reports nothing at all, which is the
+ * silent-button failure this module exists to prevent, so the run stops calling
+ * providers while it still has time to persist and report what it has.
+ */
+export const PROVIDER_BUDGET_MS = 40_000;
+
 async function discoverWithProvider(
   provider: ProspectDiscoveryProvider,
   job: PilotDiscoveryJob,
   ctx: ControlRequestContext,
   context: ProviderContext,
+  deadlineAt: number,
 ): Promise<{ candidates: DiscoveryCandidate[]; failure?: ProviderFailureKind }> {
   const perTerm: DiscoveryCandidate[][] = [];
   let failure: ProviderFailureKind | undefined;
   for (const term of job.searchTerms) {
+    // Real elapsed time, not `ctx.now()`: this bounds the request itself rather
+    // than describing when the run happened.
+    if (Date.now() >= deadlineAt) {
+      failure ??= "timeout";
+      break;
+    }
     try {
       perTerm.push(await provider.discover(toDiscoveryJob(job, ctx, term), context));
     } catch (error) {
@@ -157,30 +175,48 @@ export async function runDiscoveryJob(
   makeProvider: (
     id: string,
   ) => ProspectDiscoveryProvider | null = createDiscoveryProvider,
+  deadlineAt: number = Date.now() + PROVIDER_BUDGET_MS,
 ): Promise<DiscoveryRunSummary> {
   requireControlCapability(ctx.role, "prospect:create");
   const context: ProviderContext = { requestId: ctx.requestId, now: ctx.now() };
-  const outcomes: DiscoveryProviderOutcome[] = [];
-  const byProvider: DiscoveryCandidate[][] = [];
 
-  for (const providerId of job.providers) {
-    const provider = makeProvider(providerId);
-    if (!provider?.capabilities.has("organisationDiscovery")) {
-      outcomes.push({
-        provider: providerId,
-        found: 0,
-        failure: "no_discovery_capability",
-      });
-      continue;
-    }
-    const result = await discoverWithProvider(provider, job, ctx, context);
-    outcomes.push({
-      provider: providerId,
-      found: result.candidates.length,
-      failure: result.failure,
-    });
-    byProvider.push(result.candidates);
-  }
+  // Providers are separate services with separate rate limits, so they run
+  // together and the budget covers the slowest rather than the sum. Terms stay
+  // sequential inside a provider, which is what its rate limit actually counts.
+  const results = await Promise.all(
+    job.providers.map(async (providerId) => {
+      const provider = makeProvider(providerId);
+      if (!provider?.capabilities.has("organisationDiscovery")) {
+        return {
+          outcome: {
+            provider: providerId,
+            found: 0,
+            failure: "no_discovery_capability" as ProviderFailureKind,
+          },
+          candidates: [] as DiscoveryCandidate[],
+        };
+      }
+      const result = await discoverWithProvider(
+        provider,
+        job,
+        ctx,
+        context,
+        deadlineAt,
+      );
+      return {
+        outcome: {
+          provider: providerId,
+          found: result.candidates.length,
+          failure: result.failure,
+        },
+        candidates: result.candidates,
+      };
+    }),
+  );
+  const outcomes: DiscoveryProviderOutcome[] = results.map((r) => r.outcome);
+  const byProvider = results
+    .filter((r) => r.outcome.failure !== "no_discovery_capability")
+    .map((r) => r.candidates);
 
   const selected = interleave(byProvider).slice(0, PILOT_LIMITS.maxCandidatesPerRun);
   const existing: KnownOrganisation[] = (await repo.prospects.list(ctx)).map(

@@ -51,7 +51,15 @@ async function finish(
   surface: string,
 ): Promise<NextResponse> {
   surfaceHeader(response, surface);
-  if (surface === "customer_app" || surface === "preview") {
+  // The control plane authenticates through the same Supabase session, so it
+  // needs the same rotation. Omitting it let an internal session quietly expire
+  // under an open page: the next action failed on identity rather than on what
+  // the operator asked for.
+  if (
+    surface === "customer_app" ||
+    surface === "control_plane" ||
+    surface === "preview"
+  ) {
     await refreshAuthSession(request, response);
   }
   return response;

@@ -98,6 +98,21 @@ describe("discovery run", () => {
     expect(summary.created).toBe(25);
   });
 
+  it("calls providers together rather than one after the other", async () => {
+    let live = 0, peak = 0;
+    const slow = (id: string): ProspectDiscoveryProvider => ({ id, capabilities: new Set<DiscoveryCapability>(["organisationDiscovery"]), async discover() { live++; peak = Math.max(peak, live); await new Promise((resolve) => setTimeout(resolve, 5)); live--; return [candidate(`From ${id}`, `${id}.example`)]; } });
+    const summary = await runDiscoveryJob(ctx(), createInMemoryControlRepository(state()), job(["one", "two"]), slow);
+    expect(peak).toBe(2);
+    expect(summary.created).toBe(2);
+  });
+
+  it("stops querying terms once the run is out of time and says so", async () => {
+    const seen: string[] = [];
+    const summary = await runDiscoveryJob(ctx(), createInMemoryControlRepository(state()), job(["fixture"], ["youth", "climate", "education"]), () => provider("fixture", (term) => { seen.push(term); return []; }), Date.now() - 1);
+    expect(seen).toEqual([]);
+    expect(summary.providers).toEqual([{ provider: "fixture", found: 0, failure: "timeout" }]);
+  });
+
   it("refuses a role that cannot create prospects", async () => {
     await expect(runDiscoveryJob(ctx("read_only"), createInMemoryControlRepository(state()), job(["fixture"]), () => provider("fixture", () => []))).rejects.toThrow("lacks required capability");
   });
