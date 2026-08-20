@@ -24,6 +24,7 @@ export const NAV_LABELS = [
   "Evidence",
   "Forms",
   "Automations",
+  "Portals",
   "Organisation",
   "Team",
   "Settings",

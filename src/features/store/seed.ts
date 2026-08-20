@@ -15,6 +15,10 @@ import type {
   AuditEvent,
   Automation,
   Form,
+  Portal,
+  PortalGrantRecord,
+  PortalIdentity,
+  PortalMembership,
   FormField,
   FormMapping,
   FormVersion,
@@ -2203,6 +2207,94 @@ export const formMappings: FormMapping[] = [
     predicate: "anonymous_quotation",
     requiresReview: false,
     audit: stamp("2026-04-01"),
+  },
+];
+
+/**
+ * The funder portal.
+ *
+ * One portal, one identity, and three records shared deliberately. The point
+ * of the seed is the last part: the Henderson Trust contact can see the grant,
+ * one report and one piece of evidence, and **cannot see** the Youth Futures
+ * programme those three all point at — because nobody shared it. That is the
+ * rule the phase exists to make structural, and a seed where everything was
+ * shared would demonstrate the opposite.
+ */
+export const portals: Portal[] = [
+  {
+    id: "portal-funder",
+    organisationId: ORG_ID,
+    audience: "funder",
+    name: "Funder portal",
+    description:
+      "Where funders see the grants they made, the reports against them, and the evidence behind those reports.",
+    status: "open",
+    slug: "funders",
+    welcomeMessage:
+      "You can see the grants you have made to Northstar and the reporting against them. Anything not shown has not been shared with you.",
+    contactUserId: "user-amara",
+    audit: stamp("2026-05-04"),
+  },
+];
+
+export const portalIdentities: PortalIdentity[] = [
+  {
+    id: "pid-daniel-osei",
+    organisationId: ORG_ID,
+    email: "daniel.osei@hendersontrust.example",
+    displayName: "Daniel Osei",
+    // Linked to the canonical relationship record, one-directionally. Nothing
+    // about the person changes because a portal identity exists.
+    personId: "per-daniel",
+    externalOrganisationId: "xorg-henderson",
+    status: "active",
+    invitedAt: "2026-05-04T09:00:00Z",
+    audit: stamp("2026-05-04"),
+  },
+];
+
+export const portalMemberships: PortalMembership[] = [
+  {
+    id: "pmem-daniel",
+    organisationId: ORG_ID,
+    portalId: "portal-funder",
+    identityId: "pid-daniel-osei",
+    capabilities: ["portal:view", "portal:download", "portal:message"],
+    invitedBy: "user-amara",
+    audit: stamp("2026-05-04"),
+  },
+];
+
+export const portalGrants: PortalGrantRecord[] = [
+  {
+    id: "pgrant-1",
+    organisationId: ORG_ID,
+    membershipId: "pmem-daniel",
+    entity: { type: "grant", id: "grant-henderson", label: "Youth Futures programme grant" },
+    viewKey: "funder.grant",
+    grantedBy: "user-amara",
+    grantedAt: "2026-05-04T09:05:00Z",
+    reason: "Their own award.",
+  },
+  {
+    id: "pgrant-2",
+    organisationId: ORG_ID,
+    membershipId: "pmem-daniel",
+    entity: { type: "impact_report", id: "report-youth-2026", label: "Youth Futures interim report" },
+    viewKey: "funder.report",
+    grantedBy: "user-amara",
+    grantedAt: "2026-05-04T09:05:00Z",
+    reason: "The interim report their grant requires.",
+  },
+  {
+    id: "pgrant-3",
+    organisationId: ORG_ID,
+    membershipId: "pmem-daniel",
+    entity: { type: "evidence", id: "ev-eval-2025", label: "Youth Futures independent evaluation" },
+    viewKey: "funder.evidence",
+    grantedBy: "user-amara",
+    grantedAt: "2026-05-04T09:06:00Z",
+    reason: "Cited in the interim report.",
   },
 ];
 

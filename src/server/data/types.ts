@@ -56,7 +56,15 @@ import type {
   Outcome,
   Output,
   Person,
+  Portal,
+  PortalCapability,
+  PortalGrantRecord,
+  PortalIdentity,
+  PortalMembership,
+  PortalMessage,
+  PortalSubmission,
   Programme,
+  ProjectedRecord,
   Relation,
   RelationKind,
   Relationship,
@@ -1045,6 +1053,96 @@ export interface PublicFormRepository {
   ): Promise<FormSubmissionResult>;
 }
 
+/**
+ * Portals, from the organisation's side.
+ *
+ * Everything here is a member of the organisation managing who can see what.
+ * The portal user's own side is `PortalAccessRepository`, which is separate
+ * for the same reason `PublicFormRepository` is: it authenticates differently,
+ * it reaches almost nothing, and mixing the two would mean one careless method
+ * gives an outsider a member's reach.
+ */
+export interface PortalRepository {
+  list(ctx: RequestContext): Promise<Portal[]>;
+  get(ctx: RequestContext, id: string): Promise<Portal | null>;
+  identities(ctx: RequestContext): Promise<PortalIdentity[]>;
+  memberships(ctx: RequestContext, portalId?: string): Promise<PortalMembership[]>;
+  /** Everything currently shared with one membership. The access review. */
+  grantsFor(ctx: RequestContext, membershipId: string): Promise<PortalGrantRecord[]>;
+
+  invite(
+    ctx: RequestContext,
+    input: {
+      portalId: string;
+      email: string;
+      displayName: string;
+      capabilities: PortalCapability[];
+      personId?: string;
+      externalOrganisationId?: string;
+      expiresAt?: string;
+    },
+  ): Promise<{ identityId: string; membershipId: string } | null>;
+
+  /**
+   * Share one record with one membership.
+   *
+   * Returns null when the record is missing, in another tenant, or has no view
+   * for this portal's audience. An entity type no view names cannot be shared
+   * at all, which is what makes adding a new entity safe: it is invisible to
+   * every portal until somebody writes a view for it.
+   */
+  share(
+    ctx: RequestContext,
+    input: {
+      membershipId: string;
+      entity: EntityReference;
+      viewKey?: string;
+      reason?: string;
+      expiresAt?: string;
+    },
+  ): Promise<string | null>;
+  unshare(ctx: RequestContext, grantId: string): Promise<void>;
+  revokeMembership(ctx: RequestContext, membershipId: string, reason: string): Promise<void>;
+
+  submissions(ctx: RequestContext, portalId?: string): Promise<PortalSubmission[]>;
+  messages(ctx: RequestContext, membershipId: string): Promise<PortalMessage[]>;
+  reply(ctx: RequestContext, membershipId: string, body: string): Promise<string | null>;
+}
+
+/**
+ * The portal user's side.
+ *
+ * Unscoped by necessity — a portal user has no organisation session; a slug
+ * and an identity are what locate them — and narrowed to almost nothing in
+ * compensation, exactly as `PublicFormRepository` is.
+ *
+ * `read` returns a **projection**, never a record. There is no method here
+ * that hands back an entity, so a bug in a caller cannot leak one.
+ */
+export interface PortalAccessRepository {
+  /** An open portal, by slug. Null for a draft or closed one. */
+  resolvePortal(slug: string): Promise<Portal | null>;
+  /** The membership for an identity's email at that portal, if it is live. */
+  resolveMembership(
+    slug: string,
+    email: string,
+  ): Promise<{ portal: Portal; identity: PortalIdentity; membership: PortalMembership } | null>;
+  /** Everything the membership may currently see, as projections. */
+  index(slug: string, email: string): Promise<ProjectedRecord[]>;
+  /** One record, projected. Null for any refusal; the reason is audited. */
+  read(slug: string, email: string, entity: EntityReference): Promise<ProjectedRecord | null>;
+  submit(
+    slug: string,
+    email: string,
+    input: {
+      kind: PortalSubmission["kind"];
+      subject?: EntityReference;
+      body?: string;
+    },
+  ): Promise<string | null>;
+  message(slug: string, email: string, body: string): Promise<string | null>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
@@ -1067,6 +1165,9 @@ export interface MissionRepository {
   forms: FormRepository;
   /** Unscoped by necessity, and narrowed to almost nothing. See above. */
   publicForms: PublicFormRepository;
+  portals: PortalRepository;
+  /** The portal user's side. Returns projections, never records. */
+  portalAccess: PortalAccessRepository;
   automation: AutomationRepository;
   audit: AuditRepository;
 }

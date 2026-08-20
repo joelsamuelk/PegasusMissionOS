@@ -319,3 +319,31 @@ test("26. finance reads grant utilisation from allocations, not a scalar", async
   // Utilisation alone is not a finding; utilisation against elapsed time is.
   await expect(page.getByText(/% elapsed/i).first()).toBeVisible();
 });
+
+/**
+ * MG-9 portals.
+ *
+ * The rule the journey checks is the one the brief states directly: never
+ * expose internal organisation data simply because the underlying record is
+ * related. The access review is where an organisation can see that holding.
+ */
+test("27. the access review shows who outside the organisation sees what", async ({ page }) => {
+  await page.goto("/portals");
+
+  await expect(
+    page.getByRole("heading", { name: /who outside this organisation can see what/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/never inherited/i).first()).toBeVisible();
+  await expect(page.getByText(/records shared/i).first()).toBeVisible();
+});
+
+test("28. a portal preview shows the projection, not the record", async ({ page }) => {
+  await page.goto("/portals");
+
+  await page.getByRole("button", { name: /see exactly what they see/i }).first().click();
+  await expect(page.getByText(/records visible to/i)).toBeVisible({ timeout: 15000 });
+
+  // The grant is shared; the programme it funds is not.
+  await expect(page.getByText(/Youth Futures programme grant/i).first()).toBeVisible();
+  await expect(page.getByText(/^Not shown:/i).first()).toBeVisible();
+});

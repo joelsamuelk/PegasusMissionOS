@@ -21,6 +21,11 @@ import type {
   FormSubmission,
   Notification,
   Person,
+  PortalGrantRecord,
+  PortalMembership,
+  PortalMessage,
+  PortalSubmission,
+  ProjectedRecord,
   Task,
   Relation,
   ReportApproval,
@@ -37,6 +42,14 @@ import { can } from "@/lib/permissions";
 import { resolvePersonByEmail } from "@/lib/logic/relationship-identity";
 import { allocateSharedCost } from "@/lib/finance-intelligence/allocate";
 import { classifyRows, detectDuplicates, parseStatementCsv } from "@/lib/finance";
+import {
+  capabilityPermitted,
+  decideAccess,
+  findView,
+  projectRecord,
+  reachableRecords,
+  viewForEntity,
+} from "@/lib/portals";
 import {
   answersDueForErasure,
   assessSpam,
@@ -114,6 +127,12 @@ const ENTITY_TABLES: Partial<Record<EntityType, (s: StoreState) => { id: string;
   indicator_measurement: (s) => s.indicatorMeasurements,
   evidence: (s) => s.evidenceItems,
   grant: (s) => s.grants,
+  // Added by MG-9. Both are things a funder legitimately sees, and the map's
+  // own rule is that a kind absent from it cannot be pointed at — which is the
+  // safe failure, and which is why adding one is a deliberate line rather than
+  // a check somebody forgot.
+  grant_deliverable: (s) => s.grantDeliverables,
+  grant_report: (s) => s.grantReports,
   funder: (s) => s.funders,
   funding_opportunity: (s) => s.opportunities,
   application: (s) => s.applications,
@@ -2412,6 +2431,346 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
           formId: resolved.form.id,
           source: "public",
         });
+      },
+    },
+
+    /**
+     * Portals, from the organisation's side.
+     *
+     * Managing who can see what. Every write here is a member of the
+     * organisation deciding to share something outside it, which is why every
+     * one is audited and why `share` refuses rather than defaults.
+     */
+    portals: {
+      async list(ctx) {
+        return scoped(state.portals, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.portals, ctx, (portal) => portal.id === id);
+      },
+      async identities(ctx) {
+        return scoped(state.portalIdentities, ctx).filter(isLive);
+      },
+      async memberships(ctx, portalId) {
+        return scoped(state.portalMemberships, ctx).filter(
+          (membership) => !portalId || membership.portalId === portalId,
+        );
+      },
+      async grantsFor(ctx, membershipId) {
+        return scoped(state.portalGrants, ctx).filter(
+          (grant) => grant.membershipId === membershipId,
+        );
+      },
+
+      async invite(ctx, input) {
+        const portal = scopedFind(state.portals, ctx, (p) => p.id === input.portalId);
+        if (!portal) return null;
+
+        // Refused at the point somebody makes the mistake, rather than
+        // discovered when a beneficiary downloads a board pack.
+        for (const capability of input.capabilities) {
+          if (!capabilityPermitted(portal.audience, capability)) return null;
+        }
+
+        const now = stamp(ctx);
+        const email = input.email.trim().toLowerCase();
+        let identity = scopedFind(
+          state.portalIdentities,
+          ctx,
+          (candidate) => candidate.email.toLowerCase() === email,
+        );
+
+        if (!identity) {
+          identity = {
+            id: newId("pid"),
+            organisationId: ctx.organisationId,
+            email,
+            displayName: input.displayName,
+            personId: input.personId,
+            externalOrganisationId: input.externalOrganisationId,
+            status: "invited",
+            invitedAt: now,
+            audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+          };
+          state.portalIdentities.push(identity);
+        }
+
+        const existing = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (membership) =>
+            membership.portalId === portal.id && membership.identityId === identity!.id,
+        );
+        if (existing) {
+          existing.capabilities = input.capabilities;
+          existing.expiresAt = input.expiresAt;
+          existing.revokedAt = undefined;
+          existing.revokedReason = undefined;
+          existing.audit.updatedAt = now;
+          return { identityId: identity.id, membershipId: existing.id };
+        }
+
+        const membership: PortalMembership = {
+          id: newId("pmem"),
+          organisationId: ctx.organisationId,
+          portalId: portal.id,
+          identityId: identity.id,
+          capabilities: input.capabilities,
+          expiresAt: input.expiresAt,
+          invitedBy: ctx.userId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.portalMemberships.push(membership);
+
+        await recordAudit(ctx, {
+          action: "portal.invited",
+          entityType: "person",
+          entityId: identity.id,
+          summary: `Invited ${input.email} to the ${portal.audience} portal with ${input.capabilities.join(", ")}`,
+        });
+
+        return { identityId: identity.id, membershipId: membership.id };
+      },
+
+      async share(ctx, input) {
+        const membership = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (candidate) => candidate.id === input.membershipId,
+        );
+        if (!membership || membership.revokedAt) return null;
+        const portal = scopedFind(state.portals, ctx, (p) => p.id === membership.portalId);
+        if (!portal) return null;
+
+        // Both endpoints, as `relations` does. A correctly scoped grant row
+        // can still name a record in another tenant.
+        if (!entityExists(ctx, input.entity)) return null;
+
+        // An entity type no view names cannot be shared at all. That is what
+        // makes adding a new entity safe: it is invisible to every portal
+        // until somebody writes a view for it.
+        const view = input.viewKey
+          ? findView(input.viewKey)
+          : viewForEntity(portal.audience, input.entity.type);
+        if (!view || view.audience !== portal.audience || view.entityType !== input.entity.type) {
+          return null;
+        }
+
+        const grant: PortalGrantRecord = {
+          id: newId("pgrant"),
+          organisationId: ctx.organisationId,
+          membershipId: membership.id,
+          entity: { type: input.entity.type, id: input.entity.id, label: input.entity.label },
+          viewKey: view.key,
+          grantedBy: ctx.userId,
+          grantedAt: stamp(ctx),
+          reason: input.reason,
+          expiresAt: input.expiresAt,
+        };
+        state.portalGrants.push(grant);
+
+        await recordAudit(ctx, {
+          action: "portal.shared",
+          entityType: input.entity.type,
+          entityId: input.entity.id,
+          summary: `Shared with the ${portal.audience} portal through view ${view.key}${input.reason ? `: ${input.reason}` : ""}`,
+        });
+
+        return grant.id;
+      },
+
+      async unshare(ctx, grantId) {
+        const grant = scopedFind(state.portalGrants, ctx, (candidate) => candidate.id === grantId);
+        if (!grant || grant.revokedAt) return;
+        // Revoked, never deleted. A deleted grant cannot answer "what did we
+        // share with this funder, and when did we stop?"
+        grant.revokedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "portal.unshared",
+          entityType: grant.entity.type,
+          entityId: grant.entity.id,
+          summary: "Withdrawn from a portal.",
+        });
+      },
+
+      async revokeMembership(ctx, membershipId, reason) {
+        const membership = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (candidate) => candidate.id === membershipId,
+        );
+        if (!membership || !reason.trim()) return;
+        membership.revokedAt = stamp(ctx);
+        membership.revokedReason = reason;
+        membership.audit.updatedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "portal.access_revoked",
+          entityType: "person",
+          entityId: membership.identityId,
+          summary: `Portal access revoked: ${reason}`,
+        });
+      },
+
+      async submissions(ctx, portalId) {
+        return scoped(state.portalSubmissions, ctx)
+          .filter((submission) => !portalId || submission.portalId === portalId)
+          .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+      },
+      async messages(ctx, membershipId) {
+        return scoped(state.portalMessages, ctx)
+          .filter((message) => message.membershipId === membershipId)
+          .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+      },
+      async reply(ctx, membershipId, body) {
+        const membership = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (candidate) => candidate.id === membershipId,
+        );
+        if (!membership || membership.revokedAt || !body.trim()) return null;
+        const message: PortalMessage = {
+          id: newId("pmsg"),
+          organisationId: ctx.organisationId,
+          portalId: membership.portalId,
+          membershipId,
+          direction: "outbound",
+          body,
+          sentAt: stamp(ctx),
+          sentBy: ctx.userId,
+        };
+        state.portalMessages.push(message);
+        return message.id;
+      },
+    },
+
+    /**
+     * The portal user's side.
+     *
+     * Unscoped by necessity: a portal user has no organisation session, and a
+     * slug plus an email is what locates them. Narrowed drastically in
+     * compensation — **every read returns a projection, never a record.**
+     * There is no method here that hands back an entity, so a bug in a caller
+     * cannot leak one.
+     */
+    portalAccess: {
+      async resolvePortal(slug) {
+        return (
+          state.portals.find(
+            (portal) =>
+              portal.slug === slug && portal.status === "open" && !portal.audit.archivedAt,
+          ) ?? null
+        );
+      },
+      async resolveMembership(slug, email) {
+        const portal = await repository.portalAccess.resolvePortal(slug);
+        if (!portal) return null;
+        const normalised = email.trim().toLowerCase();
+        const identity = state.portalIdentities.find(
+          (candidate) =>
+            candidate.organisationId === portal.organisationId &&
+            candidate.email.toLowerCase() === normalised &&
+            !candidate.audit.archivedAt,
+        );
+        if (!identity) return null;
+        const membership = state.portalMemberships.find(
+          (candidate) =>
+            candidate.portalId === portal.id &&
+            candidate.identityId === identity.id &&
+            candidate.organisationId === portal.organisationId,
+        );
+        return membership ? { portal, identity, membership } : null;
+      },
+
+      async index(slug, email) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return [];
+        const now = new Date();
+        const grants = state.portalGrants.filter(
+          (grant) => grant.organisationId === resolved.portal.organisationId,
+        );
+
+        const projections: ProjectedRecord[] = [];
+        for (const grant of reachableRecords(grants, resolved.membership, now)) {
+          const projection = await repository.portalAccess.read(slug, email, grant.entity);
+          if (projection) projections.push(projection);
+        }
+        return projections;
+      },
+
+      async read(slug, email, entity) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return null;
+
+        const decision = decideAccess({
+          portal: resolved.portal,
+          identity: resolved.identity,
+          membership: resolved.membership,
+          grants: state.portalGrants.filter(
+            (grant) => grant.organisationId === resolved.portal.organisationId,
+          ),
+          entity,
+          capability: "portal:view",
+          now: new Date(),
+        });
+        if (!decision.allowed || !decision.viewKey) return null;
+
+        const table = ENTITY_TABLES[entity.type];
+        if (!table) return null;
+        const record = table(state).find(
+          (row) =>
+            row.id === entity.id && row.organisationId === resolved.portal.organisationId,
+        );
+        if (!record) return null;
+
+        // Projected, never returned. Even here, with access correctly granted,
+        // the object that leaves is built field by field from an allowlist.
+        return projectRecord({
+          entity,
+          record: record as unknown as Record<string, unknown>,
+          viewKey: decision.viewKey,
+        });
+      },
+
+      async submit(slug, email, input) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return null;
+        if (!resolved.membership.capabilities.includes("portal:submit")) return null;
+        if (resolved.membership.revokedAt) return null;
+
+        const submission: PortalSubmission = {
+          id: `psub-${globalThis.crypto.randomUUID()}`,
+          organisationId: resolved.portal.organisationId,
+          portalId: resolved.portal.id,
+          membershipId: resolved.membership.id,
+          kind: input.kind,
+          subject: input.subject,
+          body: input.body,
+          // Always. A portal submission changes nothing until a member of the
+          // organisation decides what it means.
+          status: "received",
+          submittedAt: new Date().toISOString(),
+        };
+        state.portalSubmissions.push(submission);
+        return submission.id;
+      },
+
+      async message(slug, email, body) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return null;
+        if (!resolved.membership.capabilities.includes("portal:message")) return null;
+        if (resolved.membership.revokedAt || !body.trim()) return null;
+
+        const message: PortalMessage = {
+          id: `pmsg-${globalThis.crypto.randomUUID()}`,
+          organisationId: resolved.portal.organisationId,
+          portalId: resolved.portal.id,
+          membershipId: resolved.membership.id,
+          direction: "inbound",
+          body,
+          sentAt: new Date().toISOString(),
+        };
+        state.portalMessages.push(message);
+        return message.id;
       },
     },
     automation: {

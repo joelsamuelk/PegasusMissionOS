@@ -65,6 +65,12 @@ import type {
   Outcome,
   Output,
   Person,
+  Portal,
+  PortalGrantRecord,
+  PortalIdentity,
+  PortalMembership,
+  PortalMessage,
+  PortalSubmission,
   Programme,
   ProgrammeGrantLink,
   Relation,
@@ -181,6 +187,14 @@ export interface StoreState {
   // fields are stored separately and never edited after publication.
   // MG-8. An import is a thing that happened, and a candidate is a suggestion
   // rather than a value.
+  // MG-9. Identities are not users, grants are per record, and views live in
+  // code because a field allowlist is not data an organisation should edit.
+  portals: Portal[];
+  portalIdentities: PortalIdentity[];
+  portalMemberships: PortalMembership[];
+  portalGrants: PortalGrantRecord[];
+  portalSubmissions: PortalSubmission[];
+  portalMessages: PortalMessage[];
   financialImports: FinancialImport[];
   transactionCandidates: TransactionCandidateRecord[];
   forms: Form[];
@@ -271,6 +285,12 @@ export function createStoreState(): StoreState {
     reportApprovals: [],
     reportRequirements: clone(seed.reportRequirements ?? []),
     reportTemplateIngestions: [],
+    portals: clone(seed.portals ?? []),
+    portalIdentities: clone(seed.portalIdentities ?? []),
+    portalMemberships: clone(seed.portalMemberships ?? []),
+    portalGrants: clone(seed.portalGrants ?? []),
+    portalSubmissions: [],
+    portalMessages: [],
     financialImports: [],
     transactionCandidates: [],
     forms: clone(seed.forms ?? []),

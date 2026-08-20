@@ -1710,6 +1710,225 @@ export interface ReportTemplateIngestion {
 }
 
 
+// --- Portals (MG-9) ------------------------------------------------------
+
+/**
+ * Mission Portals.
+ *
+ * The expansion plan's note on this phase is the shortest and the sharpest:
+ * *external parties reading tenant data is the highest-risk surface in the
+ * product.* Everything below is shaped by three rules that follow from it.
+ *
+ * **1. A portal identity is not a `User`.** It is a separate model, on the
+ * same reasoning that gives the Control Plane one: an external funder contact
+ * and an internal programme lead should not be the same kind of thing with a
+ * different role, because the day somebody writes `if (role === ...)` against
+ * a union of the two, an outsider inherits a capability. `PortalIdentity`
+ * shares no table, no id space and no authentication path with `User`.
+ *
+ * **2. Access is granted, never inherited.** The brief states it directly:
+ * *never expose internal organisation data simply because the underlying
+ * record is related.* A funder who can see a grant does not thereby see the
+ * evidence linked to it, the programme it funds, or the interactions about it.
+ * Each is a `PortalGrant` somebody made deliberately.
+ *
+ * **3. A record is projected, never returned.** Even a granted record passes
+ * through a `PortalView` that names the fields an audience may see. A `Grant`
+ * carries internal conditions and a manager's id; a funder sees a title, a
+ * value and a period. The projection is what makes the difference structural
+ * rather than a matter of which serialiser somebody used.
+ */
+
+export type PortalAudience =
+  | "funder"
+  | "beneficiary"
+  | "volunteer"
+  | "partner"
+  | "trustee"
+  | "applicant";
+
+/**
+ * One portal, serving one audience.
+ *
+ * *Do not build five independent portal products*, from the brief. There is
+ * one architecture; the audience decides which views are available and what
+ * each projects, and nothing else differs.
+ */
+export interface Portal {
+  id: UUID;
+  organisationId: UUID;
+  audience: PortalAudience;
+  name: string;
+  description?: string;
+  status: "draft" | "open" | "closed";
+  /** Where it is served. Unique within a tenant. */
+  slug: string;
+  welcomeMessage?: string;
+  /** Contact for a portal user who needs a person. Never a shared inbox alias. */
+  contactUserId?: UUID;
+  audit: AuditStamp;
+}
+
+/**
+ * An external person who can sign in to a portal.
+ *
+ * Deliberately thin. It carries an email, a display name and nothing else: a
+ * portal identity is a way of authenticating somebody, not a place to keep a
+ * profile. Where the same human is also a `Person` in the relationship layer,
+ * `personId` links them, and the link is one-directional — a portal identity
+ * can find its person, and nothing about the person changes because a portal
+ * identity exists.
+ */
+export interface PortalIdentity {
+  id: UUID;
+  organisationId: UUID;
+  email: string;
+  displayName: string;
+  /** The canonical relationship record, where there is one. */
+  personId?: UUID;
+  /** The body they represent, for a funder or partner contact. */
+  externalOrganisationId?: UUID;
+  status: "invited" | "active" | "suspended";
+  invitedAt: ISODate;
+  lastSeenAt?: ISODate;
+  audit: AuditStamp;
+}
+
+/**
+ * What a portal identity may do inside one portal.
+ *
+ * Capabilities are a closed list per audience, not a free set: the point of
+ * one portal architecture is that a funder portal cannot be configured into a
+ * beneficiary portal by ticking boxes.
+ */
+export type PortalCapability =
+  | "portal:view"
+  | "portal:download"
+  | "portal:message"
+  | "portal:submit"
+  | "portal:approve";
+
+export interface PortalMembership {
+  id: UUID;
+  organisationId: UUID;
+  portalId: UUID;
+  identityId: UUID;
+  capabilities: PortalCapability[];
+  /** Absent means indefinite. A dated grant is the safer default. */
+  expiresAt?: ISODate;
+  invitedBy?: UUID;
+  revokedAt?: ISODate;
+  revokedReason?: string;
+  audit: AuditStamp;
+}
+
+/**
+ * One record, shared deliberately with one membership.
+ *
+ * The table that makes rule 2 structural. There is no traversal from a granted
+ * record to another record: reaching a second thing requires a second grant,
+ * and somebody had to make it.
+ */
+export interface PortalGrantRecord {
+  id: UUID;
+  organisationId: UUID;
+  membershipId: UUID;
+  /** What was shared. */
+  entity: EntityReference;
+  /** Which view projects it. Decides the fields, not merely the access. */
+  viewKey: string;
+  grantedBy: UUID;
+  grantedAt: ISODate;
+  /** Why, for the audit trail and for the person reviewing access later. */
+  reason?: string;
+  expiresAt?: ISODate;
+  revokedAt?: ISODate;
+}
+
+/**
+ * The fields an audience may see of one entity type.
+ *
+ * An allowlist. A denylist would mean every field added to `Grant` after this
+ * was written is exposed to funders by default, which is precisely how a
+ * portal leaks: not by a decision, but by a schema change nobody connected to
+ * a portal.
+ */
+export interface PortalView {
+  key: string;
+  audience: PortalAudience;
+  entityType: EntityType;
+  label: string;
+  /** Field names on the entity that may be projected. Nothing else is. */
+  fields: string[];
+  /** What a reader is told about what they are not seeing. */
+  withheldNote?: string;
+}
+
+export type PortalSubmissionKind =
+  | "report_response"
+  | "evidence"
+  | "availability"
+  | "expression_of_interest"
+  | "approval";
+
+export interface PortalSubmission {
+  id: UUID;
+  organisationId: UUID;
+  portalId: UUID;
+  membershipId: UUID;
+  kind: PortalSubmissionKind;
+  /** What it is about. */
+  subject?: EntityReference;
+  /** A form submission, where the portal collected it through a form. */
+  formSubmissionId?: UUID;
+  body?: string;
+  status: "received" | "accepted" | "rejected";
+  submittedAt: ISODate;
+  reviewedBy?: UUID;
+  reviewedAt?: ISODate;
+  reviewNote?: string;
+}
+
+/**
+ * A message between the organisation and a portal user.
+ *
+ * Kept here rather than in `Interaction` because the two are different facts:
+ * an interaction is the organisation's record of a conversation, and this is
+ * the conversation. A portal message becomes an interaction when somebody
+ * decides it is worth recording, which is a decision rather than a side
+ * effect.
+ */
+export interface PortalMessage {
+  id: UUID;
+  organisationId: UUID;
+  portalId: UUID;
+  membershipId: UUID;
+  direction: "inbound" | "outbound";
+  body: string;
+  /** What it is about, where it is about a shared record. */
+  subject?: EntityReference;
+  sentAt: ISODate;
+  /** The internal user who sent an outbound message. */
+  sentBy?: UUID;
+  readAt?: ISODate;
+}
+
+/**
+ * What a portal user actually receives.
+ *
+ * `withheld` is not decoration. A funder shown four fields of a grant, with no
+ * indication that six exist, will reason as though they have seen the record.
+ * Saying what is not shown is both more honest and less likely to produce a
+ * follow-up email.
+ */
+export interface ProjectedRecord {
+  entity: EntityReference;
+  viewKey: string;
+  fields: { name: string; label: string; value: string }[];
+  withheld: string[];
+  withheldNote?: string;
+}
+
 // --- Forms and data collection (MG-7) -----------------------------------
 
 /**

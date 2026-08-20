@@ -47,7 +47,7 @@ Two facts govern everything below:
 | **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-9** Mission Portals | Parked | Not started | MG-2, MG-12 |
+| **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | Portal authentication waits on MG-2 |
 | **MG-10** Fundraising | Parked | Not started | MG-1 SC2, MG-8 |
 | **MG-11** Integrations | Slice I | Not started | MG-2 |
 | **MG-12** Production hardening | New, continuous | Ongoing | — |
@@ -545,6 +545,54 @@ What ships: the ability to *collect* intake answers, with a required sensitivity
 
 | **MG-10 Fundraising** | A donation touches supporter, fund, finance, programme, campaign, reporting, impact and stewardship. If it lives in a fundraising table, §11 of the brief has been violated. Requires MG-1 SC2 and MG-8. |
 | **MG-9 Portals** | External parties reading tenant data is the highest-risk surface in the product. It requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model of the kind the Control Plane already demonstrates. |
+
+### Verification record — MG-9 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm test` | **970 passed**, 75 files (was 928 across 74) |
+| `npm run test:e2e` | **37/37** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**On the entry condition.** This row said MG-9 *requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model*. Two of the three are met: field-level sensitivity shipped in MG-7, and the identity model is here. MG-12 has not run as a phase. The judgement made was that its two standing items — AI context exposure and beneficiary data — are both **already binding on this surface** through MG-7's classification, and that the third rule below makes the remaining exposure structural rather than procedural. That is a judgement rather than a satisfied precondition, and MG-12 should re-read this phase specifically.
+
+**Three rules, each a table or a function rather than a convention.**
+
+**1. A portal identity is not a `User`.** Separate table, separate id space, separate authentication path, on the same reasoning that gives the Control Plane one. A `User` with an external flag means the day somebody writes a role check against the union, an outsider inherits a capability. `PortalIdentity` is also deliberately thin — an email, a name, and no profile — because it is a way of authenticating somebody rather than a place to keep personal data.
+
+**2. Access is granted, never inherited.** The brief states it directly: *never expose internal organisation data simply because the underlying record is related.* There is no traversal in `decideAccess`. A funder who can see a grant does not thereby see the evidence linked to it, the programme it funds, or the interactions about it; each is a `PortalGrant` somebody made. **The seed demonstrates this rather than working around it**: the Henderson contact sees the grant, one report and one evidence item, and cannot see the Youth Futures programme all three point at, because nobody shared it.
+
+**3. A record is projected, never returned.** Field allowlists per audience per entity type. The choice of allowlist over denylist is the load-bearing one: a denylist means every field added to `Grant` after this was written is visible to funders by default, which is how a portal leaks — **not by a decision, but by a schema change nobody connected to a portal**. A field nobody listed simply never appears, and a test asserts that adding `internalRiskNote` to a grant changes nothing on a funder's screen.
+
+**What each view withholds, and why.** `Grant.conditions` is the organisation's internal reading of an agreement. `grantManagerId` names a member of staff. `spentToDate` is an unverifiable scalar a funder would reasonably read as audited, and MG-8 established that utilisation comes from allocations. A partner sees the shared programme and not the funding behind it, because which funder pays for jointly delivered work is the lead organisation's business. A beneficiary sees the **programme**, not a record of themselves — there is no beneficiary record, and building one so a portal could display it would reverse §8 through the back door.
+
+**Mutation tests.** Three, all restored.
+
+1. Let access inherit from a related record. **Three tests fail**, including the seeded end-to-end one. This is the phase's single most important assertion.
+2. Project every field on the record instead of the allowlist. **Five tests fail**, including the one that adds an unlisted field.
+3. Stringify nested objects rather than refusing them. **One test fails.** A generic serialiser is how an internal id, an audit stamp or a whole related record ends up on a portal page.
+
+**Security review, against §13.**
+
+- **Tenant isolation.** `decideAccess` checks that the portal, the identity and the membership agree on the organisation **before consulting anything else**, and treats disagreement as an access attempt rather than a configuration problem to reconcile.
+- **The unscoped surface.** `PortalAccessRepository` is separate from `PortalRepository` for the reason `PublicFormRepository` is separate: it authenticates differently and reaches almost nothing. **Every method returns a projection, never a record**, so a bug in a caller cannot leak an entity.
+- **RLS.** Every policy in `0026` is `is_org_member`, which is to say these tables are readable by the organisation and **not by the portal**. The migration says so in a comment, because writing a policy that gave a portal identity direct row access would be the single most dangerous change anybody could make to this schema.
+- **Capabilities are closed per audience.** A beneficiary portal cannot be configured to allow downloads, and only a trustee can approve. Refused at the point somebody makes the mistake, not discovered when a beneficiary downloads a board pack.
+- **Revocation is recorded, never deleted.** "What did we share with this funder, and when did we stop?" is a question a deleted row cannot answer.
+- **`ENTITY_TABLES` gained two kinds.** `grant_deliverable` and `grant_report` are now resolvable, so they can be shared. That map's rule — a kind absent from it cannot be pointed at — is the safe failure, and extending it is a deliberate line rather than a check somebody forgot.
+
+**What was *not* verified, and why.**
+
+- **There is no portal login.** `PortalIdentity` has no authentication path, and no `/portal/[slug]` route exists. Building one means a third magic-link surface against a Supabase project that is not provisioned, so it would be an auth flow nobody could test. What ships instead is the **access review** and a preview that runs the real access and projection path — which is the internal half of the capability and the half MG-12 needs.
+- **Nothing is persisted.** `0026` is written and reviewed SQL, never applied.
+- **No portal-side submission or messaging surface.** Both work at the repository level and are tested; neither has a page, because a page needs the login.
+- **Six audiences, one exercised end to end.** The funder portal is seeded and walked through; the other five have views, capabilities and tests on the pure layer, and no seeded data. That is deliberate — seeding a beneficiary portal would mean seeding beneficiary records.
+- **Field sensitivity is not yet consulted by the projection.** MG-7's `FieldSensitivity` governs form answers; portal views are their own allowlist. The two are consistent today because no view names a form answer, and joining them is work MG-12 should schedule rather than assume.
+
+---
+
 | **MG-11 Integrations** | Provider independence (§12). Stripe, Xero, Gmail, Mailchimp, GoCardless and banking providers sit behind ports. No provider identifier ever enters a core entity. The `server/communications/provider.ts` boundary is the precedent. |
 
 ---
