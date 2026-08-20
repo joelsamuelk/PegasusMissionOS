@@ -1,57 +1,57 @@
 import type { FormRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createFormRepository(q: Query, deps: Deps): FormRepository {
+export function createFormRepository(_q: Query, _deps: Deps): FormRepository {
   return {
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("forms", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("forms", "get");
     },
-    async getBySlug(ctx, slug) {
+    async getBySlug(_ctx, _slug) {
       return notImplemented("forms", "getBySlug");
     },
-    async versions(ctx, formId) {
+    async versions(_ctx, _formId) {
       return notImplemented("forms", "versions");
     },
-    async getVersion(ctx, versionId) {
+    async getVersion(_ctx, _versionId) {
       return notImplemented("forms", "getVersion");
     },
-    async fields(ctx, versionId) {
+    async fields(_ctx, _versionId) {
       return notImplemented("forms", "fields");
     },
-    async mappings(ctx, formId) {
+    async mappings(_ctx, _formId) {
       return notImplemented("forms", "mappings");
     },
-    async saveDraft(ctx, input) {
+    async saveDraft(_ctx, _input) {
       return notImplemented("forms", "saveDraft");
     },
-    async publish(ctx, versionId) {
+    async publish(_ctx, _versionId) {
       return notImplemented("forms", "publish");
     },
-    async submit(ctx, init) {
+    async submit(_ctx, _init) {
       return notImplemented("forms", "submit");
     },
-    async submissions(ctx, formId) {
+    async submissions(_ctx, _formId) {
       return notImplemented("forms", "submissions");
     },
-    async getSubmission(ctx, id) {
+    async getSubmission(_ctx, _id) {
       return notImplemented("forms", "getSubmission");
     },
-    async answers(ctx, submissionId) {
+    async answers(_ctx, _submissionId) {
       return notImplemented("forms", "answers");
     },
-    async consent(ctx, submissionId) {
+    async consent(_ctx, _submissionId) {
       return notImplemented("forms", "consent");
     },
-    async reviewSubmission(ctx, submissionId, status, note) {
+    async reviewSubmission(_ctx, _submissionId, _status, _note) {
       return notImplemented("forms", "reviewSubmission");
     },
-    async withdrawConsent(ctx, consentId) {
+    async withdrawConsent(_ctx, _consentId) {
       return notImplemented("forms", "withdrawConsent");
     },
-    async redactExpired(ctx) {
+    async redactExpired(_ctx) {
       return notImplemented("forms", "redactExpired");
     },
   };

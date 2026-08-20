@@ -1,51 +1,51 @@
 import type { IntegrationRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createIntegrationRepository(q: Query, deps: Deps): IntegrationRepository {
+export function createIntegrationRepository(_q: Query, _deps: Deps): IntegrationRepository {
   return {
-    async connections(ctx) {
+    async connections(_ctx) {
       return notImplemented("integrations", "connections");
     },
-    async getConnection(ctx, id) {
+    async getConnection(_ctx, _id) {
       return notImplemented("integrations", "getConnection");
     },
-    async connect(ctx, input) {
+    async connect(_ctx, _input) {
       return notImplemented("integrations", "connect");
     },
-    async setSemantics(ctx, connectionId, semantics) {
+    async setSemantics(_ctx, _connectionId, _semantics) {
       return notImplemented("integrations", "setSemantics");
     },
-    async disconnect(ctx, connectionId) {
+    async disconnect(_ctx, _connectionId) {
       return notImplemented("integrations", "disconnect");
     },
-    async mappings(ctx, connectionId) {
+    async mappings(_ctx, _connectionId) {
       return notImplemented("integrations", "mappings");
     },
-    async saveMapping(ctx, input) {
+    async saveMapping(_ctx, _input) {
       return notImplemented("integrations", "saveMapping");
     },
-    async identities(ctx, connectionId) {
+    async identities(_ctx, _connectionId) {
       return notImplemented("integrations", "identities");
     },
-    async resolveExternal(ctx, connectionId, externalId, externalType) {
+    async resolveExternal(_ctx, _connectionId, _externalId, _externalType) {
       return notImplemented("integrations", "resolveExternal");
     },
-    async runs(ctx, connectionId) {
+    async runs(_ctx, _connectionId) {
       return notImplemented("integrations", "runs");
     },
-    async conflicts(ctx, options) {
+    async conflicts(_ctx, _options) {
       return notImplemented("integrations", "conflicts");
     },
-    async resolveConflict(ctx, conflictId, resolution, note) {
+    async resolveConflict(_ctx, _conflictId, _resolution, _note) {
       return notImplemented("integrations", "resolveConflict");
     },
-    async applyIncoming(ctx, connectionId, resource, records) {
+    async applyIncoming(_ctx, _connectionId, _resource, _records) {
       return notImplemented("integrations", "applyIncoming");
     },
-    async recordWebhook(ctx, connectionId, input) {
+    async recordWebhook(_ctx, _connectionId, _input) {
       return notImplemented("integrations", "recordWebhook");
     },
-    async webhooks(ctx, connectionId) {
+    async webhooks(_ctx, _connectionId) {
       return notImplemented("integrations", "webhooks");
     },
   };

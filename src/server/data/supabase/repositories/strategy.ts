@@ -1,15 +1,15 @@
 import type { StrategyRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createStrategyRepository(q: Query, deps: Deps): StrategyRepository {
+export function createStrategyRepository(_q: Query, _deps: Deps): StrategyRepository {
   return {
-    async priorities(ctx) {
+    async priorities(_ctx) {
       return notImplemented("strategy", "priorities");
     },
-    async getPriority(ctx, id) {
+    async getPriority(_ctx, _id) {
       return notImplemented("strategy", "getPriority");
     },
-    async programmesFor(ctx, priorityId) {
+    async programmesFor(_ctx, _priorityId) {
       return notImplemented("strategy", "programmesFor");
     },
   };

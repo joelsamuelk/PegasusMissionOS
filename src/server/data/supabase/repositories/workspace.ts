@@ -1,27 +1,27 @@
 import type { WorkspaceRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createWorkspaceRepository(q: Query, deps: Deps): WorkspaceRepository {
+export function createWorkspaceRepository(_q: Query, _deps: Deps): WorkspaceRepository {
   return {
-    async tasks(ctx) {
+    async tasks(_ctx) {
       return notImplemented("workspace", "tasks");
     },
-    async openTasks(ctx) {
+    async openTasks(_ctx) {
       return notImplemented("workspace", "openTasks");
     },
-    async notifications(ctx) {
+    async notifications(_ctx) {
       return notImplemented("workspace", "notifications");
     },
-    async activity(ctx) {
+    async activity(_ctx) {
       return notImplemented("workspace", "activity");
     },
-    async toggleTask(ctx, taskId) {
+    async toggleTask(_ctx, _taskId) {
       return notImplemented("workspace", "toggleTask");
     },
-    async createTask(ctx, input) {
+    async createTask(_ctx, _input) {
       return notImplemented("workspace", "createTask");
     },
-    async notify(ctx, input) {
+    async notify(_ctx, _input) {
       return notImplemented("workspace", "notify");
     },
   };

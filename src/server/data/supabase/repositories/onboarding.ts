@@ -1,42 +1,42 @@
 import type { OnboardingRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createOnboardingRepository(q: Query, deps: Deps): OnboardingRepository {
+export function createOnboardingRepository(_q: Query, _deps: Deps): OnboardingRepository {
   return {
-    async runs(ctx) {
+    async runs(_ctx) {
       return notImplemented("onboarding", "runs");
     },
-    async getRun(ctx, id) {
+    async getRun(_ctx, _id) {
       return notImplemented("onboarding", "getRun");
     },
-    async latestRun(ctx) {
+    async latestRun(_ctx) {
       return notImplemented("onboarding", "latestRun");
     },
-    async startRun(ctx, input) {
+    async startRun(_ctx, _input) {
       return notImplemented("onboarding", "startRun");
     },
-    async updateRun(ctx, id, patch) {
+    async updateRun(_ctx, _id, _patch) {
       return notImplemented("onboarding", "updateRun");
     },
-    async sources(ctx, runId) {
+    async sources(_ctx, _runId) {
       return notImplemented("onboarding", "sources");
     },
-    async saveSources(ctx, runId, sources) {
+    async saveSources(_ctx, _runId, _sources) {
       return notImplemented("onboarding", "saveSources");
     },
-    async candidates(ctx, runId) {
+    async candidates(_ctx, _runId) {
       return notImplemented("onboarding", "candidates");
     },
-    async getCandidate(ctx, id) {
+    async getCandidate(_ctx, _id) {
       return notImplemented("onboarding", "getCandidate");
     },
-    async saveCandidates(ctx, runId, candidates) {
+    async saveCandidates(_ctx, _runId, _candidates) {
       return notImplemented("onboarding", "saveCandidates");
     },
-    async decide(ctx, candidateId, decision, editedValue) {
+    async decide(_ctx, _candidateId, _decision, _editedValue) {
       return notImplemented("onboarding", "decide");
     },
-    async decisions(ctx, runId) {
+    async decisions(_ctx, _runId) {
       return notImplemented("onboarding", "decisions");
     },
   };

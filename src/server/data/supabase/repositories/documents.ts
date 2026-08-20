@@ -1,36 +1,36 @@
 import type { DocumentRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createDocumentRepository(q: Query, deps: Deps): DocumentRepository {
+export function createDocumentRepository(_q: Query, _deps: Deps): DocumentRepository {
   return {
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("documents", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("documents", "get");
     },
-    async versions(ctx, documentId) {
+    async versions(_ctx, _documentId) {
       return notImplemented("documents", "versions");
     },
-    async currentVersion(ctx, documentId) {
+    async currentVersion(_ctx, _documentId) {
       return notImplemented("documents", "currentVersion");
     },
-    async sources(ctx, documentId) {
+    async sources(_ctx, _documentId) {
       return notImplemented("documents", "sources");
     },
-    async create(ctx, input) {
+    async create(_ctx, _input) {
       return notImplemented("documents", "create");
     },
-    async addVersion(ctx, documentId, version) {
+    async addVersion(_ctx, _documentId, _version) {
       return notImplemented("documents", "addVersion");
     },
-    async extractedClaims(ctx, documentId) {
+    async extractedClaims(_ctx, _documentId) {
       return notImplemented("documents", "extractedClaims");
     },
-    async saveExtractedClaims(ctx, claims) {
+    async saveExtractedClaims(_ctx, _claims) {
       return notImplemented("documents", "saveExtractedClaims");
     },
-    async setExtractedClaimStatus(ctx, id, status, claimId) {
+    async setExtractedClaimStatus(_ctx, _id, _status, _claimId) {
       return notImplemented("documents", "setExtractedClaimStatus");
     },
   };

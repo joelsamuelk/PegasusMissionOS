@@ -7,7 +7,7 @@ import type {
   VerificationState,
 } from "@/types/domain";
 import type { OrganisationRepository } from "../../types";
-import { arrayFrom, auditFrom, optionalNumberFrom, optionalStringFrom, type Row } from "../mapping";
+import { arrayFrom, auditFrom, optionalNumberFrom, type Row } from "../mapping";
 import type { Deps, Query } from "../query";
 
 function mapOrganisation(row: Row): Organisation {

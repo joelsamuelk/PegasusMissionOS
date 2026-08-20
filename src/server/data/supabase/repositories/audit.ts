@@ -35,10 +35,7 @@ function mapGeneration(row: Row): AIGeneration {
 export function createAuditRepository(q: Query): AuditRepository {
   return {
     async list(ctx) {
-      const rows = await q.many(ctx, "audit_events", {}, {
-        column: "created_at",
-        ascending: false,
-      });
+      const rows = await q.many(ctx, "audit_events", {}, { order: { column: "created_at", ascending: false } });
       return rows.map(mapEvent);
     },
 
@@ -87,10 +84,7 @@ export function createAuditRepository(q: Query): AuditRepository {
     },
 
     async aiGenerations(ctx) {
-      const rows = await q.many(ctx, "ai_generations", {}, {
-        column: "created_at",
-        ascending: false,
-      });
+      const rows = await q.many(ctx, "ai_generations", {}, { order: { column: "created_at", ascending: false } });
       return rows.map(mapGeneration);
     },
   };

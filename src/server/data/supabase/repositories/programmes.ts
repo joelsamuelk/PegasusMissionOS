@@ -1,51 +1,51 @@
 import type { ProgrammeRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createProgrammeRepository(q: Query, deps: Deps): ProgrammeRepository {
+export function createProgrammeRepository(_q: Query, _deps: Deps): ProgrammeRepository {
   return {
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("programmes", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("programmes", "get");
     },
-    async outcomes(ctx, programmeId) {
+    async outcomes(_ctx, _programmeId) {
       return notImplemented("programmes", "outcomes");
     },
-    async indicatorsForOutcome(ctx, outcomeId) {
+    async indicatorsForOutcome(_ctx, _outcomeId) {
       return notImplemented("programmes", "indicatorsForOutcome");
     },
-    async indicatorsForProgramme(ctx, programmeId) {
+    async indicatorsForProgramme(_ctx, _programmeId) {
       return notImplemented("programmes", "indicatorsForProgramme");
     },
-    async allIndicators(ctx) {
+    async allIndicators(_ctx) {
       return notImplemented("programmes", "allIndicators");
     },
-    async getIndicator(ctx, id) {
+    async getIndicator(_ctx, _id) {
       return notImplemented("programmes", "getIndicator");
     },
-    async activities(ctx, programmeId) {
+    async activities(_ctx, _programmeId) {
       return notImplemented("programmes", "activities");
     },
-    async getActivity(ctx, id) {
+    async getActivity(_ctx, _id) {
       return notImplemented("programmes", "getActivity");
     },
-    async outputs(ctx, programmeId) {
+    async outputs(_ctx, _programmeId) {
       return notImplemented("programmes", "outputs");
     },
-    async getOutput(ctx, id) {
+    async getOutput(_ctx, _id) {
       return notImplemented("programmes", "getOutput");
     },
-    async getOutcome(ctx, id) {
+    async getOutcome(_ctx, _id) {
       return notImplemented("programmes", "getOutcome");
     },
-    async measurements(ctx, indicatorId) {
+    async measurements(_ctx, _indicatorId) {
       return notImplemented("programmes", "measurements");
     },
-    async updateIndicator(ctx, indicatorId, value, note) {
+    async updateIndicator(_ctx, _indicatorId, _value, _note) {
       return notImplemented("programmes", "updateIndicator");
     },
-    async grantsFor(ctx, programmeId) {
+    async grantsFor(_ctx, _programmeId) {
       return notImplemented("programmes", "grantsFor");
     },
   };

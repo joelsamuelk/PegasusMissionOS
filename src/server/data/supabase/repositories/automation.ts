@@ -1,66 +1,66 @@
 import type { AutomationRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createAutomationRepository(q: Query, deps: Deps): AutomationRepository {
+export function createAutomationRepository(_q: Query, _deps: Deps): AutomationRepository {
   return {
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("automation", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("automation", "get");
     },
-    async activeFor(ctx, kind) {
+    async activeFor(_ctx, _kind) {
       return notImplemented("automation", "activeFor");
     },
-    async save(ctx, input) {
+    async save(_ctx, _input) {
       return notImplemented("automation", "save");
     },
-    async setStatus(ctx, id, status) {
+    async setStatus(_ctx, _id, _status) {
       return notImplemented("automation", "setStatus");
     },
-    async recordEvent(ctx, event) {
+    async recordEvent(_ctx, _event) {
       return notImplemented("automation", "recordEvent");
     },
-    async events(ctx, options) {
+    async events(_ctx, _options) {
       return notImplemented("automation", "events");
     },
-    async markEventProcessed(ctx, eventId) {
+    async markEventProcessed(_ctx, _eventId) {
       return notImplemented("automation", "markEventProcessed");
     },
-    async runs(ctx, options) {
+    async runs(_ctx, _options) {
       return notImplemented("automation", "runs");
     },
-    async getRun(ctx, runId) {
+    async getRun(_ctx, _runId) {
       return notImplemented("automation", "getRun");
     },
-    async steps(ctx, runId) {
+    async steps(_ctx, _runId) {
       return notImplemented("automation", "steps");
     },
-    async failures(ctx, runId) {
+    async failures(_ctx, _runId) {
       return notImplemented("automation", "failures");
     },
-    async recordRun(ctx, run, steps) {
+    async recordRun(_ctx, _run, _steps) {
       return notImplemented("automation", "recordRun");
     },
-    async updateStep(ctx, stepId, patch) {
+    async updateStep(_ctx, _stepId, _patch) {
       return notImplemented("automation", "updateStep");
     },
-    async completeRun(ctx, runId, outcome, finishedAt) {
+    async completeRun(_ctx, _runId, _outcome, _finishedAt) {
       return notImplemented("automation", "completeRun");
     },
-    async approveRun(ctx, runId) {
+    async approveRun(_ctx, _runId) {
       return notImplemented("automation", "approveRun");
     },
-    async recordFailure(ctx, failure) {
+    async recordFailure(_ctx, _failure) {
       return notImplemented("automation", "recordFailure");
     },
-    async scheduleJob(ctx, job) {
+    async scheduleJob(_ctx, _job) {
       return notImplemented("automation", "scheduleJob");
     },
-    async dueJobs(ctx, now) {
+    async dueJobs(_ctx, _now) {
       return notImplemented("automation", "dueJobs");
     },
-    async completeJob(ctx, jobId, status, error) {
+    async completeJob(_ctx, _jobId, _status, _error) {
       return notImplemented("automation", "completeJob");
     },
   };

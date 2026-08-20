@@ -1,42 +1,42 @@
 import type { PortalRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createPortalRepository(q: Query, deps: Deps): PortalRepository {
+export function createPortalRepository(_q: Query, _deps: Deps): PortalRepository {
   return {
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("portals", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("portals", "get");
     },
-    async identities(ctx) {
+    async identities(_ctx) {
       return notImplemented("portals", "identities");
     },
-    async memberships(ctx, portalId) {
+    async memberships(_ctx, _portalId) {
       return notImplemented("portals", "memberships");
     },
-    async grantsFor(ctx, membershipId) {
+    async grantsFor(_ctx, _membershipId) {
       return notImplemented("portals", "grantsFor");
     },
-    async invite(ctx, input) {
+    async invite(_ctx, _input) {
       return notImplemented("portals", "invite");
     },
-    async share(ctx, input) {
+    async share(_ctx, _input) {
       return notImplemented("portals", "share");
     },
-    async unshare(ctx, grantId) {
+    async unshare(_ctx, _grantId) {
       return notImplemented("portals", "unshare");
     },
-    async revokeMembership(ctx, membershipId, reason) {
+    async revokeMembership(_ctx, _membershipId, _reason) {
       return notImplemented("portals", "revokeMembership");
     },
-    async submissions(ctx, portalId) {
+    async submissions(_ctx, _portalId) {
       return notImplemented("portals", "submissions");
     },
-    async messages(ctx, membershipId) {
+    async messages(_ctx, _membershipId) {
       return notImplemented("portals", "messages");
     },
-    async reply(ctx, membershipId, body) {
+    async reply(_ctx, _membershipId, _body) {
       return notImplemented("portals", "reply");
     },
   };

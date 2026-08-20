@@ -1,69 +1,69 @@
 import type { RelationshipRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createRelationshipRepository(q: Query, deps: Deps): RelationshipRepository {
+export function createRelationshipRepository(_q: Query, _deps: Deps): RelationshipRepository {
   return {
-    async listOrganisations(ctx) {
+    async listOrganisations(_ctx) {
       return notImplemented("relationships", "listOrganisations");
     },
-    async getOrganisation(ctx, id) {
+    async getOrganisation(_ctx, _id) {
       return notImplemented("relationships", "getOrganisation");
     },
-    async listPeople(ctx) {
+    async listPeople(_ctx) {
       return notImplemented("relationships", "listPeople");
     },
-    async upsertPersonByEmail(ctx, input) {
+    async upsertPersonByEmail(_ctx, _input) {
       return notImplemented("relationships", "upsertPersonByEmail");
     },
-    async getPerson(ctx, id) {
+    async getPerson(_ctx, _id) {
       return notImplemented("relationships", "getPerson");
     },
-    async peopleForOrganisation(ctx, externalOrganisationId) {
+    async peopleForOrganisation(_ctx, _externalOrganisationId) {
       return notImplemented("relationships", "peopleForOrganisation");
     },
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("relationships", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("relationships", "get");
     },
-    async forOrganisation(ctx, externalOrganisationId) {
+    async forOrganisation(_ctx, _externalOrganisationId) {
       return notImplemented("relationships", "forOrganisation");
     },
-    async forPerson(ctx, personId) {
+    async forPerson(_ctx, _personId) {
       return notImplemented("relationships", "forPerson");
     },
-    async links(ctx, relationshipId) {
+    async links(_ctx, _relationshipId) {
       return notImplemented("relationships", "links");
     },
-    async linksForEntity(ctx, entity) {
+    async linksForEntity(_ctx, _entity) {
       return notImplemented("relationships", "linksForEntity");
     },
-    async listInteractions(ctx) {
+    async listInteractions(_ctx) {
       return notImplemented("relationships", "listInteractions");
     },
-    async interactionsFor(ctx, party) {
+    async interactionsFor(_ctx, _party) {
       return notImplemented("relationships", "interactionsFor");
     },
-    async logInteraction(ctx, input) {
+    async logInteraction(_ctx, _input) {
       return notImplemented("relationships", "logInteraction");
     },
-    async listCommitments(ctx) {
+    async listCommitments(_ctx) {
       return notImplemented("relationships", "listCommitments");
     },
-    async commitmentsFor(ctx, party) {
+    async commitmentsFor(_ctx, _party) {
       return notImplemented("relationships", "commitmentsFor");
     },
-    async createCommitment(ctx, input) {
+    async createCommitment(_ctx, _input) {
       return notImplemented("relationships", "createCommitment");
     },
-    async setCommitmentStatus(ctx, commitmentId, status) {
+    async setCommitmentStatus(_ctx, _commitmentId, _status) {
       return notImplemented("relationships", "setCommitmentStatus");
     },
-    async organisationForFunder(ctx, funderId) {
+    async organisationForFunder(_ctx, _funderId) {
       return notImplemented("relationships", "organisationForFunder");
     },
-    async funderForOrganisation(ctx, externalOrganisationId) {
+    async funderForOrganisation(_ctx, _externalOrganisationId) {
       return notImplemented("relationships", "funderForOrganisation");
     },
   };

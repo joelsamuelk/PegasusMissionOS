@@ -1,18 +1,18 @@
 import type { RequirementRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createRequirementRepository(q: Query, deps: Deps): RequirementRepository {
+export function createRequirementRepository(_q: Query, _deps: Deps): RequirementRepository {
   return {
-    async list(ctx) {
+    async list(_ctx) {
       return notImplemented("requirements", "list");
     },
-    async get(ctx, id) {
+    async get(_ctx, _id) {
       return notImplemented("requirements", "get");
     },
-    async forGrant(ctx, grantId) {
+    async forGrant(_ctx, _grantId) {
       return notImplemented("requirements", "forGrant");
     },
-    async requires(ctx, requirementId) {
+    async requires(_ctx, _requirementId) {
       return notImplemented("requirements", "requires");
     },
   };

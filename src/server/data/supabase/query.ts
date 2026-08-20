@@ -77,13 +77,19 @@ export class Query {
     ctx: RequestContext,
     table: string,
     match: Record<string, unknown> = {},
-    order?: { column: string; ascending?: boolean },
+    options: {
+      order?: { column: string; ascending?: boolean };
+      /** Exclude archived rows. Archiving is soft, so list reads must ask. */
+      liveOnly?: boolean;
+    } = {},
   ): Promise<Row[]> {
     let query = this.select(ctx, table);
     for (const [column, value] of Object.entries(match)) {
       if (value === undefined) continue;
       query = query.eq(column, value);
     }
+    if (options.liveOnly) query = query.is("archived_at", null);
+    const { order } = options;
     if (order) query = query.order(order.column, { ascending: order.ascending ?? true });
     const { data, error } = await query;
     if (error) fail("read", table, error);
@@ -210,4 +216,14 @@ export class Query {
  */
 export interface Deps {
   audit: import("../types").AuditRepository;
+  /**
+   * Append to the workspace activity feed.
+   *
+   * Separate from audit on purpose, and both are written at the points the
+   * in-memory adapter writes them. Audit is the compliance record: who changed
+   * what, retained. Activity is the feed a colleague reads to see what has
+   * been happening. They answer different questions and are read by different
+   * people, so one is not a view over the other.
+   */
+  recordActivity(ctx: RequestContext, verb: string, target: string): Promise<void>;
 }

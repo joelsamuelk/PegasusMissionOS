@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { MissionRepository } from "../types";
+import { createActivityRecorder } from "./activity";
 import { type AdapterOptions, type Deps, Query } from "./query";
 import { createOrganisationRepository } from "./repositories/organisations";
 import { createClaimRepository } from "./repositories/claims";
@@ -46,7 +47,7 @@ export function createSupabaseRepository(
   const q = new Query(client, options.tenantFilter ?? "on");
   // Audit is built first: other repositories record events through it.
   const audit = createAuditRepository(q);
-  const deps: Deps = { audit };
+  const deps: Deps = { audit, recordActivity: createActivityRecorder(q) };
   return {
     name: "supabase",
     organisations: createOrganisationRepository(q, deps),

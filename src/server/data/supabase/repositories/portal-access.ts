@@ -1,24 +1,24 @@
 import type { PortalAccessRepository } from "../../types";
 import { type Deps, notImplemented, type Query } from "../query";
 
-export function createPortalAccessRepository(q: Query, deps: Deps): PortalAccessRepository {
+export function createPortalAccessRepository(_q: Query, _deps: Deps): PortalAccessRepository {
   return {
-    async resolvePortal(slug) {
+    async resolvePortal(_slug) {
       return notImplemented("portalAccess", "resolvePortal");
     },
-    async resolveMembership(slug, email) {
+    async resolveMembership(_slug, _email) {
       return notImplemented("portalAccess", "resolveMembership");
     },
-    async index(slug, email) {
+    async index(_slug, _email) {
       return notImplemented("portalAccess", "index");
     },
-    async read(slug, email, entity) {
+    async read(_slug, _email, _entity) {
       return notImplemented("portalAccess", "read");
     },
-    async submit(slug, email, input) {
+    async submit(_slug, _email, _input) {
       return notImplemented("portalAccess", "submit");
     },
-    async message(slug, email, body) {
+    async message(_slug, _email, _body) {
       return notImplemented("portalAccess", "message");
     },
   };
