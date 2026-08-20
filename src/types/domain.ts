@@ -1405,6 +1405,17 @@ export interface ReportDefinition {
   name: string;
   type: ReportType;
   sections: ReportSectionDefinition[];
+  /**
+   * Where the template came from. A built-in is Pegasus's; an ingested one is
+   * a funder's and carries the authority of the document it came from, which
+   * is why readiness treats an unmet ingested requirement more seriously than
+   * an unmet built-in section.
+   */
+  origin?: ReportTemplateOrigin;
+  /** The funder this template belongs to, for an ingested one. */
+  funderId?: UUID;
+  /** The document it was extracted from. */
+  sourceDocumentId?: UUID;
   audit: AuditStamp;
 }
 
@@ -1441,6 +1452,252 @@ export interface ImpactReport {
 
 /** Generic name for new code; `ImpactReport` remains as the migration alias. */
 export type Report = ImpactReport;
+
+// --- Reporting engine (MG-5) --------------------------------------------
+
+/**
+ * The reporting engine's additions, and the rule that decided which of the
+ * brief's ten entity names became tables.
+ *
+ * The brief lists `Report ReportVersion ReportTemplate ReportSection
+ * ReportRequirement ReportContributor ReportApproval ReportClaim
+ * ReportEvidenceLink ReportSnapshot`. Four of those already exist under other
+ * names and adding them again would violate the architecture's own rule that
+ * no module owns a concept:
+ *
+ * - **`ReportSection`** is `ImpactReportSection`, shipped and in use.
+ * - **`ReportTemplate`** is `ReportDefinition`, extended below rather than
+ *   duplicated.
+ * - **`ReportClaim`** is `ImpactReportSection.claimIds` plus `ClaimUsage`,
+ *   which is already the reverse index and already answers "what breaks if
+ *   this figure is wrong?". A third representation of the same edge would
+ *   have to be kept consistent with two others.
+ * - **`ReportEvidenceLink`** is `Relation { kind: "evidences" }`, which MG-1
+ *   built precisely so that evidence links would stop being a per-module enum.
+ *
+ * What genuinely could not be expressed, and is added here: versions,
+ * snapshots, approvals, contributions and per-section data requirements.
+ */
+
+/**
+ * Why a version was cut.
+ *
+ * `correction` is distinct from `revision` and the difference is what a reader
+ * needs: a revision is the document moving forward, a correction is an
+ * admission that a published figure was wrong. Collapsing them lets the second
+ * hide inside the first.
+ */
+export type ReportVersionReason =
+  | "draft_saved"
+  | "submitted_for_review"
+  | "approved"
+  | "published"
+  | "correction"
+  | "revision";
+
+/**
+ * An immutable point in a report's life.
+ *
+ * The brief's rule is absolute: *a published report cannot silently change
+ * when underlying live data changes*. A version is how that is kept. It holds
+ * the section content as it stood and points at the snapshot that pins every
+ * figure it cited, so a report published in March still resolves to March's
+ * numbers however many times the underlying claims are superseded afterwards.
+ */
+export interface ReportVersion {
+  id: UUID;
+  organisationId: UUID;
+  reportId: UUID;
+  /** Monotonic within a report, starting at 1. */
+  versionNumber: number;
+  reason: ReportVersionReason;
+  status: ReportStatus;
+  /** The sections exactly as they stood. Never re-rendered from live data. */
+  sections: ImpactReportSection[];
+  snapshotId?: UUID;
+  /** Free-text note on what changed, where a human gave one. */
+  note?: string;
+  createdBy?: UUID;
+  createdAt: ISODate;
+}
+
+/** One pinned value inside a snapshot. */
+export interface SnapshotFigure {
+  /** What the figure is about. */
+  subject: EntityReference;
+  /** Which aspect: "current_value", "amount_remaining", "participants". */
+  predicate: string;
+  /** The claim that carried it, where the figure came from one. */
+  claimId?: UUID;
+  /** Rendered value as at the snapshot. Compared against live data to detect drift. */
+  renderedValue: string;
+  /** The claim's kind at the time. A forecast pinned in March is still a forecast. */
+  kind?: ClaimKind;
+  verification?: VerificationState;
+}
+
+/**
+ * What a report version cited, frozen.
+ *
+ * This is the record that makes a published report defensible. Without it,
+ * "the report says 58%" and "the indicator says 61%" are unreconcilable: there
+ * is no way to know whether the report was wrong, the indicator moved, or
+ * someone edited a number. With it, the difference is a computable drift and
+ * is reported as a flagged change rather than by silently altering the
+ * published document.
+ */
+export interface ReportSnapshot {
+  id: UUID;
+  organisationId: UUID;
+  reportId: UUID;
+  versionId?: UUID;
+  takenAt: ISODate;
+  figures: SnapshotFigure[];
+  /** Evidence items included, by id, as at the snapshot. */
+  evidenceIds: UUID[];
+  /** Indicator readings pinned, keyed by indicator id. */
+  indicatorValues: { indicatorId: UUID; value: number; measuredAt?: ISODate }[];
+  /** Claims cited anywhere in the version. */
+  claimIds: UUID[];
+}
+
+/**
+ * A difference between what a published report says and what the records now
+ * say.
+ *
+ * Surfaced, never applied. The published document does not change; the
+ * organisation is told that it no longer matches, and decides whether that
+ * warrants a correction, a note to the funder, or nothing at all.
+ */
+export interface ReportDrift {
+  reportId: UUID;
+  versionId: UUID;
+  subject: EntityReference;
+  predicate: string;
+  /** What the report says. */
+  publishedValue: string;
+  /** What the records say now. */
+  currentValue: string;
+  /** Set when the pinned claim was explicitly superseded rather than merely differing. */
+  supersededByClaimId?: UUID;
+  severity: "material" | "minor";
+}
+
+export type ReportContributorRole = "author" | "reviewer" | "approver" | "data_owner";
+
+/**
+ * Who is doing what on a report.
+ *
+ * Replaces three parallel id arrays with a record that can carry a section
+ * assignment and a completion state, so "who owes me the finance section?" is
+ * a query rather than a conversation.
+ */
+export interface ReportContributor {
+  id: UUID;
+  organisationId: UUID;
+  reportId: UUID;
+  userId: UUID;
+  role: ReportContributorRole;
+  /** Absent means the whole report. */
+  sectionKey?: string;
+  invitedAt?: ISODate;
+  completedAt?: ISODate;
+}
+
+export type ApprovalDecision = "approved" | "changes_requested";
+
+/**
+ * The act of approving, recorded against a version.
+ *
+ * `approverIds` on the report said who *may* approve. This says who *did*,
+ * when, and to which version — which is the only form of the fact that
+ * survives the report being edited afterwards.
+ */
+export interface ReportApproval {
+  id: UUID;
+  organisationId: UUID;
+  reportId: UUID;
+  versionId: UUID;
+  userId: UUID;
+  decision: ApprovalDecision;
+  /** Required for `changes_requested`. An unexplained rejection is not actionable. */
+  comment?: string;
+  decidedAt: ISODate;
+}
+
+/**
+ * What a section needs before it can be called complete.
+ *
+ * Distinct from `ReportingRequirement`, and the distinction matters: a
+ * `ReportingRequirement` is something a **funder asked for** and is owned by a
+ * grant. A `ReportRequirement` is something **this report needs** in order to
+ * answer that, and is owned by a template. One funder requirement typically
+ * produces several report requirements — a narrative, a figure and the
+ * evidence behind it.
+ */
+export type ReportRequirementKind =
+  | "narrative"
+  | "indicator"
+  | "financial"
+  | "evidence"
+  | "claim"
+  | "attachment";
+
+export interface ReportRequirement {
+  id: UUID;
+  organisationId: UUID;
+  /** Owned by a template, so cloning a template clones its requirements. */
+  definitionId: UUID;
+  sectionKey: string;
+  kind: ReportRequirementKind;
+  /** The funder's question, verbatim where it was ingested from a document. */
+  prompt: string;
+  guidance?: string;
+  wordLimit?: number;
+  /** For `indicator` and `claim`: what specifically is wanted, once mapped. */
+  target?: EntityReference;
+  /** For `evidence`: which kinds the funder will accept. */
+  evidenceTypes?: EvidenceType[];
+  required: boolean;
+  order: number;
+  /** Set when the requirement came from an ingested funder template. */
+  sourceRef?: EntityReference;
+  /**
+   * Extraction is a candidate until a human confirms it. A requirement lifted
+   * from a PDF is a reading of that PDF, and reading a funder's template
+   * wrongly is exactly the error that costs an organisation a grant.
+   */
+  verification: VerificationState;
+}
+
+export type ReportTemplateOrigin = "built_in" | "cloned" | "ingested";
+
+/**
+ * A funder's reporting template, ingested.
+ *
+ * The extraction path is the same one a website and an uploaded document take:
+ * parse, structure, review, approve. Nothing reaches a report workspace
+ * without passing through a person, whatever it was extracted from.
+ */
+export interface ReportTemplateIngestion {
+  id: UUID;
+  organisationId: UUID;
+  definitionId?: UUID;
+  documentId?: UUID;
+  fileName?: string;
+  funderId?: UUID;
+  status: "parsing" | "awaiting_review" | "accepted" | "rejected" | "failed";
+  /** What the parser found, before anyone confirmed it. */
+  candidates: ReportRequirement[];
+  /** Deadlines and periods found in the document, unconfirmed. */
+  detectedDueDates: ISODate[];
+  /** Why parsing failed or what it could not read. Never silently empty. */
+  notes: string[];
+  createdAt: ISODate;
+  reviewedBy?: UUID;
+  reviewedAt?: ISODate;
+}
+
 
 // --- Tasks, comments, notifications, activity --------------------------
 

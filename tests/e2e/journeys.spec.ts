@@ -192,3 +192,34 @@ test("17. Ask Mission OS answers the acceptance question with citations", async 
   await expect(page.getByText(/^Answer$/i).first()).toBeVisible({ timeout: 15000 });
   await expect(page.getByText(/^Sources$/i).first()).toBeVisible({ timeout: 15000 });
 });
+
+/**
+ * MG-5 the reporting engine.
+ *
+ * Checks the thing the acceptance test names: that a report workspace explains
+ * what is missing *before* anyone drafts, and that every figure can be traced.
+ * A page that rendered the draft editor and nothing else would pass a smoke
+ * test and fail the phase.
+ */
+test("18. a report explains what is missing before it is drafted", async ({ page }) => {
+  await page.goto("/impact/report-youth-2026");
+
+  await expect(page.getByRole("heading", { name: /before you draft/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /what is missing/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /what needs review/i })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /where every figure came from/i }),
+  ).toBeVisible();
+});
+
+test("19. a report says when its data is not ready to draft from", async ({ page }) => {
+  await page.goto("/impact/report-youth-2026");
+
+  // Either state is legitimate; what is not legitimate is silence. The page
+  // must take a position on whether drafting should begin.
+  await expect(
+    page
+      .getByText(/the data behind this report is ready|resolve these before drafting/i)
+      .first(),
+  ).toBeVisible();
+});

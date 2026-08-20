@@ -43,7 +43,7 @@ Two facts govern everything below:
 | **MG-2** Production foundation | Slice C, storage half (SC8) | Not started | External: no provisioned Supabase project |
 | **MG-3** Onboarding Intelligence | Slice H + Organisation Intelligence Phases 2-5 | ✅ **Complete and verified** | Ran ahead of MG-2 by decision; see below |
 | **MG-4** Mission Intelligence | Slice F | ✅ **Complete and verified** | Ran ahead of MG-8 and MG-6 by decision; see the record below for what that costs |
-| **MG-5** Reporting Engine | Slice D | 🟡 ~70% | MG-2 for persistence |
+| **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-6** Mission Automations | Slice G + automation beyond attention | Not started | MG-2 |
 | **MG-7** Mission Forms | Parked in build spec | Not started | MG-1 (submissions must land as claims) |
 | **MG-8** Finance Runtime | Slice E | Not started | **MG-1 SC2** — it has no tables |
@@ -206,6 +206,50 @@ The Control Plane already runs on Supabase (`src/server/control-plane/supabase.t
 **Acceptance (from the build spec, unchanged):** a grant report is built, reviewed, approved and exported with every figure traceable; a claim superseded after publication surfaces as a flagged change rather than silently altering the published report.
 
 **Exit:** Invariant 5 upheld. All ten invariants green for the first time.
+
+### Verification record — MG-5 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files, untouched by this phase |
+| `npm test` | **799 passed**, 71 files (was 753 across 70) |
+| `npm run test:e2e` | **32 passed, 2 failed.** Both failures are pre-existing and were reproduced at the base commit before any MG-5 change; see below |
+| `npm run build` | succeeds |
+
+**What was built.** Migration `0022`, six new tables. `ReportVersion`, `ReportSnapshot`, `ReportApproval`, `ReportContributor`, `ReportRequirement` and `ReportTemplateIngestion` in the domain model, with `ReportDefinition` extended to carry a template's origin. Seven new modules under `src/lib/reporting/`: versions and drift, completeness, report intelligence, creation, rendering, funder-template ingestion and board packs. Fifteen new repository methods. Server actions and a report workspace on `/impact/[id]`.
+
+**Four of the brief's ten entity names were deliberately not created.** `ReportSection` is `ImpactReportSection`; `ReportTemplate` is `ReportDefinition`; `ReportClaim` is `claimIds` plus `ClaimUsage`, which is already the reverse index; `ReportEvidenceLink` is `Relation { kind: "evidences" }`, which MG-1 built precisely so evidence links would stop being a per-module enum. A second representation of an edge has to be kept consistent with the first, and the architecture's own rule is that no module owns a concept. Adding them would have been the phase's largest mistake and the easiest one to make.
+
+**Invariant 5, and why it stayed amber through four slices.** The invariant is *published reports do not silently change*. Half of it was upheld the day `claimIds` shipped — a cited figure points at an immutable claim. The other half was never enforced: **a number typed into prose is not a citation**, and nothing stopped one being typed. `detectUncitedFigures` finds them, and an uncited money or percentage figure is now a blocker on approval. Bare counts are warnings, because the pattern cannot reliably tell "we ran 24 workshops" from "24 Bradford Road", and a warning list that fires on every street number is a list nobody reads.
+
+**The design decision most worth recording: snapshots pin values, not only ids.** There are three ways to fail this invariant and only one way to keep it. Copying numbers into the document loses the link back. Re-rendering from live data makes a published report a moving target. Storing claim ids alone *looks* rigorous and is not — once a claim is superseded, the id resolves to a chain and the report can no longer say which link it meant. The snapshot therefore holds the claim id **and** the value as rendered. That pair is what makes drift computable, and drift is what turns a silent change into a flagged one.
+
+**Mutation tests.** Three, all restored. The third is the one worth reading.
+
+1. Make `buildReportVersion` share the report's sections array instead of cloning it. **Two named tests fail**, one unit and one contract. This is the failure that compiles, satisfies the type, and passes every assertion until somebody edits the report.
+2. Stop `assessReportReadiness` checking prose figures. **The Invariant 5 approval test fails.**
+3. Make the snapshot store an empty `renderedValue`. **It passed.** The snapshot test was vacuous: it ran against the seeded report, whose sections cite nothing, so it only ever exercised the indicator path. The test was rewritten to cite claims explicitly and now fails under the same mutation. A mutation test that passes is not a reassurance, it is a defect report about the test.
+
+**Security review, against §13.**
+
+- **Untrusted text in an export.** The HTML renderer escapes section content. Report prose is tenant-supplied and a report is the one artefact in the product designed to be sent to a third party, so an unescaped `<script>` in a section reaches a funder's browser. Asserted.
+- **Refusal rather than substitution.** `renderReport` throws `RendererUnavailableError` for PDF and DOCX rather than returning HTML under a `.pdf` name. That substitution is discovered by a funder rather than by a test, which makes it the worst class of defect available here.
+- **Extraction is never authority.** An ingested requirement is `needs_review` until a person accepts it, and acceptance promotes it to `provided`, never to `verified` — nobody has checked the reading against the funder. This is `assertProducerMayAssign`'s rule applied to a new producer.
+- **Contributors must be members.** `addContributor` refuses a user who holds no membership of the organisation, which would otherwise be a route to naming an outsider on a tenant record.
+- **Approvals are append-only** at the RLS layer, for the same reason audit events are: an approval that can be edited is not evidence anyone approved anything. A refusal without a reason is refused by both the schema and the adapter, independently.
+
+**On the two e2e failures.** `control-plane.spec.ts` specs 1 and 4 fail on a heading that is no longer rendered — `/control` and `/control/outreach` show empty states instead. **They were reproduced at the base commit**, before any MG-5 change, by stashing the work and rebuilding: identical failures, same two specs. MG-5 touches no Control Plane file. The cause is commit `1f7a2c7` (*Run discovery for real, and keep demo data off real accounts*), which changed what the Control Plane shows when there is no data; the specs were not updated with it. It belongs to whoever owns that change, and is recorded here rather than fixed, because silently repairing another phase's tests hides the regression.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0022` is written and reviewed SQL and has never been applied. Every guarantee above holds against the in-memory adapter. This is the standing constraint in §6 and it is now the blocker on two invariants rather than one.
+- **PDF and DOCX do not exist.** Declared as ports, refused clearly. An organisation that needs a PDF today prints the HTML.
+- **Ingestion is tested against synthetic blocks**, not against a real funder's PDF. The pattern set will meet layouts it cannot read; that is why the extraction reports how many questions it recognised and says plainly when it recognised none.
+- **The board pack has no surface.** `buildBoardPack` assembles seven sections from the MG-4 intelligence layer and is unit-tested, and no page renders it. Assembling it correctly was the part that needed the graph; rendering it is a screen.
+- **Legacy free-text figures were not migrated, because there are none.** The seeded report's sections are empty. What shipped is the mechanism that finds them, which is what a real migration needs first.
+
+---
 
 ---
 

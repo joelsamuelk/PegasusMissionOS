@@ -7,7 +7,81 @@ import type {
   ReportStatus,
 } from "@/types/domain";
 
+import { describeUncitedFigure, detectUncitedFigures, severityFor } from "./figures";
+
 export { REPORT_TEMPLATES } from "./templates";
+
+export {
+  describeUncitedFigure,
+  detectUncitedFigures,
+  severityFor,
+  type FigureAuditInput,
+  type UncitedFigure,
+} from "./figures";
+
+export {
+  buildReportFromDefinition,
+  cloneDefinition,
+  sectionsFor,
+  type CreateReportInput,
+} from "./create";
+
+export {
+  buildReportSnapshot,
+  buildReportVersion,
+  detectReportDrift,
+  nextVersionNumber,
+  publishedVersion,
+  summariseDrift,
+  type DriftInput,
+  type DriftSummary,
+  type SnapshotInput,
+  type VersionInput,
+} from "./versions";
+
+export {
+  assessReportCompleteness,
+  completenessHeadline,
+  type CompletenessEntry,
+  type CompletenessInput,
+  type ReportCompleteness,
+} from "./completeness";
+
+export {
+  buildReportBriefing,
+  type BriefingInput,
+  type ChangeSinceLast,
+  type IndicatorCurrency,
+  type PromisedItem,
+  type ReportBriefing,
+  type TrustedFigure,
+} from "./intelligence";
+
+export {
+  RendererUnavailableError,
+  availableFormats,
+  htmlRenderer,
+  markdownRenderer,
+  registerRenderer,
+  renderReport,
+  textRenderer,
+  type RenderedReport,
+  type ReportFormat,
+  type ReportRenderer,
+} from "./render";
+
+export {
+  acceptIngestion,
+  classifyRequirement,
+  detectDates,
+  detectEvidenceTypes,
+  detectWordLimit,
+  ingestReportTemplate,
+  sectionsFromRequirements,
+  type IngestionInput,
+} from "./ingest";
+
+export { buildBoardPack, type BoardPackInput, type BoardPackSection } from "./board-pack";
 
 export const REPORT_STATUS_ORDER: readonly ReportStatus[] = [
   "draft",
@@ -44,7 +118,14 @@ export type ReadinessIssueKind =
   | "unsupported_claim"
   | "superseded_claim"
   | "incomplete_deliverable"
-  | "inconsistent_figure";
+  | "inconsistent_figure"
+  /**
+   * A number in prose that no cited claim accounts for.
+   *
+   * The half of Invariant 5 that was never enforced. Pinning `claimIds` stops
+   * a *cited* figure moving; it does nothing about a figure that was typed.
+   */
+  | "uncited_figure";
 
 export interface ReportReadinessIssue {
   kind: ReadinessIssueKind;
@@ -159,6 +240,19 @@ export function assessReportReadiness(input: ReportReadinessInput): ReportReadin
     } else {
       currentByPredicate.set(key, claim);
     }
+  }
+
+  // Invariant 5's second half. A section may cite every claim it holds and
+  // still contain a figure somebody typed, which is exactly the failure the
+  // invariant describes: that number cannot be traced and cannot be shown to
+  // have not changed.
+  for (const figure of detectUncitedFigures({ sections: report.sections, claims })) {
+    issues.push({
+      kind: "uncited_figure",
+      severity: severityFor(figure),
+      sectionKey: figure.sectionKey,
+      message: describeUncitedFigure(figure),
+    });
   }
 
   const blockers = issues.filter((issue) => issue.severity === "blocker").length;

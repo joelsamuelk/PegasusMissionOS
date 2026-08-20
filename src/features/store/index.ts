@@ -59,6 +59,13 @@ import type {
   Relation,
   Relationship,
   RelationshipLink,
+  ReportApproval,
+  ReportContributor,
+  ReportDefinition,
+  ReportRequirement,
+  ReportSnapshot,
+  ReportTemplateIngestion,
+  ReportVersion,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -141,6 +148,15 @@ export interface StoreState {
   notifications: Notification[];
   activity: ActivityEvent[];
   impactReports: ImpactReport[];
+  // MG-5. Definitions carry a template's structure and provenance; versions
+  // and snapshots are what stop a published report moving when its data does.
+  reportDefinitions: ReportDefinition[];
+  reportVersions: ReportVersion[];
+  reportSnapshots: ReportSnapshot[];
+  reportContributors: ReportContributor[];
+  reportApprovals: ReportApproval[];
+  reportRequirements: ReportRequirement[];
+  reportTemplateIngestions: ReportTemplateIngestion[];
   auditEvents: AuditEvent[];
   fitAssessments: FitAssessment[];
   aiGenerations: AIGeneration[];
@@ -208,6 +224,13 @@ export function createStoreState(): StoreState {
     notifications: clone(seed.notifications),
     activity: clone(seed.activity),
     impactReports: clone(seed.impactReports),
+    reportDefinitions: clone(seed.reportDefinitions ?? []),
+    reportVersions: [],
+    reportSnapshots: [],
+    reportContributors: [],
+    reportApprovals: [],
+    reportRequirements: clone(seed.reportRequirements ?? []),
+    reportTemplateIngestions: [],
     auditEvents: clone(seed.auditEvents),
     fitAssessments: [],
     aiGenerations: [],

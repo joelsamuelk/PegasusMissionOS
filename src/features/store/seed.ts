@@ -46,6 +46,8 @@ import type {
   Relation,
   Relationship,
   RelationshipLink,
+  ReportDefinition,
+  ReportRequirement,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -1877,6 +1879,97 @@ export const impactReports: ImpactReport[] = [
       { key: "future_plans", title: "Future plans", type: "narrative", content: "", claimIds: [] },
     ],
     audit: stamp("2026-07-08", "2026-07-15"),
+  },
+];
+
+/**
+ * The Henderson Trust's reporting template, as ingested and confirmed.
+ *
+ * Seeded as `origin: "ingested"` with confirmed requirements, because that is
+ * the state the demo needs to show: the workspace built from a funder's own
+ * questions rather than from Pegasus's generic sections. The requirements are
+ * `provided` rather than `verified` — the organisation stood behind the
+ * reading of the document, and nobody has checked it against the funder.
+ */
+export const reportDefinitions: ReportDefinition[] = [
+  {
+    id: "repdef-henderson-interim",
+    organisationId: ORG_ID,
+    name: "Henderson Trust interim report",
+    type: "funder",
+    origin: "ingested",
+    funderId: "fnd-henderson",
+    sections: [
+      { key: "delivery_summary", title: "Summary of delivery to date", type: "narrative", required: true },
+      { key: "progression", title: "Progression outcomes achieved", type: "metrics", required: true },
+      { key: "evidence", title: "Supporting evidence", type: "evidence", required: true },
+      { key: "finance", title: "Financial utilisation", type: "financial", required: true },
+      { key: "learning", title: "Challenges and learning", type: "narrative", required: false },
+    ],
+    audit: stamp("2025-04-02"),
+  },
+];
+
+export const reportRequirements: ReportRequirement[] = [
+  {
+    id: "repreq-1",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "delivery_summary",
+    kind: "narrative",
+    prompt: "Describe what the grant has delivered in the period covered by this report.",
+    wordLimit: 500,
+    required: true,
+    order: 0,
+    verification: "provided",
+  },
+  {
+    id: "repreq-2",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "progression",
+    kind: "indicator",
+    prompt: "How many young people moved into education, employment or training?",
+    target: { type: "indicator", id: "ind-eet", label: "Progression into EET" },
+    required: true,
+    order: 1,
+    verification: "provided",
+  },
+  {
+    id: "repreq-3",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "evidence",
+    kind: "evidence",
+    prompt: "Please enclose an independent evaluation or equivalent supporting evidence.",
+    evidenceTypes: ["evaluation", "statistic"],
+    required: true,
+    order: 2,
+    verification: "provided",
+  },
+  {
+    id: "repreq-4",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "finance",
+    kind: "financial",
+    prompt: "State expenditure against the awarded budget for the period.",
+    guidance: "A figure typed into prose does not satisfy this; it must cite a recorded calculation.",
+    required: true,
+    order: 3,
+    verification: "provided",
+  },
+  {
+    id: "repreq-5",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "learning",
+    kind: "narrative",
+    prompt: "What has not worked as expected, and what have you changed?",
+    wordLimit: 300,
+    required: false,
+    order: 4,
+    verification: "provided",
   },
 ];
 

@@ -16,6 +16,8 @@ import type {
   Output,
   Programme,
   Relation,
+  ReportApproval,
+  ReportContributor,
   ReportingRequirement,
   Document,
   DocumentVersion,
@@ -23,6 +25,12 @@ import type {
   OnboardingRun,
 } from "@/types/domain";
 import { assertKindMayNotStrengthen, createClaim } from "@/lib/knowledge";
+import {
+  buildReportFromDefinition,
+  buildReportSnapshot,
+  buildReportVersion,
+  nextVersionNumber,
+} from "@/lib/reporting";
 import { applyReview, candidateToClaim } from "@/lib/organisation-intelligence/approve";
 import type { RequestContext } from "@/server/context/request-context";
 import type { StoreState } from "@/features/store";
@@ -1286,6 +1294,205 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
             summary: `Approved impact report '${report.title}'`,
           });
         }
+      },
+
+      // --- Templates ---------------------------------------------------
+
+      async definitions(ctx) {
+        return scoped(state.reportDefinitions, ctx).filter(isLive);
+      },
+      async getDefinition(ctx, id) {
+        return scopedFind(state.reportDefinitions, ctx, (d) => d.id === id);
+      },
+      async requirements(ctx, definitionId) {
+        return scoped(state.reportRequirements, ctx)
+          .filter((r) => r.definitionId === definitionId)
+          .sort((a, b) => a.order - b.order);
+      },
+      async saveDefinition(ctx, definition, requirements) {
+        // Rejected rather than re-stamped. Accepting a record carrying another
+        // tenant's id and silently rewriting it would make a cross-tenant write
+        // look like a successful one.
+        if (definition.organisationId !== ctx.organisationId) return;
+        const index = state.reportDefinitions.findIndex(
+          (d) => d.id === definition.id && d.organisationId === ctx.organisationId,
+        );
+        if (index >= 0) state.reportDefinitions[index] = definition;
+        else state.reportDefinitions.push(definition);
+
+        state.reportRequirements = state.reportRequirements.filter(
+          (r) => !(r.definitionId === definition.id && r.organisationId === ctx.organisationId),
+        );
+        for (const requirement of requirements) {
+          if (requirement.organisationId !== ctx.organisationId) continue;
+          state.reportRequirements.push(requirement);
+        }
+      },
+
+      async create(ctx, init) {
+        const definition = init.definitionId
+          ? scopedFind(state.reportDefinitions, ctx, (d) => d.id === init.definitionId)
+          : null;
+        const report = buildReportFromDefinition({
+          id: newId("report"),
+          organisationId: ctx.organisationId,
+          title: init.title,
+          type: init.type,
+          reportingPeriod: init.reportingPeriod,
+          definition: definition ?? undefined,
+          programmeId: init.programmeId,
+          grantId: init.grantId,
+          ownerId: ctx.userId,
+          includedIndicatorIds: init.includedIndicatorIds,
+          includedEvidenceIds: init.includedEvidenceIds,
+          now: ctx.now(),
+        });
+        state.impactReports.push(report);
+        await recordAudit(ctx, {
+          action: "report.created",
+          entityType: "impact_report",
+          entityId: report.id,
+          summary: `Created '${report.title}'${definition ? ` from the ${definition.name} template` : ""}`,
+        });
+        return report.id;
+      },
+
+      // --- Versions and snapshots ---------------------------------------
+
+      async versions(ctx, reportId) {
+        return scoped(state.reportVersions, ctx)
+          .filter((v) => v.reportId === reportId)
+          .sort((a, b) => a.versionNumber - b.versionNumber);
+      },
+      async getSnapshot(ctx, snapshotId) {
+        return scopedFind(state.reportSnapshots, ctx, (s) => s.id === snapshotId);
+      },
+      async cutVersion(ctx, reportId, reason, note) {
+        const report = scopedFind(state.impactReports, ctx, (r) => r.id === reportId);
+        if (!report) return null;
+
+        const now = ctx.now();
+        const versionNumber = nextVersionNumber(
+          state.reportVersions.filter(
+            (v) => v.reportId === reportId && v.organisationId === ctx.organisationId,
+          ),
+        );
+
+        const snapshot = buildReportSnapshot({
+          id: newId("snap"),
+          report,
+          claims: scoped(state.claims, ctx),
+          indicators: scoped(state.indicators, ctx),
+          measurements: scoped(state.indicatorMeasurements, ctx),
+          evidence: scoped(state.evidenceItems, ctx),
+          takenAt: now,
+        });
+
+        const version = buildReportVersion({
+          id: newId("ver"),
+          report,
+          versionNumber,
+          reason,
+          snapshotId: snapshot.id,
+          note,
+          createdBy: ctx.userId,
+          createdAt: now,
+        });
+        snapshot.versionId = version.id;
+
+        state.reportSnapshots.push(snapshot);
+        state.reportVersions.push(version);
+
+        await recordAudit(ctx, {
+          action: "report.version.cut",
+          entityType: "impact_report",
+          entityId: reportId,
+          summary: `Cut version ${versionNumber} of '${report.title}' (${reason.replace(/_/g, " ")}), pinning ${snapshot.figures.length} figures`,
+        });
+
+        return version;
+      },
+
+      // --- People and decisions ------------------------------------------
+
+      async contributors(ctx, reportId) {
+        return scoped(state.reportContributors, ctx).filter((c) => c.reportId === reportId);
+      },
+      async addContributor(ctx, input) {
+        const report = scopedFind(state.impactReports, ctx, (r) => r.id === input.reportId);
+        if (!report) return null;
+        const user = scopedFind(state.members, ctx, (m) => m.userId === input.userId);
+        // A contributor who is not a member of this organisation would be an
+        // assignment nobody can act on, and a route to naming an outsider on a
+        // tenant record.
+        if (!user) return null;
+
+        const contributor: ReportContributor = {
+          ...input,
+          id: newId("repcon"),
+          organisationId: ctx.organisationId,
+          invitedAt: ctx.now().toISOString(),
+        };
+        state.reportContributors.push(contributor);
+        return contributor.id;
+      },
+      async approvals(ctx, reportId) {
+        return scoped(state.reportApprovals, ctx)
+          .filter((a) => a.reportId === reportId)
+          .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
+      },
+      async recordApproval(ctx, input) {
+        const report = scopedFind(state.impactReports, ctx, (r) => r.id === input.reportId);
+        if (!report) return null;
+        const version = scopedFind(
+          state.reportVersions,
+          ctx,
+          (v) => v.id === input.versionId && v.reportId === input.reportId,
+        );
+        if (!version) return null;
+        // Enforced here as well as in the schema. An unexplained rejection
+        // cannot be acted on, and the two layers are independent on purpose.
+        if (input.decision === "changes_requested" && !input.comment?.trim()) return null;
+
+        const approval: ReportApproval = {
+          id: newId("repapp"),
+          organisationId: ctx.organisationId,
+          reportId: input.reportId,
+          versionId: input.versionId,
+          userId: ctx.userId,
+          decision: input.decision,
+          comment: input.comment,
+          decidedAt: ctx.now().toISOString(),
+        };
+        state.reportApprovals.push(approval);
+
+        await recordAudit(ctx, {
+          action: `report.${input.decision}`,
+          entityType: "impact_report",
+          entityId: input.reportId,
+          summary: `${input.decision === "approved" ? "Approved" : "Requested changes to"} version ${version.versionNumber} of '${report.title}'`,
+        });
+
+        return approval.id;
+      },
+
+      // --- Funder template ingestion ---------------------------------------
+
+      async ingestions(ctx) {
+        return scoped(state.reportTemplateIngestions, ctx).sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt),
+        );
+      },
+      async getIngestion(ctx, id) {
+        return scopedFind(state.reportTemplateIngestions, ctx, (i) => i.id === id);
+      },
+      async saveIngestion(ctx, ingestion) {
+        if (ingestion.organisationId !== ctx.organisationId) return;
+        const index = state.reportTemplateIngestions.findIndex(
+          (i) => i.id === ingestion.id && i.organisationId === ctx.organisationId,
+        );
+        if (index >= 0) state.reportTemplateIngestions[index] = ingestion;
+        else state.reportTemplateIngestions.push(ingestion);
       },
     },
 

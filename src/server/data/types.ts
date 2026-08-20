@@ -47,6 +47,13 @@ import type {
   RelationKind,
   Relationship,
   RelationshipLink,
+  ReportApproval,
+  ReportContributor,
+  ReportDefinition,
+  ReportRequirement,
+  ReportSnapshot,
+  ReportTemplateIngestion,
+  ReportVersion,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -202,9 +209,85 @@ export interface EvidenceRepository {
   ): Promise<string>;
 }
 
+export interface CreateReportInit {
+  title: string;
+  type: ImpactReport["type"];
+  reportingPeriod: string;
+  definitionId?: string;
+  programmeId?: string;
+  grantId?: string;
+  includedIndicatorIds?: string[];
+  includedEvidenceIds?: string[];
+}
+
 export interface ReportRepository {
   list(ctx: RequestContext): Promise<ImpactReport[]>;
   get(ctx: RequestContext, id: string): Promise<ImpactReport | null>;
+
+  // --- Templates -------------------------------------------------------
+
+  definitions(ctx: RequestContext): Promise<ReportDefinition[]>;
+  getDefinition(ctx: RequestContext, id: string): Promise<ReportDefinition | null>;
+  /** What a template's sections need before they can be called complete. */
+  requirements(ctx: RequestContext, definitionId: string): Promise<ReportRequirement[]>;
+  saveDefinition(
+    ctx: RequestContext,
+    definition: ReportDefinition,
+    requirements: ReportRequirement[],
+  ): Promise<void>;
+
+  /** Create a report from a definition, or from the built-in template. */
+  create(ctx: RequestContext, init: CreateReportInit): Promise<string>;
+
+  // --- Versions and snapshots ------------------------------------------
+
+  versions(ctx: RequestContext, reportId: string): Promise<ReportVersion[]>;
+  getSnapshot(ctx: RequestContext, snapshotId: string): Promise<ReportSnapshot | null>;
+  /**
+   * Cut an immutable version, pinning every figure it cites.
+   *
+   * The snapshot is taken here rather than by the caller, because a version
+   * without one is exactly the failure this phase exists to prevent and a
+   * caller that forgets would produce a version that silently re-resolves
+   * against live data.
+   */
+  cutVersion(
+    ctx: RequestContext,
+    reportId: string,
+    reason: ReportVersion["reason"],
+    note?: string,
+  ): Promise<ReportVersion | null>;
+
+  // --- People and decisions --------------------------------------------
+
+  contributors(ctx: RequestContext, reportId: string): Promise<ReportContributor[]>;
+  addContributor(
+    ctx: RequestContext,
+    input: Omit<ReportContributor, "id" | "organisationId" | "invitedAt">,
+  ): Promise<string | null>;
+  approvals(ctx: RequestContext, reportId: string): Promise<ReportApproval[]>;
+  /**
+   * Record a decision against a version.
+   *
+   * Returns null when the version does not belong to the report or the tenant.
+   * `changes_requested` without a comment is refused: an unexplained rejection
+   * is not actionable, and the schema enforces the same rule independently.
+   */
+  recordApproval(
+    ctx: RequestContext,
+    input: {
+      reportId: string;
+      versionId: string;
+      decision: ReportApproval["decision"];
+      comment?: string;
+    },
+  ): Promise<string | null>;
+
+  // --- Funder template ingestion ---------------------------------------
+
+  ingestions(ctx: RequestContext): Promise<ReportTemplateIngestion[]>;
+  getIngestion(ctx: RequestContext, id: string): Promise<ReportTemplateIngestion | null>;
+  saveIngestion(ctx: RequestContext, ingestion: ReportTemplateIngestion): Promise<void>;
   saveSection(
     ctx: RequestContext,
     reportId: string,

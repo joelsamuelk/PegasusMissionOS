@@ -417,6 +417,115 @@ export function describeRepositoryContract(
       });
     });
 
+    /**
+     * MG-5. A version exists so that a published report stops moving.
+     *
+     * These are contract tests rather than adapter tests because the property
+     * is one a Postgres implementation can break in a way an in-memory one
+     * cannot: storing a version's sections by reference to a jsonb column that
+     * is later updated in place would pass every single-process test and lose
+     * the guarantee entirely.
+     */
+    describe("a report version is immutable once cut", () => {
+      it("does not change when the report it came from is edited", async () => {
+        const { repo, ctxA, fixtures } = h;
+
+        await repo.reports.saveSection(
+          ctxA,
+          fixtures.reportId,
+          "executive_summary",
+          "The text as it stood when the version was cut.",
+        );
+        const version = await repo.reports.cutVersion(ctxA, fixtures.reportId, "published");
+        expect(version).not.toBeNull();
+
+        await repo.reports.saveSection(
+          ctxA,
+          fixtures.reportId,
+          "executive_summary",
+          "Rewritten after publication.",
+        );
+
+        const versions = await repo.reports.versions(ctxA, fixtures.reportId);
+        const stored = versions.find((v) => v.id === version!.id);
+        const section = stored?.sections.find((s) => s.key === "executive_summary");
+
+        expect(section?.content).toBe("The text as it stood when the version was cut.");
+
+        const live = await repo.reports.get(ctxA, fixtures.reportId);
+        expect(live?.sections.find((s) => s.key === "executive_summary")?.content).toBe(
+          "Rewritten after publication.",
+        );
+      });
+
+      it("pins the figures it cited in a snapshot", async () => {
+        const { repo, ctxA, fixtures } = h;
+        const version = await repo.reports.cutVersion(ctxA, fixtures.reportId, "approved");
+
+        expect(version?.snapshotId).toBeTruthy();
+        const snapshot = await repo.reports.getSnapshot(ctxA, version!.snapshotId!);
+        expect(snapshot?.reportId).toBe(fixtures.reportId);
+        expect(snapshot?.versionId).toBe(version!.id);
+      });
+
+      it("numbers versions monotonically", async () => {
+        const { repo, ctxA, fixtures } = h;
+        const first = await repo.reports.cutVersion(ctxA, fixtures.reportId, "draft_saved");
+        const second = await repo.reports.cutVersion(ctxA, fixtures.reportId, "revision");
+        expect(second!.versionNumber).toBe(first!.versionNumber + 1);
+      });
+    });
+
+    describe("report writes cannot reach across the boundary", () => {
+      it("refuses to cut a version of another tenant's report", async () => {
+        const { repo, ctxB, fixtures } = h;
+        expect(await repo.reports.cutVersion(ctxB, fixtures.reportId, "published")).toBeNull();
+      });
+
+      it("refuses an approval naming another tenant's version", async () => {
+        const { repo, ctxA, ctxB, fixtures } = h;
+        const version = await repo.reports.cutVersion(ctxA, fixtures.reportId, "published");
+        expect(
+          await repo.reports.recordApproval(ctxB, {
+            reportId: fixtures.reportId,
+            versionId: version!.id,
+            decision: "approved",
+          }),
+        ).toBeNull();
+      });
+
+      it("refuses a rejection with no reason", async () => {
+        const { repo, ctxA, fixtures } = h;
+        const version = await repo.reports.cutVersion(ctxA, fixtures.reportId, "published");
+        expect(
+          await repo.reports.recordApproval(ctxA, {
+            reportId: fixtures.reportId,
+            versionId: version!.id,
+            decision: "changes_requested",
+          }),
+        ).toBeNull();
+        expect(
+          await repo.reports.recordApproval(ctxA, {
+            reportId: fixtures.reportId,
+            versionId: version!.id,
+            decision: "changes_requested",
+            comment: "The finance section cites no calculation.",
+          }),
+        ).toBeTruthy();
+      });
+
+      it("refuses a contributor who is not a member of the organisation", async () => {
+        const { repo, ctxA, fixtures } = h;
+        expect(
+          await repo.reports.addContributor(ctxA, {
+            reportId: fixtures.reportId,
+            userId: "user-not-a-member",
+            role: "author",
+          }),
+        ).toBeNull();
+      });
+    });
+
     describe("every method is asynchronous", () => {
       it("reads return promises rather than values", () => {
         const { repo, ctxA } = h;
