@@ -15,8 +15,13 @@ import type {
   Interaction,
   Output,
   Programme,
+  Automation,
+  DomainEvent,
+  Notification,
+  Task,
   Relation,
   ReportApproval,
+  ScheduledJob,
   ReportContributor,
   ReportingRequirement,
   Document,
@@ -458,6 +463,60 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
           frontier = next;
         }
         return out;
+      },
+
+      async connectionsFor(ctx, entity) {
+        const key = entityKey(entity);
+        const direct = scoped(state.relations, ctx).filter(
+          (relation) => entityKey(relation.from) === key || entityKey(relation.to) === key,
+        );
+
+        /**
+         * The legacy edge table, projected into the same shape.
+         *
+         * A `RelationshipLink` is a `Relation` whose `from` is always a
+         * relationship and whose `kind` is always `party_to`, qualified by the
+         * link's role. Expressing it that way here is what lets a caller stop
+         * knowing there are two tables.
+         *
+         * The projected id is prefixed so it can never be mistaken for a row
+         * in `relations` and passed to `disconnect`, which would silently do
+         * nothing.
+         */
+        const links = scoped(state.relationshipLinks, ctx)
+          .filter((link) => {
+            const relationshipKey = `relationship:${link.relationshipId}`;
+            return entityKey(link.entity) === key || relationshipKey === key;
+          })
+          /**
+           * The endpoint check `relationship_links` never had.
+           *
+           * `Relation` verifies both endpoints on write, because a correctly
+           * scoped row can still point at another tenant's record. The legacy
+           * table predates that rule and has no such check, so a row belonging
+           * to this tenant may name an id that resolves in another one.
+           *
+           * Reading it back unfiltered would let a traversal follow the
+           * pointer. The row stays where it is; the projection refuses to
+           * present an edge whose other end this tenant cannot see.
+           */
+          .filter((link) => entityExists(ctx, link.entity));
+
+        const projected: Relation[] = links.map((link) => ({
+          id: `link:${link.id}`,
+          organisationId: link.organisationId,
+          from: { type: "relationship", id: link.relationshipId },
+          to: link.entity,
+          kind: "party_to",
+          role: link.role,
+          note: link.note,
+          // `RelationshipLink` carries no audit stamp of its own, which is
+          // one of the reasons `Relation` superseded it. The projection uses
+          // the request clock rather than inventing a creation date.
+          audit: { createdAt: stamp(ctx), updatedAt: stamp(ctx) },
+        }));
+
+        return [...direct, ...projected];
       },
     },
 
@@ -1706,6 +1765,211 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
         if (!task) return;
         task.status = task.status === "done" ? "todo" : "done";
         task.audit.updatedAt = stamp(ctx);
+      },
+      async createTask(ctx, input) {
+        const now = stamp(ctx);
+        const task: Task = {
+          ...input,
+          id: newId("task"),
+          organisationId: ctx.organisationId,
+          status: input.status ?? "todo",
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.tasks.push(task);
+        return task.id;
+      },
+      async notify(ctx, input) {
+        const notification: Notification = {
+          ...input,
+          id: newId("notif"),
+          organisationId: ctx.organisationId,
+          read: false,
+          createdAt: stamp(ctx),
+        };
+        state.notifications.push(notification);
+        return notification.id;
+      },
+    },
+
+    /**
+     * Events, automation and scheduling.
+     *
+     * The write surface here is deliberately narrow. There is no `updateRun`:
+     * a run is the record of something the system did without a person
+     * present, and a record that can be rewritten is not evidence. `approveRun`
+     * is the one mutation a person is entitled to make, and it refuses a run
+     * that is not actually awaiting approval.
+     */
+    automation: {
+      async list(ctx) {
+        return scoped(state.automations, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.automations, ctx, (a) => a.id === id);
+      },
+      async activeFor(ctx, kind) {
+        return scoped(state.automations, ctx)
+          .filter(isLive)
+          .filter((a) => a.status === "active" && a.trigger.kind === kind);
+      },
+      async save(ctx, input) {
+        const now = stamp(ctx);
+        const existing = input.id
+          ? scopedFind(state.automations, ctx, (a) => a.id === input.id)
+          : null;
+
+        if (existing) {
+          Object.assign(existing, input, {
+            id: existing.id,
+            organisationId: existing.organisationId,
+            audit: { ...existing.audit, updatedAt: now, updatedBy: ctx.userId },
+          });
+          return existing.id;
+        }
+
+        const automation: Automation = {
+          ...input,
+          id: input.id ?? newId("auto"),
+          organisationId: ctx.organisationId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.automations.push(automation);
+        await recordAudit(ctx, {
+          action: "automation.created",
+          entityType: "task",
+          entityId: automation.id,
+          summary: `Created automation '${automation.name}'`,
+        });
+        return automation.id;
+      },
+      async setStatus(ctx, id, status) {
+        const automation = scopedFind(state.automations, ctx, (a) => a.id === id);
+        if (!automation) return;
+        const previous = automation.status;
+        automation.status = status;
+        automation.audit.updatedAt = stamp(ctx);
+        automation.audit.updatedBy = ctx.userId;
+        await recordAudit(ctx, {
+          action: "automation.status_changed",
+          entityType: "task",
+          entityId: id,
+          summary: `Automation '${automation.name}' moved from ${previous} to ${status}`,
+        });
+      },
+
+      async recordEvent(ctx, event) {
+        const record: DomainEvent = {
+          ...event,
+          id: newId("evt"),
+          organisationId: ctx.organisationId,
+        };
+        state.domainEvents.push(record);
+        return record;
+      },
+      async events(ctx, options) {
+        const rows = scoped(state.domainEvents, ctx);
+        return (options?.unprocessedOnly ? rows.filter((e) => !e.processedAt) : rows).sort((a, b) =>
+          a.occurredAt.localeCompare(b.occurredAt),
+        );
+      },
+      async markEventProcessed(ctx, eventId) {
+        const event = scopedFind(state.domainEvents, ctx, (e) => e.id === eventId);
+        if (!event) return;
+        event.processedAt = stamp(ctx);
+      },
+
+      async runs(ctx, options) {
+        return scoped(state.automationRuns, ctx)
+          .filter((run) => !options?.automationId || run.automationId === options.automationId)
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      },
+      async getRun(ctx, runId) {
+        return scopedFind(state.automationRuns, ctx, (r) => r.id === runId);
+      },
+      async steps(ctx, runId) {
+        return scoped(state.automationSteps, ctx)
+          .filter((step) => step.runId === runId)
+          .sort((a, b) => a.order - b.order);
+      },
+      async failures(ctx, runId) {
+        return scoped(state.automationFailures, ctx).filter((f) => f.runId === runId);
+      },
+      async recordRun(ctx, run, steps) {
+        if (run.organisationId !== ctx.organisationId) return;
+        state.automationRuns.push(run);
+        for (const step of steps) {
+          if (step.organisationId !== ctx.organisationId) continue;
+          state.automationSteps.push(step);
+        }
+        const automation = scopedFind(state.automations, ctx, (a) => a.id === run.automationId);
+        if (automation && !run.simulated) automation.lastRunAt = run.startedAt;
+      },
+      async updateStep(ctx, stepId, patch) {
+        const step = scopedFind(state.automationSteps, ctx, (s) => s.id === stepId);
+        if (!step) return;
+        Object.assign(step, patch);
+      },
+      async completeRun(ctx, runId, outcome, finishedAt) {
+        const run = scopedFind(state.automationRuns, ctx, (r) => r.id === runId);
+        if (!run) return;
+        run.outcome = outcome;
+        run.finishedAt = finishedAt;
+      },
+      async approveRun(ctx, runId) {
+        const run = scopedFind(state.automationRuns, ctx, (r) => r.id === runId);
+        // Approving a run that is not waiting is not a no-op: it would mean a
+        // completed run could be "approved" retrospectively, which makes the
+        // approval record meaningless.
+        if (!run || run.outcome !== "awaiting_approval") return null;
+        run.approvedBy = ctx.userId;
+        run.approvedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "automation.run.approved",
+          entityType: "task",
+          entityId: runId,
+          summary: `Approved an automation run against ${run.subject.type} ${run.subject.id}`,
+        });
+        return run;
+      },
+      async recordFailure(ctx, failure) {
+        state.automationFailures.push({
+          ...failure,
+          id: newId("autofail"),
+          organisationId: ctx.organisationId,
+        });
+      },
+
+      async scheduleJob(ctx, job) {
+        // Deduplicated on write. A scanner that runs twice must not produce two
+        // reminders, and nowhere downstream can undo a duplicate reliably.
+        const existing = state.scheduledJobs.find(
+          (j) => j.organisationId === ctx.organisationId && j.dedupeKey === job.dedupeKey,
+        );
+        if (existing) return null;
+
+        const record: ScheduledJob = {
+          ...job,
+          id: newId("job"),
+          organisationId: ctx.organisationId,
+          status: "pending",
+          attempts: 0,
+          createdAt: stamp(ctx),
+        };
+        state.scheduledJobs.push(record);
+        return record;
+      },
+      async dueJobs(ctx, now) {
+        return scoped(state.scheduledJobs, ctx)
+          .filter((job) => job.status === "pending" && Date.parse(job.runAfter) <= now.getTime())
+          .sort((a, b) => a.runAfter.localeCompare(b.runAfter));
+      },
+      async completeJob(ctx, jobId, status, error) {
+        const job = scopedFind(state.scheduledJobs, ctx, (j) => j.id === jobId);
+        if (!job) return;
+        job.status = status;
+        job.attempts += 1;
+        job.lastError = error;
+        job.finishedAt = stamp(ctx);
       },
     },
 

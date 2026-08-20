@@ -11,6 +11,7 @@ import {
   Target,
   TrendingUp,
   Users,
+  Workflow,
 } from "lucide-react";
 
 export interface NavItem {
@@ -30,6 +31,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Programmes", href: "/programmes", icon: FolderGit2, group: "operate" },
   { label: "Impact", href: "/impact", icon: TrendingUp, group: "operate" },
   { label: "Evidence", href: "/evidence", icon: Library, group: "operate" },
+  { label: "Automations", href: "/automations", icon: Workflow, group: "organisation" },
   { label: "Organisation", href: "/organisation", icon: Building2, group: "organisation" },
   { label: "Team", href: "/team", icon: Users, group: "organisation" },
   { label: "Settings", href: "/settings", icon: Settings, group: "organisation" },

@@ -1699,6 +1699,239 @@ export interface ReportTemplateIngestion {
 }
 
 
+// --- Domain events, automation and scheduling (MG-6) --------------------
+
+/**
+ * What happened, as a record.
+ *
+ * Before this, "a grant became at risk" was something the product could
+ * *observe* by recomputing grant health on every page render, and could not
+ * *react* to. An event is the difference: it has a time, a subject, a before
+ * and an after, and it can be consumed by something that is not a page.
+ *
+ * Deliberately not an audit event. `AuditEvent` records **what a person did**
+ * and is append-only evidence for a human reader. A `DomainEvent` records
+ * **what became true** and is machinery. Conflating them makes the audit trail
+ * unreadable and makes the automation feed unfilterable.
+ */
+export type DomainEventKind =
+  // Structural, emitted by the data layer on any tenant record.
+  | "record.created"
+  | "record.changed"
+  | "record.archived"
+  // Meaningful transitions, emitted where a state change carries consequence.
+  | "grant.state_changed"
+  | "grant.health_changed"
+  | "deliverable.overdue"
+  | "report.state_changed"
+  | "report.due_soon"
+  | "requirement.due_soon"
+  | "indicator.updated"
+  | "evidence.linked"
+  | "evidence.outdated"
+  | "payment.received"
+  | "transaction.imported"
+  | "runway.changed"
+  | "relationship.health_changed"
+  | "opportunity.discovered"
+  | "form.submitted"
+  // Time itself. Emitted by the scheduler, never by a mutation.
+  | "date.approaching"
+  | "deadline.passed";
+
+export interface DomainEvent {
+  id: UUID;
+  organisationId: UUID;
+  kind: DomainEventKind;
+  subject: EntityReference;
+  occurredAt: ISODate;
+  /**
+   * The record's addressable fields after the change, flattened.
+   *
+   * Flat and typed so a condition can read `grant.health` without the engine
+   * having to walk an arbitrary object. This is the event's payload and the
+   * only thing conditions ever see.
+   */
+  facts: Record<string, string | number | boolean | null>;
+  /** The same fields before the change, for `changed` conditions. */
+  previous?: Record<string, string | number | boolean | null>;
+  /** The user whose action produced it, where a user was involved. */
+  actorId?: UUID;
+  /** Set once the dispatcher has run automations against it. */
+  processedAt?: ISODate;
+}
+
+export type AutomationTriggerKind = DomainEventKind;
+
+export interface AutomationTrigger {
+  kind: AutomationTriggerKind;
+  /** Narrow to one entity type, e.g. only grants. */
+  entityType?: EntityType;
+  /**
+   * For `date.approaching`: which dated field, and how far ahead.
+   * The pair that closes the reminder requirement.
+   */
+  dateField?: string;
+  daysBefore?: number;
+}
+
+/**
+ * What an automation may do.
+ *
+ * The list is closed, and that is the phase's central safety property. The
+ * brief's instruction is "do NOT allow arbitrary AI database mutation", and
+ * the way to honour it is not to police what a model asks for — it is to make
+ * the set of possible effects finite, enumerable and individually reviewed.
+ * An automation cannot write a field; it can create a task, and creating a
+ * task is a thing whose consequences are known.
+ */
+export type AutomationActionKind =
+  | "create_task"
+  | "notify_user"
+  | "request_review"
+  | "request_evidence"
+  | "prepare_report"
+  | "assign_owner"
+  | "set_workflow_state"
+  | "generate_brief"
+  | "draft_communication";
+
+export interface AutomationAction {
+  kind: AutomationActionKind;
+  /** Free-form per kind, validated by the action's own descriptor. */
+  params: Record<string, string | number | boolean | null>;
+}
+
+export type AutomationStatus = "draft" | "active" | "paused";
+
+export interface Automation {
+  id: UUID;
+  organisationId: UUID;
+  name: string;
+  description?: string;
+  trigger: AutomationTrigger;
+  /** Deterministic, three-valued. An undecidable condition never fires. */
+  condition?: unknown;
+  actions: AutomationAction[];
+  status: AutomationStatus;
+  /**
+   * Whether a person must approve each run before its actions take effect.
+   *
+   * Set by the rule author, but **forced true** where any action is externally
+   * visible. See `requiresApproval` in `lib/automation/actions.ts`: this field
+   * records the author's intent and the engine independently refuses to run an
+   * external action unapproved, so a mistake here cannot send anything.
+   */
+  requiresApproval: boolean;
+  ownerId?: UUID;
+  lastRunAt?: ISODate;
+  audit: AuditStamp;
+}
+
+export type AutomationRunOutcome =
+  | "matched"
+  | "not_matched"
+  | "undecidable"
+  | "awaiting_approval"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+/**
+ * One evaluation of one automation against one event.
+ *
+ * A run is recorded **whether or not it matched**. That is deliberate and it
+ * is what makes an automation debuggable: "why did nothing happen?" is a more
+ * common question than "why did this happen?", and a system that only records
+ * its successes cannot answer it.
+ */
+export interface AutomationRun {
+  id: UUID;
+  organisationId: UUID;
+  automationId: UUID;
+  eventId?: UUID;
+  trigger: AutomationTriggerKind;
+  subject: EntityReference;
+  outcome: AutomationRunOutcome;
+  /** The condition trace, stored so a run can be audited without re-deriving. */
+  conditionTrace?: unknown;
+  /** A one-line explanation, always present. */
+  explanation: string;
+  startedAt: ISODate;
+  finishedAt?: ISODate;
+  /** Who approved the run, where approval was required. */
+  approvedBy?: UUID;
+  approvedAt?: ISODate;
+  /** True where the run was a simulation and nothing was written. */
+  simulated: boolean;
+}
+
+export interface AutomationStep {
+  id: UUID;
+  organisationId: UUID;
+  runId: UUID;
+  order: number;
+  action: AutomationActionKind;
+  params: Record<string, string | number | boolean | null>;
+  status: "planned" | "awaiting_approval" | "executed" | "skipped" | "failed";
+  /** What the step actually created or changed. */
+  result?: EntityReference;
+  detail?: string;
+  /** Set where a model assisted inside the bounded action. */
+  provenance?: GroundingRecord;
+  executedAt?: ISODate;
+}
+
+export interface AutomationFailure {
+  id: UUID;
+  organisationId: UUID;
+  runId: UUID;
+  stepId?: UUID;
+  /** Machine-readable, so repeated failures can be grouped. */
+  code: string;
+  message: string;
+  occurredAt: ISODate;
+  /** Whether re-running could succeed. A permission refusal cannot. */
+  retryable: boolean;
+}
+
+/**
+ * The scheduler's unit of work.
+ *
+ * A Postgres table and an in-process runner, deliberately: the expansion plan
+ * is explicit that this phase introduces **no queue infrastructure**. A
+ * charity operating system reminding somebody about a report in thirty days
+ * does not need Redis, and adding it would be the largest operational cost in
+ * the product for the smallest capability.
+ */
+export type ScheduledJobKind =
+  | "scan_dates"
+  | "recompute_signals"
+  | "run_automation"
+  | "send_reminder";
+
+export interface ScheduledJob {
+  id: UUID;
+  organisationId: UUID;
+  kind: ScheduledJobKind;
+  /** What the job is about, where it is about one record. */
+  subject?: EntityReference;
+  runAfter: ISODate;
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  payload: Record<string, string | number | boolean | null>;
+  attempts: number;
+  lastError?: string;
+  /**
+   * Idempotency key. A reminder for the same requirement at the same horizon
+   * must not be created twice because the scanner ran twice, and deduplicating
+   * on insert is the only place that can be guaranteed.
+   */
+  dedupeKey: string;
+  createdAt: ISODate;
+  startedAt?: ISODate;
+  finishedAt?: ISODate;
+}
+
 // --- Tasks, comments, notifications, activity --------------------------
 
 export interface Task {

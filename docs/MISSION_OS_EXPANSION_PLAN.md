@@ -44,7 +44,7 @@ Two facts govern everything below:
 | **MG-3** Onboarding Intelligence | Slice H + Organisation Intelligence Phases 2-5 | ✅ **Complete and verified** | Ran ahead of MG-2 by decision; see below |
 | **MG-4** Mission Intelligence | Slice F | ✅ **Complete and verified** | Ran ahead of MG-8 and MG-6 by decision; see the record below for what that costs |
 | **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-6** Mission Automations | Slice G + automation beyond attention | Not started | MG-2 |
+| **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-7** Mission Forms | Parked in build spec | Not started | MG-1 (submissions must land as claims) |
 | **MG-8** Finance Runtime | Slice E | Not started | **MG-1 SC2** — it has no tables |
 | **MG-9** Mission Portals | Parked | Not started | MG-2, MG-12 |
@@ -287,6 +287,50 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 **Why it cannot wait:** evaluating every deterministic engine on every page render is acceptable at demo scale and is not acceptable at tenant scale. This is a performance precondition, not only a feature.
 
 **Security review:** an automation is an action taken without a human present. Every action type declares whether it requires approval, and anything external — email, a status change a funder can see — requires it unconditionally (Invariant 7).
+
+### Verification record — MG-6 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files, untouched by this phase |
+| `npm test` | **848 passed**, 72 files (was 799 across 71) |
+| `npm run test:e2e` | **31/31** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**What was built.** Migration `0023`, six tables. A condition language, an action catalogue, a rules engine and a simulator in `src/lib/automation/`; an event dispatcher, a scheduler, a bounded-action executor and a simulation service in `src/server/automation/`. One repository (`automation`), taking the boundary from 17 to 18. A page at `/automations`.
+
+**The decision the whole phase rests on: evaluation is three-valued.** `true`, `false` and **`unknown`**. Two-valued logic must answer the brief's own example — `report.evidenceCompleteness < 0.7`, on a report nobody has assessed — as either true or false, and both are lies. One fires an automation on data that does not exist; the other never fires while the organisation believes it is covered. `unknown` propagates, an automation whose condition is undecidable **does not fire and records why**, and `undecidable` is a distinct run outcome from `not_matched` so the two are never confused in a log. This is Invariant 8 — *missing ≠ assumed* — applied to machinery that runs when nobody is watching.
+
+**Invariant 7 is a data shape, not a code path.** Every action declares `externallyVisible` and `requiresApproval` in one catalogue, and a test asserts that no externally visible action can be declared as not requiring approval. The engine recomputes approval from the actions rather than trusting the automation's stored flag, so a mistake in a form cannot produce a rule that sends. The executor then checks *again*, independently, because the cost of the single check being wrong is an email a funder receives that nobody sent. `draft_communication` drafts and never sends; nothing in the product can send it.
+
+**Conditions are data, not code.** A typed tree that serialises to jsonb. No expression string, no interpreter, no sandbox to get wrong. That matters because rules are exactly the kind of feature that grows a scripting language by accident, and a tenant-authored scripting language is a different security posture from the one this product has.
+
+**Two design points the brief did not ask for and the work required.**
+
+- **A simulation must report what it could not answer.** Simulating a `changed` trigger against current records is impossible: there is no "before". Reporting "would trigger on 0 records" reads as *this rule is safe* and means *this question was not asked* — opposite conclusions. The simulator returns a caveat instead. Getting this right also required fixing the condition evaluator: an event with no recorded previous value now returns `unknown`, where the first implementation compared `undefined !== "at_risk"` and cheerfully reported a change.
+- **`assign_owner` is declared and refused.** Ownership is a different field on six record types, and an executor that guessed would eventually set the wrong one. It throws a named refusal so a rule author finds out at once, rather than being approximated.
+
+**Mutation tests.** Four, all restored.
+
+1. Make a `changed` condition assume a change when no previous value was recorded. **Two tests fail**, including the simulation caveat — which is the whole reason that branch exists.
+2. Remove the executor's approval check. **The "refuses even if the dispatcher were bypassed" test fails**, which is the point of having two.
+3. Make the engine trust the automation's stored `requiresApproval` flag. **The externally-visible hold test fails.**
+4. Remove the scheduler's deduplication. **The idempotence test fails**, which is what makes an in-process scheduler safe to run from a request and a cron entry at once.
+
+**§9 link 12 is closed.** *The relationship owner is reminded 30 days before reporting* has been partial since MG-1: the data a scheduler needs existed, and the scheduler did not. `scanDates` reads horizons from the automations themselves — a scanner with hard-coded horizons either misses a rule or fills the job table with reminders nobody asked for — schedules deduplicated jobs, and `runDueJobs` turns each into a `date.approaching` event dispatched through the same engine a mutation-driven event uses. A reminder whose obligation has since been met is cancelled rather than fired, which is the difference between a reminder system people trust and one they mute.
+
+**SC5's read half, and a real defect it surfaced.** `graph.connectionsFor` unions `relations` with `relationship_links`, so "what connects to this entity?" is one call. Writing it exposed a gap: `Relation` verifies both endpoints on write because a correctly-scoped row can still point at another tenant's record, and **`relationship_links` predates that rule and never had the check**. The two-tenant fixture has had a planted cross-tenant pointer since it was written, and the first version of `connectionsFor` followed it. The projection now applies the same endpoint check, and two tests pin it in both directions. The write path still has two tables; folding those in means migrating the relationships UI, actions and services, which is regression risk with no capability attached and is now a migration rather than a design question.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0023` is written and reviewed SQL, never applied. The dedupe guarantee in particular is enforced by a `unique` constraint that has never run; in-memory it is a `find`, which is the same rule and not the same proof.
+- **There is no worker.** The scheduler is in-process and something must tick it, exposed as a button on `/automations` and as a server action a cron entry can call. That is honest rather than pretending a background service exists, and it is the standing consequence of the no-queue decision.
+- **No rule builder.** Automations are seeded and can be saved through a server action; there is no form. The condition tree is designed to be built by a UI — flat fields so the set is enumerable, `fieldsUsed` so a rule can be checked against a schema — and that UI is not built.
+- **Events are emitted explicitly, not by the data layer.** `emit` is called by callers who should, not from inside `saveSection`. Emitting from the data layer would make it depend on the intelligence layer, which is the wrong direction, and would mean a broken automation could make it impossible to save a grant. The consequence is real: a mutation whose caller does not emit produces no event, and the scheduler only catches the dated cases.
+- **MG-4's engines still run on every render.** This phase was supposed to be the performance precondition for that and is not: the attention board is still recomputed per page load. What now exists is the machinery that could cache it — an event stream and a job table — and nothing uses it that way yet.
+
+---
 
 ---
 

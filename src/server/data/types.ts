@@ -5,10 +5,16 @@ import type {
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Automation,
+  AutomationFailure,
+  AutomationRun,
+  AutomationStep,
   Budget,
   BudgetLine,
   Claim,
   Document,
+  DomainEvent,
+  DomainEventKind,
   DocumentSource,
   DocumentVersion,
   ExtractedClaim,
@@ -47,6 +53,7 @@ import type {
   RelationKind,
   Relationship,
   RelationshipLink,
+  ScheduledJob,
   ReportApproval,
   ReportContributor,
   ReportDefinition,
@@ -308,6 +315,24 @@ export interface WorkspaceRepository {
   notifications(ctx: RequestContext): Promise<Notification[]>;
   activity(ctx: RequestContext): Promise<ActivityEvent[]>;
   toggleTask(ctx: RequestContext, taskId: string): Promise<void>;
+  /**
+   * Create a task.
+   *
+   * Added by MG-6. Automations create tasks and nothing else could, which is
+   * the shape of the safety argument: the set of effects an automation can
+   * have is the set of write methods the executor is given, and that set is
+   * small and deliberate rather than "the repository".
+   */
+  createTask(
+    ctx: RequestContext,
+    input: Omit<Task, "id" | "organisationId" | "audit" | "status"> & {
+      status?: Task["status"];
+    },
+  ): Promise<string>;
+  notify(
+    ctx: RequestContext,
+    input: Omit<Notification, "id" | "organisationId" | "createdAt" | "read">,
+  ): Promise<string>;
 }
 
 export interface AuditRepository {
@@ -487,6 +512,23 @@ export interface GraphRepository {
     kind: RelationKind,
     options?: { maxDepth?: number; direction?: "forward" | "backward" },
   ): Promise<EntityReference[]>;
+  /**
+   * Everything connected to an entity, from both edge tables.
+   *
+   * SC5's remaining half, on the read path. `RelationshipLink` predates
+   * `Relation` and still has its own table, so "what connects to this entity?"
+   * has had to union two sources — and every caller that forgot has been
+   * quietly answering half the question.
+   *
+   * This unions them behind one method returning `Relation`, which is what
+   * SC5 meant by "`RelationshipLink` becomes a view over it". The **write**
+   * path still has two tables: folding those in means migrating the
+   * relationships UI, actions and services, which is a change with real
+   * regression risk and no capability attached. Doing the read half now means
+   * no new caller has to know, and the remaining half is a migration rather
+   * than a design question.
+   */
+  connectionsFor(ctx: RequestContext, entity: EntityReference): Promise<Relation[]>;
 }
 
 /**
@@ -659,6 +701,83 @@ export interface OnboardingRepository {
   ): Promise<Record<string, { decision: CandidateDecision; at: string; by?: string }>>;
 }
 
+/**
+ * Events, automation and scheduling.
+ *
+ * Two rules make this interface what it is.
+ *
+ * **Runs are inserted, never updated except to approve.** An automation run is
+ * the record of something the system did without a person present. A run that
+ * can be rewritten is not evidence, so there is no `updateRun`; there is
+ * `approveRun`, which is the single mutation a person is entitled to make.
+ *
+ * **The scheduler deduplicates on write.** `scheduleJob` takes a `dedupeKey`
+ * and returns null when one already exists. A reminder scanner that runs twice
+ * must not produce two reminders, and the only place that can be guaranteed is
+ * at insert.
+ */
+export interface AutomationRepository {
+  list(ctx: RequestContext): Promise<Automation[]>;
+  get(ctx: RequestContext, id: string): Promise<Automation | null>;
+  /** Only automations whose trigger could match this event kind. */
+  activeFor(ctx: RequestContext, kind: DomainEventKind): Promise<Automation[]>;
+  save(
+    ctx: RequestContext,
+    input: Omit<Automation, "id" | "organisationId" | "audit"> & { id?: string },
+  ): Promise<string>;
+  setStatus(ctx: RequestContext, id: string, status: Automation["status"]): Promise<void>;
+
+  // Events
+  recordEvent(
+    ctx: RequestContext,
+    event: Omit<DomainEvent, "id" | "organisationId" | "processedAt">,
+  ): Promise<DomainEvent>;
+  events(ctx: RequestContext, options?: { unprocessedOnly?: boolean }): Promise<DomainEvent[]>;
+  markEventProcessed(ctx: RequestContext, eventId: string): Promise<void>;
+
+  // Runs, steps and failures
+  runs(ctx: RequestContext, options?: { automationId?: string }): Promise<AutomationRun[]>;
+  getRun(ctx: RequestContext, runId: string): Promise<AutomationRun | null>;
+  steps(ctx: RequestContext, runId: string): Promise<AutomationStep[]>;
+  failures(ctx: RequestContext, runId: string): Promise<AutomationFailure[]>;
+  recordRun(
+    ctx: RequestContext,
+    run: AutomationRun,
+    steps: AutomationStep[],
+  ): Promise<void>;
+  updateStep(
+    ctx: RequestContext,
+    stepId: string,
+    patch: Partial<Pick<AutomationStep, "status" | "result" | "detail" | "executedAt" | "provenance">>,
+  ): Promise<void>;
+  completeRun(
+    ctx: RequestContext,
+    runId: string,
+    outcome: AutomationRun["outcome"],
+    finishedAt: string,
+  ): Promise<void>;
+  /** The one mutation a person may make to a run. Returns null if not pending. */
+  approveRun(ctx: RequestContext, runId: string): Promise<AutomationRun | null>;
+  recordFailure(
+    ctx: RequestContext,
+    failure: Omit<AutomationFailure, "id" | "organisationId">,
+  ): Promise<void>;
+
+  // Scheduling
+  /** Returns null when a job with the same dedupe key already exists. */
+  scheduleJob(
+    ctx: RequestContext,
+    job: Omit<ScheduledJob, "id" | "organisationId" | "createdAt" | "attempts" | "status">,
+  ): Promise<ScheduledJob | null>;
+  dueJobs(ctx: RequestContext, now: Date): Promise<ScheduledJob[]>;
+  completeJob(
+    ctx: RequestContext,
+    jobId: string,
+    status: ScheduledJob["status"],
+    error?: string,
+  ): Promise<void>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
@@ -678,5 +797,6 @@ export interface MissionRepository {
   reports: ReportRepository;
   relationships: RelationshipRepository;
   workspace: WorkspaceRepository;
+  automation: AutomationRepository;
   audit: AuditRepository;
 }

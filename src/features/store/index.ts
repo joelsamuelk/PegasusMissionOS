@@ -18,6 +18,10 @@ import type {
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Automation,
+  AutomationFailure,
+  AutomationRun,
+  AutomationStep,
   Budget,
   BudgetLine,
   Claim,
@@ -25,6 +29,7 @@ import type {
   ClaimUsage,
   Commitment,
   Document,
+  DomainEvent,
   DocumentSource,
   DocumentVersion,
   EvidenceItem,
@@ -66,6 +71,7 @@ import type {
   ReportSnapshot,
   ReportTemplateIngestion,
   ReportVersion,
+  ScheduledJob,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -157,6 +163,14 @@ export interface StoreState {
   reportApprovals: ReportApproval[];
   reportRequirements: ReportRequirement[];
   reportTemplateIngestions: ReportTemplateIngestion[];
+  // MG-6. Events are what became true; automations react to them; runs record
+  // what happened whether or not anything did.
+  automations: Automation[];
+  domainEvents: DomainEvent[];
+  automationRuns: AutomationRun[];
+  automationSteps: AutomationStep[];
+  automationFailures: AutomationFailure[];
+  scheduledJobs: ScheduledJob[];
   auditEvents: AuditEvent[];
   fitAssessments: FitAssessment[];
   aiGenerations: AIGeneration[];
@@ -231,6 +245,12 @@ export function createStoreState(): StoreState {
     reportApprovals: [],
     reportRequirements: clone(seed.reportRequirements ?? []),
     reportTemplateIngestions: [],
+    automations: clone(seed.automations ?? []),
+    domainEvents: [],
+    automationRuns: [],
+    automationSteps: [],
+    automationFailures: [],
+    scheduledJobs: [],
     auditEvents: clone(seed.auditEvents),
     fitAssessments: [],
     aiGenerations: [],

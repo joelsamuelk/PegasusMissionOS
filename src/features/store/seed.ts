@@ -13,6 +13,7 @@ import type {
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Automation,
   Budget,
   BudgetLine,
   Claim,
@@ -1970,6 +1971,118 @@ export const reportRequirements: ReportRequirement[] = [
     required: false,
     order: 4,
     verification: "provided",
+  },
+];
+
+/**
+ * Seeded automations.
+ *
+ * Three, chosen because each demonstrates a different property of the engine
+ * rather than because a demo needs three rules.
+ *
+ * The first is the brief's own worked example. The second closes §9 link 12 of
+ * the architectural acceptance chain — *the relationship owner is reminded 30
+ * days before reporting* — which was the last link in that chain with no
+ * machinery behind it. The third is deliberately left `draft`: an automation
+ * that fires the moment it is created is one nobody chose to switch on.
+ */
+export const automations: Automation[] = [
+  {
+    id: "auto-evidence-gap",
+    organisationId: ORG_ID,
+    name: "Chase evidence when a report is due and its evidence is thin",
+    description:
+      "The brief's worked example. Deterministically identifies what is missing, assembles an evidence-gap brief, and creates a task for whoever owns the data.",
+    trigger: { kind: "report.due_soon", entityType: "grant_report" },
+    condition: {
+      type: "all",
+      conditions: [
+        { type: "days_until", field: "report.dueDate", operator: "lte", days: 30 },
+        // Below 70%, exactly as the brief states it. Where completeness has
+        // not been computed this is `unknown`, and the automation does not
+        // fire on a report nobody has assessed.
+        { type: "field", field: "report.evidenceCompleteness", operator: "lt", value: 0.7 },
+      ],
+    },
+    actions: [
+      {
+        kind: "request_evidence",
+        params: { entityType: "grant_report", entityId: "{{subject.id}}" },
+      },
+      { kind: "generate_brief", params: {} },
+    ],
+    status: "active",
+    requiresApproval: false,
+    ownerId: "user-priya",
+    audit: stamp("2026-05-02"),
+  },
+  {
+    id: "auto-reporting-reminder",
+    organisationId: ORG_ID,
+    name: "Remind the owner 30 days before a funder report is due",
+    description:
+      "Closes the last link of the acceptance chain: a dated obligation with an accountable owner, and something that actually reminds them.",
+    trigger: {
+      kind: "date.approaching",
+      entityType: "reporting_requirement",
+      dateField: "requirement.dueDate",
+      daysBefore: 30,
+    },
+    condition: {
+      type: "field",
+      field: "requirement.status",
+      operator: "eq",
+      value: "open",
+    },
+    actions: [
+      {
+        kind: "create_task",
+        params: {
+          title: "Prepare the funder report due in 30 days",
+          relatedType: "reporting_requirement",
+          relatedId: "{{subject.id}}",
+        },
+      },
+      {
+        kind: "notify_user",
+        params: {
+          userId: "user-priya",
+          message: "A funder report falls due in 30 days.",
+        },
+      },
+    ],
+    status: "active",
+    requiresApproval: false,
+    ownerId: "user-amara",
+    audit: stamp("2026-05-02"),
+  },
+  {
+    id: "auto-grant-at-risk",
+    organisationId: ORG_ID,
+    name: "Draft a note to the funder when a grant becomes at risk",
+    description:
+      "Left as a draft on purpose. It drafts an external communication, so it can never run without a person, and switching it on is a decision somebody has to take.",
+    trigger: { kind: "grant.health_changed", entityType: "grant" },
+    condition: {
+      type: "changed",
+      field: "grant.health",
+      to: "at_risk",
+    },
+    actions: [
+      {
+        kind: "draft_communication",
+        params: {
+          recipientType: "funder",
+          recipientId: "{{grant.funderId}}",
+          purpose: "Flag a delivery risk early, before the funder finds out from a report.",
+        },
+      },
+    ],
+    status: "draft",
+    // Forced by the action catalogue regardless of what is stored here.
+    requiresApproval: true,
+    ownerId: "user-amara",
+    audit: stamp("2026-06-14"),
   },
 ];
 

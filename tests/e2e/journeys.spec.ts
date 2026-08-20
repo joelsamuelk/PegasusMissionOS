@@ -223,3 +223,45 @@ test("19. a report says when its data is not ready to draft from", async ({ page
       .first(),
   ).toBeVisible();
 });
+
+/**
+ * MG-6 automations.
+ *
+ * The acceptance test is about what was *not* built — automating routine work
+ * without opaque autonomous agents — so the journey checks that the boundary
+ * is visible on the page rather than implied by the code.
+ */
+test("20. automations show what they are allowed to do", async ({ page }) => {
+  await page.goto("/automations");
+
+  await expect(
+    page.getByRole("heading", { name: /what an automation is allowed to do/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/nothing in pegasus can send a message on its own/i)).toBeVisible();
+  // Every rule states its trigger and its actions in plain words.
+  await expect(page.getByText(/^When$/i).first()).toBeVisible();
+});
+
+test("21. an automation that can reach outside is marked and left off", async ({ page }) => {
+  await page.goto("/automations");
+
+  await expect(page.getByText(/needs a person/i).first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /draft a note to the funder/i }),
+  ).toBeVisible();
+  // It ships as a draft: an automation that fires the moment it is created is
+  // one nobody chose to switch on.
+  await expect(page.getByText(/^draft$/i).first()).toBeVisible();
+});
+
+test("22. testing an automation reports what it could not decide", async ({ page }) => {
+  await page.goto("/automations");
+
+  await page
+    .getByRole("button", { name: /test against this organisation/i })
+    .first()
+    .click();
+
+  await expect(page.getByText(/if this ran now/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/would send \d+ external communication/i)).toBeVisible();
+});
