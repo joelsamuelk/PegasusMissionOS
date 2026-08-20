@@ -112,7 +112,7 @@ export function createOrganisationRepository(q: Query, deps: Deps): Organisation
       // `organisations` is scoped by its own primary key, not by an
       // `organisation_id` column, so this is the one read that cannot use the
       // shared tenant filter.
-      const { data, error } = await q.raw
+      const { data, error } = await (await q.client())
         .from("organisations")
         .select("*")
         .eq("id", ctx.organisationId)
@@ -137,7 +137,7 @@ export function createOrganisationRepository(q: Query, deps: Deps): Organisation
       // `users` carries no `organisation_id`: a user can belong to several
       // organisations. Membership is the scope, which is why the id list is
       // resolved first rather than filtering the table.
-      const { data, error } = await q.raw.from("users").select("*").in("id", ids);
+      const { data, error } = await (await q.client()).from("users").select("*").in("id", ids);
       if (error) throw new Error(`Could not read users: ${error.message}`);
       return ((data ?? []) as Row[]).map(mapUser);
     },
@@ -145,7 +145,7 @@ export function createOrganisationRepository(q: Query, deps: Deps): Organisation
     async user(ctx, userId) {
       const ids = await activeMemberIds(ctx);
       if (!ids.includes(userId)) return null;
-      const { data, error } = await q.raw
+      const { data, error } = await (await q.client())
         .from("users")
         .select("*")
         .eq("id", userId)
@@ -164,7 +164,7 @@ export function createOrganisationRepository(q: Query, deps: Deps): Organisation
     },
 
     async setAiEnabled(ctx, enabled) {
-      const { error } = await q.raw
+      const { error } = await (await q.client())
         .from("organisations")
         .update({ ai_enabled: enabled, updated_at: ctx.now().toISOString() })
         .eq("id", ctx.organisationId);

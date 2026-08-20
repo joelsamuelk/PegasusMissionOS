@@ -55,8 +55,16 @@ function fail(action: string, table: string, error: PostgrestError): never {
 const ALL = "*";
 
 export class Query {
+  /**
+   * @param getClient Resolves a client bound to the current request.
+   *
+   * A factory rather than a client, because a Supabase client carries the
+   * caller's session in its cookie handlers and is therefore request-scoped,
+   * while `getRepository()` is a memoised singleton. Holding one client in the
+   * singleton would serve every request as whoever made the first one.
+   */
   constructor(
-    private readonly client: SupabaseClient,
+    private readonly getClient: () => Promise<SupabaseClient>,
     private readonly tenantFilter: TenantFilter,
   ) {}
 
@@ -65,9 +73,14 @@ export class Query {
    *
    * Every read in the adapter starts here, so the scoping decision is made in
    * one place rather than 255.
+   *
+   * Takes the client rather than resolving it, and is private, because a
+   * PostgREST builder is itself thenable: returning one from an async method
+   * means `await` unwraps it and runs the query. Every builder therefore stays
+   * inside the method that made it.
    */
-  select(ctx: RequestContext, table: string, columns: string = ALL) {
-    const query = this.client.from(table).select(columns);
+  private scoped(client: SupabaseClient, ctx: RequestContext, table: string) {
+    const query = client.from(table).select(ALL);
     return this.tenantFilter === "on"
       ? query.eq("organisation_id", ctx.organisationId)
       : query;
@@ -82,14 +95,20 @@ export class Query {
       order?: { column: string; ascending?: boolean };
       /** Exclude archived rows. Archiving is soft, so list reads must ask. */
       liveOnly?: boolean;
+      /** Columns that must be at or before a value. For due-by queries. */
+      atOrBefore?: Record<string, string>;
     } = {},
   ): Promise<Row[]> {
-    let query = this.select(ctx, table);
+    const client = await this.getClient();
+    let query = this.scoped(client, ctx, table);
     for (const [column, value] of Object.entries(match)) {
       if (value === undefined) continue;
       query = query.eq(column, value);
     }
     if (options.liveOnly) query = query.is("archived_at", null);
+    for (const [column, value] of Object.entries(options.atOrBefore ?? {})) {
+      query = query.lte(column, value);
+    }
     const { order } = options;
     if (order) query = query.order(order.column, { ascending: order.ascending ?? true });
     const { data, error } = await query;
@@ -103,7 +122,8 @@ export class Query {
     table: string,
     match: Record<string, unknown>,
   ): Promise<Row | null> {
-    let query = this.select(ctx, table);
+    const client = await this.getClient();
+    let query = this.scoped(client, ctx, table);
     for (const [column, value] of Object.entries(match)) {
       query = query.eq(column, value);
     }
@@ -126,11 +146,8 @@ export class Query {
       if (HAS_CREATED_BY.has(table)) columns.created_by ??= ctx.userId;
       if (HAS_UPDATED_BY.has(table)) columns.updated_by ??= ctx.userId;
     }
-    const { data, error } = await this.client
-      .from(table)
-      .insert(columns)
-      .select()
-      .single();
+    const client = await this.getClient();
+    const { data, error } = await client.from(table).insert(columns).select().single();
     if (error) fail("write to", table, error);
     return data as Row;
   }
@@ -157,7 +174,8 @@ export class Query {
       // trigger firing `now()` would quietly overwrite it with wall time.
       if (HAS_UPDATED_AT.has(table)) columns.updated_at = ctx.now().toISOString();
     }
-    let query = this.client.from(table).update(columns).eq("id", id);
+    const client = await this.getClient();
+    let query = client.from(table).update(columns).eq("id", id);
     if (this.tenantFilter === "on") {
       query = query.eq("organisation_id", ctx.organisationId);
     }
@@ -172,7 +190,8 @@ export class Query {
     table: string,
     match: Record<string, unknown>,
   ): Promise<void> {
-    let query = this.client.from(table).delete();
+    const client = await this.getClient();
+    let query = client.from(table).delete();
     for (const [column, value] of Object.entries(match)) {
       query = query.eq(column, value);
     }
@@ -196,14 +215,15 @@ export class Query {
     values: readonly string[],
   ): Promise<Row[]> {
     if (values.length === 0) return [];
-    const { data, error } = await this.select(ctx, table).in(column, [...values]);
+    const client = await this.getClient();
+    const { data, error } = await this.scoped(client, ctx, table).in(column, [...values]);
     if (error) fail("read", table, error);
     return (data ?? []) as unknown as Row[];
   }
 
   /** Escape hatch for reads that need a shape the helpers above cannot express. */
-  get raw(): SupabaseClient {
-    return this.client;
+  client(): Promise<SupabaseClient> {
+    return this.getClient();
   }
 
   get scoping(): TenantFilter {

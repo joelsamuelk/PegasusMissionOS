@@ -245,7 +245,7 @@ export function createOnboardingRepository(q: Query, deps: Deps): OnboardingRepo
       if (!row) return null;
       const candidate = mapCandidate(row);
 
-      const { data: user } = await q.raw
+      const { data: user } = await (await q.client())
         .from("users")
         .select("name")
         .eq("id", ctx.userId)

@@ -39,12 +39,17 @@ import { createAuditRepository } from "./repositories/audit";
  * Reads and writes are scoped twice: once here, by the adapter's own
  * `organisation_id` filter, and once in the database, by row level security.
  * The redundancy is the point -- see {@link TenantFilter}.
+ *
+ * Takes a client factory rather than a client. A Supabase client carries the
+ * caller's session in its cookie handlers, so it belongs to one request, while
+ * this repository is memoised for the process. One client held here would
+ * serve every request as whoever made the first one.
  */
 export function createSupabaseRepository(
-  client: SupabaseClient,
+  getClient: () => Promise<SupabaseClient>,
   options: AdapterOptions = {},
 ): MissionRepository {
-  const q = new Query(client, options.tenantFilter ?? "on");
+  const q = new Query(getClient, options.tenantFilter ?? "on");
   const audit = createAuditRepository(q);
   const recordActivity = createActivityRecorder(q);
   // Audit and graph are built first: other repositories record events through

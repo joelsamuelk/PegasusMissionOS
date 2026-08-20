@@ -45,7 +45,7 @@ export function createAuditRepository(q: Query): AuditRepository {
       // removed, which is precisely when it is being read.
       const actor = await q.maybeOne(ctx, "organisation_members", { user_id: ctx.userId });
       const user = actor
-        ? await q.raw.from("users").select("name").eq("id", ctx.userId).maybeSingle()
+        ? await (await q.client()).from("users").select("name").eq("id", ctx.userId).maybeSingle()
         : null;
 
       await q.insert(

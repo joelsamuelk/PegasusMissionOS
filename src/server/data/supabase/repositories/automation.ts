@@ -383,13 +383,11 @@ export function createAutomationRepository(q: Query, deps: Deps): AutomationRepo
     },
 
     async dueJobs(ctx, now) {
-      const { data, error } = await q
-        .select(ctx, "scheduled_jobs")
-        .eq("status", "pending")
-        .lte("run_after", now.toISOString())
-        .order("run_after", { ascending: true });
-      if (error) throw new Error(`Could not read scheduled_jobs: ${error.message}`);
-      return ((data ?? []) as unknown as Row[]).map(mapJob);
+      const rows = await q.many(ctx, "scheduled_jobs", { status: "pending" }, {
+        atOrBefore: { run_after: now.toISOString() },
+        order: { column: "run_after" },
+      });
+      return rows.map(mapJob);
     },
 
     async completeJob(ctx, jobId, status, error) {

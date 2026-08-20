@@ -14,7 +14,7 @@ export function createActivityRecorder(q: Query) {
     verb: string,
     target: string,
   ): Promise<void> {
-    const { data } = await q.raw.from("users").select("name").eq("id", ctx.userId).maybeSingle();
+    const { data } = await (await q.client()).from("users").select("name").eq("id", ctx.userId).maybeSingle();
     await q.insert(
       ctx,
       "activity_events",
