@@ -240,4 +240,12 @@ export interface Deps {
    * duplication that ends with one copy being weaker than the other.
    */
   graph: import("../types").GraphRepository;
+  /**
+   * Claims, for the readers that need them fully resolved.
+   *
+   * A claim is spread across four tables, so "read the claims" is not a
+   * `select`. `reports.cutVersion` pins figures against them and must see the
+   * same claim the rest of the product sees, sources and all.
+   */
+  claims: import("../types").ClaimRepository;
 }

@@ -119,7 +119,10 @@ function mapConflict(row: Row): ClaimConflict {
 
 const newest = (a: Row, b: Row) => String(b.created_at).localeCompare(String(a.created_at));
 
-export function createClaimRepository(q: Query, deps: Deps): ClaimRepository {
+export function createClaimRepository(
+  q: Query,
+  deps: Pick<Deps, "audit">,
+): ClaimRepository {
   /** Resolve the satellite tables for a set of claim rows, then map them. */
   async function hydrate(
     ctx: Parameters<ClaimRepository["list"]>[0],

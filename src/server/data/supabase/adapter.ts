@@ -51,11 +51,12 @@ export function createSupabaseRepository(
   // the one and edges through the other. Both depend only on what precedes
   // them, so the order is a fact about the dependency graph, not a convention.
   const graph = createGraphRepository(q, { audit });
-  const deps: Deps = { audit, recordActivity, graph };
+  const claims = createClaimRepository(q, { audit });
+  const deps: Deps = { audit, recordActivity, graph, claims };
   return {
     name: "supabase",
     organisations: createOrganisationRepository(q, deps),
-    claims: createClaimRepository(q, deps),
+    claims,
     graph,
     documents: createDocumentRepository(q, deps),
     onboarding: createOnboardingRepository(q, deps),

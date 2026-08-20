@@ -66,6 +66,11 @@ create index if not exists report_versions_report_idx
 
 create type report_template_origin as enum ('built_in', 'cloned', 'ingested');
 
+create type report_section_type as enum (
+  'narrative', 'claims', 'metrics', 'table', 'chart', 'evidence',
+  'financial', 'appendix'
+);
+
 create type report_type as enum (
   'impact', 'funder', 'grant', 'programme', 'trustee', 'board_pack',
   'annual', 'finance'
@@ -106,6 +111,41 @@ create index if not exists report_definitions_funder_idx
 create trigger report_definitions_set_updated_at
   before update on report_definitions
   for each row execute function set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- `impact_reports` catches up with its own model.
+--
+-- Six fields on `ImpactReport` have never had a column: the report's type, the
+-- template it was built from, its owner, and the three id arrays naming who
+-- contributes, reviews and approves. They have worked in the in-memory adapter
+-- and evaporated in Postgres.
+--
+-- `type` defaults to 'impact' because that is what every existing row is: the
+-- built-in template was the only one available before this migration.
+-- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Sections carry their type and their citations.
+--
+-- `ImpactReportSection.claimIds` is the mechanism behind "figures are
+-- references to immutable claims, never copied values" -- and it has had no
+-- column, so in Postgres every section cited nothing. A published report could
+-- not resolve what its numbers were written from, which is the property the
+-- whole claims layer exists to provide.
+--
+-- `type` defaults to 'narrative', matching the fallback the reader used while
+-- the column was missing.
+-- ---------------------------------------------------------------------------
+alter table impact_report_sections
+  add column if not exists type report_section_type not null default 'narrative',
+  add column if not exists claim_ids uuid[] not null default '{}';
+
+alter table impact_reports
+  add column if not exists type report_type not null default 'impact',
+  add column if not exists definition_id uuid references report_definitions(id) on delete set null,
+  add column if not exists owner_id uuid references users(id),
+  add column if not exists contributor_ids uuid[] not null default '{}',
+  add column if not exists reviewer_ids uuid[] not null default '{}',
+  add column if not exists approver_ids uuid[] not null default '{}';
 
 -- ---------------------------------------------------------------------------
 -- Snapshots
