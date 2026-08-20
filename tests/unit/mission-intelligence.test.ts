@@ -151,6 +151,33 @@ describe("cross-domain reasoning", () => {
     expect(composite!.components.some((c) => c.id.startsWith("grant_ending:"))).toBe(true);
   });
 
+  /**
+   * The third leg, which MG-4 shipped without.
+   *
+   * When this rule was written the demo held two transactions, so no
+   * unrestricted runway could be computed and the rule fired on its two-leg
+   * branch — the grant is the programme's sole funder. MG-8's ledger supplies
+   * the finance leg, and the rule escalates to critical without a code change.
+   * That was the claim made in the MG-4 record; this is it being checked.
+   */
+  it("fires on all three legs once a ledger exists, and escalates", async () => {
+    const { board } = await boardFor(h);
+    const composite = board.composites.find(
+      (c) => c.rule === "grant_ending_programme_dependency_low_runway",
+    )!;
+
+    expect(composite.components.map((c) => c.id)).toEqual(
+      expect.arrayContaining([
+        "grant_ending:grant-wyca",
+        "unrestricted_runway:org-northstar",
+      ]),
+    );
+    expect(composite.severity).toBe("critical");
+    expect(composite.contributingCategories).toEqual(
+      expect.arrayContaining(["grants", "finance"]),
+    );
+  });
+
   it("outranks its own components, so the connection sorts above the loose ends", async () => {
     const { board } = await boardFor(h);
     for (const composite of board.composites) {

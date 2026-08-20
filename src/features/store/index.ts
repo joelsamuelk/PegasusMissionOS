@@ -89,6 +89,10 @@ import type {
   ProfileCandidate,
   ResearchSource,
 } from "@/lib/organisation-intelligence/types";
+import type {
+  FinancialImport,
+  TransactionCandidateRecord,
+} from "@/server/data/types";
 import * as seed from "./seed";
 
 /** A reviewer's decision on one candidate, recorded rather than inferred. */
@@ -175,6 +179,10 @@ export interface StoreState {
   // what happened whether or not anything did.
   // MG-7. A submission answers the version it was shown, so versions and
   // fields are stored separately and never edited after publication.
+  // MG-8. An import is a thing that happened, and a candidate is a suggestion
+  // rather than a value.
+  financialImports: FinancialImport[];
+  transactionCandidates: TransactionCandidateRecord[];
   forms: Form[];
   formVersions: FormVersion[];
   formFields: FormField[];
@@ -263,6 +271,8 @@ export function createStoreState(): StoreState {
     reportApprovals: [],
     reportRequirements: clone(seed.reportRequirements ?? []),
     reportTemplateIngestions: [],
+    financialImports: [],
+    transactionCandidates: [],
     forms: clone(seed.forms ?? []),
     formVersions: clone(seed.formVersions ?? []),
     formFields: clone(seed.formFields ?? []),

@@ -591,6 +591,113 @@ export interface FinanceRepository {
     ctx: RequestContext,
     input: Omit<FinancialAllocation, "id" | "organisationId">,
   ): Promise<string | null>;
+
+  /**
+   * Apportion one cost across several targets, exactly.
+   *
+   * A shared cost is the case that makes cost-per-outcome defensible or
+   * indefensible. The split is largest-remainder so it reconciles to the
+   * penny, the basis travels with every allocation it produces, and any share
+   * held back as genuinely organisational is recorded rather than forced onto
+   * delivery.
+   *
+   * Delegates to `allocateSharedCost` in the calculation engine. This method
+   * exists so the persisted path runs that arithmetic rather than a second
+   * copy of it.
+   */
+  allocateShared(
+    ctx: RequestContext,
+    input: {
+      transactionId: string;
+      label: string;
+      basis: FinancialAllocation["allocationBasis"];
+      targets: { label: string; weight: number; programmeId?: string; activityId?: string }[];
+      /** 0..1, held back as organisational and attributed to nothing. */
+      unallocatedShare?: number;
+    },
+  ): Promise<{ allocationIds: string[]; unallocatedMinorUnits: number } | null>;
+
+  // --- Statement ingestion (MG-8) ---------------------------------------
+
+  /**
+   * Parse, normalise, classify and hold a statement for review.
+   *
+   * The whole pipeline up to but excluding `post`. Nothing here writes a
+   * transaction: an unreviewed import is not a ledger, and a suggested
+   * category living on a transaction would be indistinguishable from a
+   * confirmed one the moment it was written.
+   */
+  importStatement(
+    ctx: RequestContext,
+    input: { fileName?: string; csv: string; currency?: string },
+  ): Promise<FinancialImport>;
+  imports(ctx: RequestContext): Promise<FinancialImport[]>;
+  getImport(ctx: RequestContext, id: string): Promise<FinancialImport | null>;
+  candidates(ctx: RequestContext, importId: string): Promise<TransactionCandidateRecord[]>;
+
+  /**
+   * Post the rows a reviewer accepted, as transactions.
+   *
+   * Takes explicit row numbers rather than "post everything", so a reviewer
+   * who accepted twenty of twenty-four gets twenty. Returns what was posted
+   * and what was not, with the reason.
+   */
+  postCandidates(
+    ctx: RequestContext,
+    importId: string,
+    acceptedRowNumbers: number[],
+  ): Promise<{ posted: string[]; skipped: { rowNumber: number; reason: string }[] }>;
+}
+
+/**
+ * A statement import, as a record.
+ *
+ * "Where did this transaction come from?" and "did that import run cleanly?"
+ * are both questions with answers, and neither can be reconstructed from the
+ * transactions afterwards.
+ */
+export interface FinancialImport {
+  id: string;
+  organisationId: string;
+  fileName?: string;
+  status: "parsing" | "awaiting_review" | "posted" | "rejected" | "failed";
+  currency: string;
+  detectedColumns: { header: string; detected: string }[];
+  problems: { rowNumber: number; reason: string; raw: string }[];
+  rowCount: number;
+  postedCount: number;
+  duplicateCount: number;
+  dateFormatAmbiguous: boolean;
+  uploadedBy?: string;
+  uploadedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+}
+
+/** A normalised, classified row waiting for a decision. */
+export interface TransactionCandidateRecord {
+  id: string;
+  organisationId: string;
+  importId: string;
+  rowNumber: number;
+  date: string;
+  description: string;
+  amount: { minorUnits: number; currency: string };
+  direction: FinancialTransaction["direction"];
+  counterparty?: string;
+  reference?: string;
+  suggestedCategory?: string;
+  suggestedFundId?: string;
+  suggestedGrantId?: string;
+  suggestedRestricted?: boolean;
+  confidence: "certain" | "probable" | "possible";
+  evidence: { code: string; detail: string }[];
+  requiresApproval: boolean;
+  duplicateOf?: string;
+  duplicateReason?: string;
+  postedTransactionId?: string;
+  decidedBy?: string;
+  decidedAt?: string;
 }
 
 export interface StrategyRepository {

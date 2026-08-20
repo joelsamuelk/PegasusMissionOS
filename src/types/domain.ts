@@ -1083,6 +1083,17 @@ export interface Fund {
   currency: CurrencyCode;
   /** What the restriction actually says, where it is restricted. */
   restrictionPurpose?: string;
+  /**
+   * What the fund held before the recorded ledger begins.
+   *
+   * Added by MG-8, because the alternative is worse in a way that took a
+   * working screen to notice: modelling an opening reserve as an income
+   * transaction makes it part of the flow, and a burn rate computed over a
+   * window containing it reports that income covers costs when it does not.
+   * A balance brought forward is a property of the fund, not something that
+   * happened during the period.
+   */
+  openingBalance?: Money;
   /** The grant or donation that established the fund, where there is one. */
   originRef?: EntityReference;
   openedAt?: ISODate;

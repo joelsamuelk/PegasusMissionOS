@@ -290,3 +290,32 @@ test("24. a form states its lawful basis and its retention", async ({ page }) =>
   await expect(page.getByText(/lawful basis:/i).first()).toBeVisible();
   await expect(page.getByText(/answers are erased \d+ days after they arrive/i)).toBeVisible();
 });
+
+/**
+ * MG-8 the finance runtime.
+ *
+ * The constraint the journey checks is the one the brief states absolutely:
+ * *where a refusal fires, the UI shows the reason. It never shows a blank, and
+ * it never shows a zero.* A finance page with three panels and no
+ * acknowledgement of the questions it skipped reads as a complete picture.
+ */
+test("25. finance shows its arithmetic on every figure", async ({ page }) => {
+  await page.goto("/finance");
+
+  await expect(
+    page.getByRole("heading", { name: /where the money is, and how each figure was reached/i }),
+  ).toBeVisible();
+
+  // Workings, on the page rather than behind a tooltip.
+  await expect(page.getByText(/brought forward, plus/i).first()).toBeVisible();
+  await expect(page.getByText(/net monthly burn/i).first()).toBeVisible();
+});
+
+test("26. finance reads grant utilisation from allocations, not a scalar", async ({ page }) => {
+  await page.goto("/finance");
+
+  await expect(page.getByRole("heading", { name: /grant utilisation/i })).toBeVisible();
+  await expect(page.getByText(/naming its transaction and its method/i).first()).toBeVisible();
+  // Utilisation alone is not a finding; utilisation against elapsed time is.
+  await expect(page.getByText(/% elapsed/i).first()).toBeVisible();
+});

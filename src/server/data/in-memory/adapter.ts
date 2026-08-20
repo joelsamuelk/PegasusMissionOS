@@ -35,6 +35,8 @@ import type {
 import { assertKindMayNotStrengthen, createClaim } from "@/lib/knowledge";
 import { can } from "@/lib/permissions";
 import { resolvePersonByEmail } from "@/lib/logic/relationship-identity";
+import { allocateSharedCost } from "@/lib/finance-intelligence/allocate";
+import { classifyRows, detectDuplicates, parseStatementCsv } from "@/lib/finance";
 import {
   answersDueForErasure,
   assessSpam,
@@ -51,7 +53,10 @@ import {
 import { applyReview, candidateToClaim } from "@/lib/organisation-intelligence/approve";
 import type { RequestContext } from "@/server/context/request-context";
 import type { StoreState } from "@/features/store";
-import type { MissionRepository } from "../types";
+import type {
+  FinancialImport,
+  MissionRepository,
+} from "../types";
 
 /**
  * In-memory adapter over the seeded store.
@@ -971,6 +976,212 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
             `by ${input.allocationMethod}${input.allocationBasis ? ` on ${input.allocationBasis}` : ""}`,
         });
         return id;
+      },
+
+      async allocateShared(ctx, input) {
+        const transaction = scopedFind(state.transactions, ctx, (t) => t.id === input.transactionId);
+        if (!transaction) return null;
+
+        // Endpoints are checked before any arithmetic runs. Apportioning a
+        // cost across a programme in another tenant would be a correctly
+        // scoped allocation row pointing somewhere it must not.
+        for (const target of input.targets) {
+          if (target.programmeId && !entityExists(ctx, { type: "programme", id: target.programmeId })) {
+            return null;
+          }
+          if (target.activityId && !entityExists(ctx, { type: "activity", id: target.activityId })) {
+            return null;
+          }
+        }
+
+        const result = allocateSharedCost({
+          organisationId: ctx.organisationId,
+          label: input.label,
+          amount: transaction.amount,
+          basis: input.basis ?? "equal",
+          targets: input.targets.map((target) => ({
+            label: target.label,
+            weight: target.weight,
+            programmeId: target.programmeId,
+            activityId: target.activityId,
+          })),
+          effectiveDate: transaction.date,
+          transactionId: transaction.id,
+          restricted: transaction.restricted,
+          unallocatedShare: input.unallocatedShare,
+          createdBy: ctx.userId,
+          idPrefix: newId("alloc"),
+        });
+
+        for (const allocation of result.allocations) {
+          state.allocations.push({ ...allocation, organisationId: ctx.organisationId });
+        }
+
+        await recordAudit(ctx, {
+          action: "finance.cost.apportioned",
+          entityType: "transaction",
+          entityId: transaction.id,
+          summary: `Apportioned ${input.label} across ${input.targets.length} targets. ${result.methodologyNote}`,
+        });
+
+        return {
+          allocationIds: result.allocations.map((allocation) => allocation.id),
+          unallocatedMinorUnits: result.unallocated.minorUnits,
+        };
+      },
+
+      // --- Statement ingestion ------------------------------------------
+
+      async importStatement(ctx, input) {
+        const now = stamp(ctx);
+        const currency = input.currency ?? "GBP";
+        const parsed = parseStatementCsv(input.csv, { currency });
+
+        const [funds, grants, funders, history] = [
+          scoped(state.funds, ctx),
+          scoped(state.grants, ctx),
+          scoped(state.funders, ctx),
+          scoped(state.transactions, ctx),
+        ];
+
+        const classified = classifyRows(parsed.rows, {
+          funds,
+          grants,
+          funderNames: funders.map((funder) => ({ id: funder.id, name: funder.name })),
+          history,
+        });
+        const duplicates = detectDuplicates(parsed.rows, history);
+        const duplicateByRow = new Map(duplicates.map((match) => [match.rowNumber, match]));
+
+        const record: FinancialImport = {
+          id: newId("fimport"),
+          organisationId: ctx.organisationId,
+          fileName: input.fileName,
+          // Never `posted`. An import that parsed is an import awaiting a
+          // person; the only path to `posted` is through `postCandidates`.
+          status: parsed.rows.length === 0 ? "failed" : "awaiting_review",
+          currency,
+          detectedColumns: parsed.columns,
+          problems: parsed.problems,
+          rowCount: parsed.rows.length,
+          postedCount: 0,
+          duplicateCount: duplicates.length,
+          dateFormatAmbiguous: parsed.dateFormatAmbiguous,
+          uploadedBy: ctx.userId,
+          uploadedAt: now,
+        };
+        state.financialImports.push(record);
+
+        for (const row of classified) {
+          const duplicate = duplicateByRow.get(row.rowNumber);
+          state.transactionCandidates.push({
+            id: newId("cand"),
+            organisationId: ctx.organisationId,
+            importId: record.id,
+            rowNumber: row.rowNumber,
+            date: row.date,
+            description: row.description,
+            amount: row.amount,
+            direction: row.direction,
+            counterparty: row.counterparty,
+            reference: row.reference,
+            suggestedCategory: row.candidate.category,
+            suggestedFundId: row.candidate.fundId,
+            suggestedGrantId: row.candidate.grantId,
+            suggestedRestricted: row.candidate.restricted,
+            confidence: row.candidate.confidence,
+            evidence: row.candidate.evidence,
+            // A duplicate always needs a person, whatever the classifier made
+            // of it: posting the same payment twice moves a grant utilisation
+            // figure a funder reads.
+            requiresApproval: row.candidate.requiresApproval || duplicate !== undefined,
+            duplicateOf: duplicate?.existingTransactionId || undefined,
+            duplicateReason: duplicate?.reason,
+          });
+        }
+
+        await recordAudit(ctx, {
+          action: "finance.statement.imported",
+          entityType: "transaction",
+          entityId: record.id,
+          summary: `Read ${parsed.rows.length} rows from ${input.fileName ?? "a statement"}, ${parsed.problems.length} unreadable, ${duplicates.length} possible duplicates. Nothing posted.`,
+        });
+
+        return record;
+      },
+
+      async imports(ctx) {
+        return scoped(state.financialImports, ctx).sort((a, b) =>
+          b.uploadedAt.localeCompare(a.uploadedAt),
+        );
+      },
+      async getImport(ctx, id) {
+        return scopedFind(state.financialImports, ctx, (row) => row.id === id);
+      },
+      async candidates(ctx, importId) {
+        return scoped(state.transactionCandidates, ctx)
+          .filter((candidate) => candidate.importId === importId)
+          .sort((a, b) => a.rowNumber - b.rowNumber);
+      },
+
+      async postCandidates(ctx, importId, acceptedRowNumbers) {
+        const record = scopedFind(state.financialImports, ctx, (row) => row.id === importId);
+        if (!record) return { posted: [], skipped: [] };
+
+        const accepted = new Set(acceptedRowNumbers);
+        const posted: string[] = [];
+        const skipped: { rowNumber: number; reason: string }[] = [];
+
+        for (const candidate of scoped(state.transactionCandidates, ctx).filter(
+          (row) => row.importId === importId,
+        )) {
+          if (!accepted.has(candidate.rowNumber)) {
+            skipped.push({ rowNumber: candidate.rowNumber, reason: "Not accepted by the reviewer." });
+            continue;
+          }
+          if (candidate.postedTransactionId) {
+            skipped.push({ rowNumber: candidate.rowNumber, reason: "Already posted." });
+            continue;
+          }
+
+          const transaction: FinancialTransaction = {
+            id: newId("txn"),
+            organisationId: ctx.organisationId,
+            date: candidate.date,
+            description: candidate.description,
+            amount: candidate.amount,
+            direction: candidate.direction,
+            category: candidate.suggestedCategory,
+            counterparty: candidate.counterparty,
+            restricted: candidate.suggestedRestricted ?? false,
+            grantId: candidate.suggestedGrantId,
+            fundId: candidate.suggestedFundId,
+            source: "import",
+            // A person accepted the classification, so the transaction is
+            // `provided` rather than `verified`: they confirmed a suggestion,
+            // nobody reconciled it against a bank statement line by line.
+            verificationState: "provided",
+          };
+          state.transactions.push(transaction);
+          candidate.postedTransactionId = transaction.id;
+          candidate.decidedBy = ctx.userId;
+          candidate.decidedAt = stamp(ctx);
+          posted.push(transaction.id);
+        }
+
+        record.postedCount += posted.length;
+        record.reviewedBy = ctx.userId;
+        record.reviewedAt = stamp(ctx);
+        record.status = posted.length > 0 ? "posted" : "rejected";
+
+        await recordAudit(ctx, {
+          action: "finance.statement.posted",
+          entityType: "transaction",
+          entityId: importId,
+          summary: `Posted ${posted.length} transactions from an import, ${skipped.length} left unposted`,
+        });
+
+        return { posted, skipped };
       },
     },
 

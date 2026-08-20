@@ -46,7 +46,7 @@ Two facts govern everything below:
 | **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | Persistence still waits on MG-2 |
-| **MG-8** Finance Runtime | Slice E | Not started | **MG-1 SC2** — it has no tables |
+| **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | Persistence still waits on MG-2 |
 | **MG-9** Mission Portals | Parked | Not started | MG-2, MG-12 |
 | **MG-10** Fundraising | Parked | Not started | MG-1 SC2, MG-8 |
 | **MG-11** Integrations | Slice I | Not started | MG-2 |
@@ -274,6 +274,56 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 
 **Security review:** transaction narratives routinely contain personal data — names of individuals paid, beneficiary references in payment descriptions. They must be excluded from AI context by default, not by remembering to redact.
 
+### Verification record — MG-8 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm test` | **928 passed**, 74 files (was 890 across 73) |
+| `npm run test:e2e` | **35/35** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run build` | succeeds |
+
+**The governing constraint held.** `lib/finance-intelligence` is unchanged — `git diff` touches none of its nineteen modules, and its eighty tests pass unmodified. The new code lives in `lib/finance`, which ingests, classifies and composes, and calls into the engine for every figure it reports.
+
+**The mutation the plan named, and what it actually killed.** *Replace largest-remainder splitting with naïve rounding.* The plan predicted four existing finance tests would fail; **two** did. That was worth chasing rather than recording as a discrepancy: the plan also said to re-run it *against the persisted path*, and the persisted path did not exercise splitting at all, because nothing in the repository apportioned a cost. `finance.allocateShared` now delegates to `allocateSharedCost`, and the mutation kills **three** tests including one on the persisted path. The point of that instruction was that the engine's own suite proves the arithmetic and only a persisted test proves the repository uses it rather than a second copy.
+
+**Three real defects the tests caught, all in code I had just written.**
+
+1. **Column detection matched "Some Bank Specific Thing" as a credit column**, because the credit hints include the two-letter word "in" and "thing" contains it. A column mis-detected that way puts every row on the wrong side of the ledger. Now anchored on word boundaries.
+2. **A zero-value row reported "no amount could be read"**, sending a reviewer to look for a formatting problem that was not there. A parsed zero and an unparseable cell are different findings.
+3. **The classifier attached a 2026 payment to a 2022 pilot** with a similar title, because it took the first grant whose title matched. Now it matches active grants only, refuses to pick when several match, and filters generic words — almost every grant is called something "programme grant", and matching on those words makes every payment match every grant.
+
+**The modelling change a working screen forced.** The seeded ledger initially carried the opening reserve as an income transaction, and the runway came out as "no net burn" — income covered costs. That is the most flattering possible error and it only surfaces when somebody trusts the figure. **A balance brought forward is a property of the fund, not something that happened during the period.** `Fund.openingBalance` was added, along with the column in `0025`, and the burn rate is now computed over flow alone. The demo organisation has 2.5 months of unrestricted runway, which is the position most small charities are actually in and the one the runway engine was written for.
+
+**A gap recorded in the MG-4 record is now closed.** That record noted that `grant_ending_programme_dependency_low_runway` was firing on its two-leg branch because there was no ledger to compute a runway from, and claimed the third leg would start firing without a code change once MG-8 supplied one. It does: the composite now carries `unrestricted_runway` as a component and escalates to `critical`. A test pins it, in the MG-4 suite rather than this one, because that is the claim being checked.
+
+**`FinanceFigure` is a union, not a nullable number.** The brief's constraint — *where a refusal fires, the UI shows the reason. It never shows a blank, and it never shows a zero* — cannot be kept by a nullable field, because a caller writes `?? 0` and a zero runway and an unknown runway are opposite statements. Every figure either has a value and its workings, or a reason and a list of what would produce one. `FigureCard` cannot render a blank because the unknown branch has no value to render.
+
+**Mutation tests.** Three, all restored.
+
+1. Naïve rounding instead of largest remainder. **Three tests fail**, including one on the persisted path.
+2. Make `unknownFigure` return a formatted zero. **Five tests fail**, all in the refusal block.
+3. Make an import post directly, skipping review. **The "writes no transaction on import" test fails.** The pipeline puts `review` between `classify` and `post`, and collapsing them turns suggestions into assertions the moment a file is uploaded.
+
+**Security review, against §13.**
+
+- **Transaction narratives.** The item this plan flagged for MG-8 was honoured in MG-4, at the point the field first became reachable by a model: excluded from grounding by default, gated on `finance:manage` even when explicitly requested. Nothing in this phase widens it. The deterministic engine reads narratives — classification is matching descriptions against the organisation's own records — and the model is shown totals.
+- **No model is involved in classification at all.** Not "a model kept on a leash": none. Classification is a lookup against funds, grants, funders and the organisation's own past decisions, which is explainable, testable, free, and does not require sending payment descriptions naming individuals to a provider.
+- **Endpoint checks before arithmetic.** `allocateShared` verifies every target is in-tenant before apportioning, because a correctly scoped allocation row can still point at another tenant's programme.
+- **Posting is `provided`, never `verified`.** A person confirmed a suggestion; nobody reconciled the statement line by line.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0025` is written and reviewed SQL, never applied.
+- **CSV only.** OFX and XLSX are named in the brief and not implemented. The parser is behind a function rather than a port interface, which is a smaller commitment than MG-11 will want and is honest about what exists.
+- **No allocation review screen.** `allocateTransaction` and `allocateShared` exist as actions and are tested; the Finance Command Centre shows unallocated money and links to nothing that resolves it. That is the largest gap in this phase and it is a screen rather than a design question.
+- **No forecast or funding-need surface.** `buildFundingNeedForecast`, `deriveFundingNeed` and `computeProgrammeEconomics` are tested in the engine and have no consumer. Cost per outcome in particular needs the allocation review screen first: it is only defensible when the allocations beneath it are.
+- **The parser is exercised against synthetic CSVs.** Real bank exports will surface format variance; that is the standing constraint in §6 and is why every unrecognised column and unreadable row is reported rather than dropped.
+- **Reconciliation is a table with no code.** `reconciliations` exists in `0025` and nothing writes to it.
+
+---
+
 ---
 
 ### MG-6 — Mission automations
@@ -360,7 +410,7 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 
 **The ordering deviation, and what it cost.** §2 argued MG-4 should follow MG-8 and MG-6 so the orchestrator has a tool set worth orchestrating. It ran ahead of both, and the cost is real and is visible in the output rather than hidden:
 
-- **The finance detectors have almost nothing to read.** The seeded workspace has two funds and two transactions, so `unrestricted_runway` never fires and `grant_ending_programme_dependency_low_runway` currently fires on its two-leg branch — the grant is the programme's sole funder — rather than on the three-leg branch the brief describes. The rule is written for both and the branch it took is stated in its own `detail` text. When MG-8 supplies a ledger, the third leg starts firing without a code change.
+- **The finance detectors have almost nothing to read.** The seeded workspace has two funds and two transactions, so `unrestricted_runway` never fires and `grant_ending_programme_dependency_low_runway` currently fires on its two-leg branch — the grant is the programme's sole funder — rather than on the three-leg branch the brief describes. The rule is written for both and the branch it took is stated in its own `detail` text. When MG-8 supplies a ledger, the third leg starts firing without a code change. **Closed by MG-8**, which supplied one: the composite now carries `unrestricted_runway` as a component and escalates to `critical`, with no change to the rule. A test in this phase's suite pins it.
 - **There is no scheduler**, so the Morning Brief is a page a person opens rather than something that arrives. §9 link 12 remains MG-6's.
 - **There is no tool registry.** What was built instead is narrower and, on reflection, is the right first half: the model is handed *findings*, never callable capabilities. A registry is worth building when there are enough deterministic tools that routing between them is a real decision. There are currently nine detectors and four rules, and they all run every time.
 

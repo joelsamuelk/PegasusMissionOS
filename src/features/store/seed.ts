@@ -2574,6 +2574,9 @@ export const funds: Fund[] = [
     name: "General funds",
     restriction: "unrestricted",
     currency: "GBP",
+    // Brought forward, not received during the period. Recording it as income
+    // would make the burn rate report that the core covers itself.
+    openingBalance: { minorUnits: 4_200_000, currency: "GBP" },
     openedAt: "2019-04-01",
     status: "open",
     audit: stamp("2019-04-01"),
@@ -2612,7 +2615,91 @@ export const transactions: FinancialTransaction[] = [
     source: "manual",
     verificationState: "verified",
   },
+  /**
+   * A year of unrestricted movement.
+   *
+   * Added by MG-8 so the calculation engine has something to calculate from.
+   * Before this the demo held two transactions, which is enough to prove a
+   * schema and not enough to produce a runway, a burn rate or a variance — and
+   * a Finance Command Centre whose every figure reads "cannot be calculated"
+   * demonstrates the refusal machinery and nothing else.
+   *
+   * Deliberately unglamorous and deliberately tight: an organisation with
+   * roughly five months of unrestricted runway, which is the position most
+   * small charities are actually in and the one the cliff and runway engines
+   * were written for.
+   */
+  ...unrestrictedLedger(),
 ];
+
+/**
+ * Twelve months of core income and expenditure.
+ *
+ * Generated rather than typed out, because thirty near-identical literals are
+ * thirty chances to mistype a figure and none of them is more realistic than
+ * an arithmetic series. The shape is what matters: monthly core costs that
+ * exceed monthly unrestricted income, which is what produces a finite runway.
+ */
+function unrestrictedLedger(): FinancialTransaction[] {
+  const months = [
+    "2025-08", "2025-09", "2025-10", "2025-11", "2025-12",
+    "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07",
+  ];
+
+  const rows: FinancialTransaction[] = [];
+
+  months.forEach((month, index) => {
+    // Unrestricted income: small, irregular, and not enough.
+    if (index % 2 === 0) {
+      rows.push({
+        id: `txn-donations-${month}`,
+        organisationId: ORG_ID,
+        date: `${month}-12`,
+        description: `Individual donations, ${month}`,
+        amount: gbp(180_000 + index * 4_000),
+        direction: "income",
+        category: "Donations received",
+        counterparty: "Various donors",
+        restricted: false,
+        fundId: "fund-general",
+        source: "import",
+        verificationState: "provided",
+      });
+    }
+
+    rows.push({
+      id: `txn-core-salaries-${month}`,
+      organisationId: ORG_ID,
+      date: `${month}-28`,
+      description: `Core salaries, ${month}`,
+      amount: gbp(310_000),
+      direction: "expenditure",
+      category: "Salaries",
+      counterparty: "Payroll",
+      restricted: false,
+      fundId: "fund-general",
+      source: "import",
+      verificationState: "provided",
+    });
+
+    rows.push({
+      id: `txn-premises-${month}`,
+      organisationId: ORG_ID,
+      date: `${month}-05`,
+      description: `Office rent and utilities, ${month}`,
+      amount: gbp(78_000),
+      direction: "expenditure",
+      category: "Premises",
+      counterparty: "Kirkgate Workspace",
+      restricted: false,
+      fundId: "fund-general",
+      source: "import",
+      verificationState: "provided",
+    });
+  });
+
+  return rows;
+}
 
 export const allocations: FinancialAllocation[] = [
   {

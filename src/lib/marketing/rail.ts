@@ -18,6 +18,7 @@ export const NAV_LABELS = [
   "Funding",
   "Applications",
   "Grants",
+  "Finance",
   "Programmes",
   "Impact",
   "Evidence",
