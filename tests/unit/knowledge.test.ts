@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Claim, ClaimSource } from "@/types/domain";
 import {
+  CLAIM_KIND_DISTANCE,
   ClaimPromotionError,
   GroundingViolationError,
+  assertKindMayNotStrengthen,
   assessEvidenceStrength,
   confirmClaim,
   correctClaim,
@@ -419,5 +421,114 @@ describe("itemsMentionedIn is biased against false positives", () => {
   it("treats a percentage-only value as unprovable", () => {
     const offered = [item("i1", "Progression", "58%")];
     expect(itemsMentionedIn("Around 58% progressed into work.", offered)).toEqual([]);
+  });
+});
+
+
+/**
+ * MG-1 added `inference` and `hypothesis`. These tests pin the *ordering*
+ * rather than the labels, because ordering is the behaviour: adding a label
+ * without placing it correctly on the scale would leave `effectiveClaimKind`
+ * silently treating a hypothesis as strong as a fact.
+ */
+describe("inference and hypothesis", () => {
+  it("orders the seven kinds from a record outwards", () => {
+    const ascending = [
+      "fact",
+      "calculation",
+      "inference",
+      "assumption",
+      "hypothesis",
+      "forecast",
+      "recommendation",
+    ] as const;
+
+    const distances = ascending.map((kind) => CLAIM_KIND_DISTANCE[kind]);
+    expect(distances).toEqual([...distances].sort((a, b) => a - b));
+    expect(new Set(distances).size).toBe(ascending.length);
+  });
+
+  it("preserves the relative order of the original five", () => {
+    // The finance suite asserts weakest-link behaviour over these five through
+    // its own API. Inserting two kinds must not reorder them.
+    const d = CLAIM_KIND_DISTANCE;
+    expect(d.fact).toBeLessThan(d.calculation);
+    expect(d.calculation).toBeLessThan(d.assumption);
+    expect(d.assumption).toBeLessThan(d.forecast);
+    expect(d.forecast).toBeLessThan(d.recommendation);
+  });
+
+  it("a calculation resting on an inference is not a calculation", () => {
+    const root = claim({ id: "a", kind: "calculation", supportedBy: ["b"] });
+    const support = claim({ id: "b", kind: "inference" });
+    const index = indexClaims([root, support]);
+
+    expect(effectiveClaimKind(root, index)).toBe("inference");
+    expect(kindIsHonest(root, index)).toBe(false);
+  });
+
+  it("a hypothesis anywhere in the chain outweighs an assumption", () => {
+    const index = indexClaims([
+      claim({ id: "a", kind: "fact", supportedBy: ["b", "c"] }),
+      claim({ id: "b", kind: "assumption" }),
+      claim({ id: "c", kind: "hypothesis" }),
+    ]);
+
+    expect(effectiveClaimKind(index.get("a")!, index)).toBe("hypothesis");
+  });
+
+  it("an inference is weaker than the calculation it might be mistaken for", () => {
+    const index = indexClaims([
+      claim({ id: "a", kind: "inference", supportedBy: ["b"] }),
+      claim({ id: "b", kind: "calculation" }),
+    ]);
+
+    // The root is already the weakest link; a stronger support cannot lift it.
+    expect(effectiveClaimKind(index.get("a")!, index)).toBe("inference");
+  });
+});
+
+/**
+ * The brief's prohibition: AI must never silently transform hypothesis into
+ * fact. `effectiveClaimKind` computes the weakest link across a support chain,
+ * so the cheapest way to defeat it is not to argue with the chain but to
+ * replace a weak link with a strong successor.
+ */
+describe("kind may not be strengthened by a producer", () => {
+  const model = { method: "model", provider: "anthropic", model: "m", promptVersion: "v1" } as const;
+  const human = { method: "human", actorId: "user-amara" } as const;
+
+  it("refuses a model superseding a hypothesis with a fact", () => {
+    expect(() => assertKindMayNotStrengthen("hypothesis", "fact", model)).toThrow(
+      ClaimPromotionError,
+    );
+  });
+
+  it("refuses a model superseding a forecast with a calculation", () => {
+    expect(() => assertKindMayNotStrengthen("forecast", "calculation", model)).toThrow(
+      ClaimPromotionError,
+    );
+  });
+
+  it("allows a producer to leave the kind unchanged", () => {
+    expect(() => assertKindMayNotStrengthen("forecast", "forecast", model)).not.toThrow();
+  });
+
+  it("allows a producer to weaken the kind", () => {
+    // Discovering that a calculation rested on an assumption is a correction
+    // worth recording, and it is not a promotion.
+    expect(() => assertKindMayNotStrengthen("calculation", "assumption", model)).not.toThrow();
+  });
+
+  it("allows a human to establish something a machine could not", () => {
+    // A person who has measured the thing may supersede the hypothesis. That
+    // is the act the rule exists to require, not to prevent.
+    expect(() => assertKindMayNotStrengthen("hypothesis", "fact", human)).not.toThrow();
+  });
+
+  it("names both kinds in the refusal, so the caller can see the promotion", () => {
+    expect(() => assertKindMayNotStrengthen("hypothesis", "fact", model)).toThrow(
+      /HYPOTHESIS with FACT/,
+    );
   });
 });

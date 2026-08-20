@@ -1,16 +1,29 @@
 import type {
+  Activity,
   ActivityEvent,
   AIGeneration,
   AuditEvent,
   Claim,
   Commitment,
   EntityReference,
+  EntityType,
   EvidenceItem,
+  FinancialAllocation,
+  FinancialTransaction,
   Grant,
   Indicator,
   Interaction,
+  Output,
+  Programme,
+  Relation,
+  ReportingRequirement,
+  Document,
+  DocumentVersion,
+  ExtractedClaim,
+  OnboardingRun,
 } from "@/types/domain";
-import { createClaim } from "@/lib/knowledge";
+import { assertKindMayNotStrengthen, createClaim } from "@/lib/knowledge";
+import { applyReview, candidateToClaim } from "@/lib/organisation-intelligence/approve";
 import type { RequestContext } from "@/server/context/request-context";
 import type { StoreState } from "@/features/store";
 import type { MissionRepository } from "../types";
@@ -47,6 +60,58 @@ function scopedFind<T extends Owned>(
 
 function isLive<T extends { audit: { archivedAt?: string | null } }>(row: T): boolean {
   return !row.audit.archivedAt;
+}
+
+/**
+ * Where each addressable entity kind lives.
+ *
+ * `Relation` is the first table in the model whose rows can point at anything,
+ * so a tenant check on the row is not enough: an edge stamped with the caller's
+ * organisation could still name a row belonging to someone else. Verifying an
+ * endpoint means resolving it, and resolving it means knowing its table.
+ *
+ * A kind absent from this map cannot be verified and therefore cannot be
+ * connected. That is deliberate — refusing an unverifiable edge is the safe
+ * failure, and adding a kind here is a one-line change made deliberately
+ * rather than a check someone forgot.
+ */
+const ENTITY_TABLES: Partial<Record<EntityType, (s: StoreState) => { id: string; organisationId: string }[]>> = {
+  programme: (s) => s.programmes,
+  activity: (s) => s.activities,
+  output: (s) => s.outputs,
+  outcome: (s) => s.outcomes,
+  indicator: (s) => s.indicators,
+  indicator_measurement: (s) => s.indicatorMeasurements,
+  evidence: (s) => s.evidenceItems,
+  grant: (s) => s.grants,
+  funder: (s) => s.funders,
+  funding_opportunity: (s) => s.opportunities,
+  application: (s) => s.applications,
+  application_answer: (s) => s.applicationAnswers,
+  claim: (s) => s.claims,
+  relationship: (s) => s.relationships,
+  person: (s) => s.people,
+  external_organisation: (s) => s.externalOrganisations,
+  fund: (s) => s.funds,
+  transaction: (s) => s.transactions,
+  allocation: (s) => s.allocations,
+  budget: (s) => s.budgets,
+  budget_line: (s) => s.budgetLines,
+  strategic_priority: (s) => s.strategicPriorities,
+  reporting_requirement: (s) => s.reportingRequirements,
+  document: (s) => s.documents,
+  document_version: (s) => s.documentVersions,
+  extracted_claim: (s) => s.extractedClaims,
+  onboarding_run: (s) => s.onboardingRuns,
+  impact_report: (s) => s.impactReports,
+  report: (s) => s.impactReports,
+  task: (s) => s.tasks,
+  commitment: (s) => s.commitments,
+  interaction: (s) => s.interactions,
+};
+
+function entityKey(ref: EntityReference): string {
+  return `${ref.type}:${ref.id}`;
 }
 
 function newId(prefix: string): string {
@@ -121,7 +186,25 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
   /** Two references point at the same thing when type and id both match. */
   const sameRef = (a: EntityReference, b: EntityReference) => a.type === b.type && a.id === b.id;
 
-  return {
+  /**
+   * Does this reference name a record that exists, in this tenant?
+   *
+   * The organisation itself is special-cased: `Organisation` carries `id`
+   * rather than `organisationId`, so it is in-tenant exactly when it *is* the
+   * tenant.
+   */
+  function entityExists(ctx: RequestContext, ref: EntityReference): boolean {
+    if (ref.type === "organisation") return ref.id === ctx.organisationId;
+    const table = ENTITY_TABLES[ref.type];
+    if (!table) return false;
+    return table(state).some((row) => row.id === ref.id && row.organisationId === ctx.organisationId);
+  }
+
+  // Bound rather than returned inline so that one repository may call another.
+  // `evidence.support()` delegates to `graph.connect()` rather than restating
+  // its two-endpoint tenant check, which is the kind of duplication that ends
+  // with one copy of the check being weaker than the other.
+  const repository: MissionRepository = {
     name: "in-memory",
 
     claims: {
@@ -172,6 +255,10 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
       async supersede(ctx, previousId, next) {
         const previous = scopedFind(state.claims, ctx, (c) => c.id === previousId);
         if (!previous) return null;
+        // A machine may not promote a hypothesis into a fact by writing a
+        // stronger successor. Enforced here, on the storage path, because that
+        // is the only route a successor can reach the tenant by.
+        assertKindMayNotStrengthen(previous.kind, next.kind, next.producedBy);
         // Never let a supersede write reach across a tenant boundary, even if
         // the successor object was assembled elsewhere.
         const record = { ...next, organisationId: ctx.organisationId, supersedes: previous.id };
@@ -278,6 +365,565 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
           entityId: org.id,
           summary: `AI assistance ${enabled ? "enabled" : "disabled"} for the workspace`,
         });
+      },
+    },
+
+    graph: {
+      async list(ctx) {
+        return scoped(state.relations, ctx);
+      },
+      async from(ctx, entity, kind) {
+        return scoped(state.relations, ctx).filter(
+          (r) => sameRef(r.from, entity) && (kind === undefined || r.kind === kind),
+        );
+      },
+      async to(ctx, entity, kind) {
+        return scoped(state.relations, ctx).filter(
+          (r) => sameRef(r.to, entity) && (kind === undefined || r.kind === kind),
+        );
+      },
+      async connect(ctx, init) {
+        // Both endpoints, not just the row. A relation stamped with the
+        // caller's organisation but naming another tenant's outcome would look
+        // perfectly scoped and would still be a cross-tenant read waiting to
+        // happen.
+        if (!entityExists(ctx, init.from) || !entityExists(ctx, init.to)) return null;
+
+        const relation: Relation = {
+          id: newId("rel"),
+          organisationId: ctx.organisationId,
+          from: { type: init.from.type, id: init.from.id },
+          to: { type: init.to.type, id: init.to.id },
+          kind: init.kind,
+          role: init.role,
+          weight: init.weight,
+          note: init.note,
+          audit: {
+            createdAt: stamp(ctx),
+            updatedAt: stamp(ctx),
+            createdBy: ctx.userId,
+            archivedAt: null,
+          },
+        };
+        state.relations.push(relation);
+        await recordAudit(ctx, {
+          action: "relation.connected",
+          entityType: "relation",
+          entityId: relation.id,
+          summary: `${entityKey(relation.from)} --${relation.kind}--> ${entityKey(relation.to)}`,
+        });
+        return relation;
+      },
+      async disconnect(ctx, id) {
+        const relation = scopedFind(state.relations, ctx, (r) => r.id === id);
+        if (!relation) return;
+        state.relations = state.relations.filter((r) => r !== relation);
+        await recordAudit(ctx, {
+          action: "relation.disconnected",
+          entityType: "relation",
+          entityId: id,
+          summary: `${entityKey(relation.from)} --${relation.kind}--> ${entityKey(relation.to)}`,
+        });
+      },
+      async reach(ctx, from, kind, options) {
+        const maxDepth = options?.maxDepth ?? 8;
+        const backward = options?.direction === "backward";
+        const edges = scoped(state.relations, ctx).filter((r) => r.kind === kind);
+
+        const seen = new Set<string>([entityKey(from)]);
+        const out: EntityReference[] = [];
+        let frontier: EntityReference[] = [from];
+
+        for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
+          const next: EntityReference[] = [];
+          for (const node of frontier) {
+            for (const edge of edges) {
+              const near = backward ? edge.to : edge.from;
+              const far = backward ? edge.from : edge.to;
+              if (!sameRef(near, node)) continue;
+              if (seen.has(entityKey(far))) continue;
+              seen.add(entityKey(far));
+              out.push(far);
+              next.push(far);
+            }
+          }
+          frontier = next;
+        }
+        return out;
+      },
+    },
+
+    documents: {
+      async list(ctx) {
+        return scoped(state.documents, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.documents, ctx, (d) => d.id === id);
+      },
+      async versions(ctx, documentId) {
+        const document = scopedFind(state.documents, ctx, (d) => d.id === documentId);
+        if (!document) return [];
+        return scoped(state.documentVersions, ctx)
+          .filter((v) => v.documentId === document.id)
+          .sort((a, b) => b.version - a.version);
+      },
+      async currentVersion(ctx, documentId) {
+        const document = scopedFind(state.documents, ctx, (d) => d.id === documentId);
+        if (!document?.currentVersionId) return null;
+        return scopedFind(state.documentVersions, ctx, (v) => v.id === document.currentVersionId);
+      },
+      async sources(ctx, documentId) {
+        const document = scopedFind(state.documents, ctx, (d) => d.id === documentId);
+        if (!document) return [];
+        return scoped(state.documentSources, ctx).filter((s) => s.documentId === document.id);
+      },
+      async create(ctx, input) {
+        // Identical bytes are not a new document. Without this, re-uploading
+        // the same annual report duplicates every claim extracted from it and
+        // the review queue doubles for no new information.
+        const existingVersion = scoped(state.documentVersions, ctx).find(
+          (v) => v.contentHash === input.version.contentHash,
+        );
+        if (existingVersion) {
+          const existingDocument = scopedFind(
+            state.documents,
+            ctx,
+            (d) => d.id === existingVersion.documentId,
+          );
+          if (existingDocument) {
+            return { document: existingDocument, version: existingVersion, deduplicated: true };
+          }
+        }
+
+        const documentId = newId("doc");
+        const versionId = newId("dv");
+        const document: Document = {
+          id: documentId,
+          organisationId: ctx.organisationId,
+          title: input.title,
+          kind: input.kind,
+          reportingPeriod: input.reportingPeriod,
+          currentVersionId: versionId,
+          containsPersonalData: input.containsPersonalData,
+          tags: input.tags ?? [],
+          audit: {
+            createdAt: stamp(ctx),
+            updatedAt: stamp(ctx),
+            createdBy: ctx.userId,
+            archivedAt: null,
+          },
+        };
+        const version: DocumentVersion = {
+          ...input.version,
+          id: versionId,
+          organisationId: ctx.organisationId,
+          documentId,
+          version: 1,
+          createdAt: stamp(ctx),
+        };
+
+        state.documents.push(document);
+        state.documentVersions.push(version);
+        state.documentSources.push({
+          ...input.source,
+          id: newId("dsrc"),
+          organisationId: ctx.organisationId,
+          documentId,
+          versionId,
+        });
+
+        await recordAudit(ctx, {
+          action: "document.added",
+          entityType: "document",
+          entityId: documentId,
+          summary: `${input.title} (${input.version.format}, ${input.version.parseStatus})`,
+        });
+        return { document, version, deduplicated: false };
+      },
+      async addVersion(ctx, documentId, version) {
+        const document = scopedFind(state.documents, ctx, (d) => d.id === documentId);
+        if (!document) return null;
+
+        const existing = scoped(state.documentVersions, ctx).filter(
+          (v) => v.documentId === document.id,
+        );
+        const record: DocumentVersion = {
+          ...version,
+          id: newId("dv"),
+          organisationId: ctx.organisationId,
+          documentId: document.id,
+          version: existing.length + 1,
+          createdAt: stamp(ctx),
+        };
+        state.documentVersions.push(record);
+        // The new version becomes current, and the previous one stays. Claims
+        // extracted from it still resolve to the bytes they were read from.
+        document.currentVersionId = record.id;
+        document.audit.updatedAt = stamp(ctx);
+
+        await recordAudit(ctx, {
+          action: "document.version_added",
+          entityType: "document",
+          entityId: document.id,
+          summary: `Version ${record.version} of ${document.title}`,
+        });
+        return record;
+      },
+      async extractedClaims(ctx, documentId) {
+        const document = scopedFind(state.documents, ctx, (d) => d.id === documentId);
+        if (!document) return [];
+        return scoped(state.extractedClaims, ctx).filter((c) => c.documentId === document.id);
+      },
+      async saveExtractedClaims(ctx, claims) {
+        const written: ExtractedClaim[] = [];
+        for (const claim of claims) {
+          // A claim can only be attached to a document this tenant holds.
+          const document = scopedFind(state.documents, ctx, (d) => d.id === claim.documentId);
+          if (!document) continue;
+          const record: ExtractedClaim = {
+            ...claim,
+            id: newId("exc"),
+            organisationId: ctx.organisationId,
+            status: "pending",
+            createdAt: stamp(ctx),
+          };
+          state.extractedClaims.push(record);
+          written.push(record);
+        }
+        return written;
+      },
+      async setExtractedClaimStatus(ctx, id, status, claimId) {
+        const record = scopedFind(state.extractedClaims, ctx, (c) => c.id === id);
+        if (!record) return;
+        record.status = status;
+        record.claimId = claimId;
+        record.reviewedBy = ctx.userId;
+        record.reviewedAt = stamp(ctx);
+      },
+    },
+
+    onboarding: {
+      async runs(ctx) {
+        return scoped(state.onboardingRuns, ctx).sort((a, b) =>
+          b.startedAt.localeCompare(a.startedAt),
+        );
+      },
+      async getRun(ctx, id) {
+        return scopedFind(state.onboardingRuns, ctx, (r) => r.id === id);
+      },
+      async latestRun(ctx) {
+        return (
+          scoped(state.onboardingRuns, ctx).sort((a, b) =>
+            b.startedAt.localeCompare(a.startedAt),
+          )[0] ?? null
+        );
+      },
+      async startRun(ctx, input) {
+        const run: OnboardingRun = {
+          id: newId("onb"),
+          organisationId: ctx.organisationId,
+          input,
+          stage: "identity",
+          status: "running",
+          startedAt: stamp(ctx),
+          counts: {
+            sourcesDiscovered: 0,
+            pagesRead: 0,
+            documentsFound: 0,
+            documentsParsed: 0,
+            candidatesFound: 0,
+            conflicts: 0,
+          },
+          startedBy: ctx.userId,
+          audit: {
+            createdAt: stamp(ctx),
+            updatedAt: stamp(ctx),
+            createdBy: ctx.userId,
+            archivedAt: null,
+          },
+        };
+        state.onboardingRuns.push(run);
+        await recordAudit(ctx, {
+          action: "onboarding.started",
+          entityType: "onboarding_run",
+          entityId: run.id,
+          summary: `Research started for ${input.name}`,
+        });
+        return run;
+      },
+      async updateRun(ctx, id, patch) {
+        const run = scopedFind(state.onboardingRuns, ctx, (r) => r.id === id);
+        if (!run) return;
+        Object.assign(run, patch);
+        run.audit.updatedAt = stamp(ctx);
+      },
+      async sources(ctx, runId) {
+        const run = scopedFind(state.onboardingRuns, ctx, (r) => r.id === runId);
+        if (!run) return [];
+        return scoped(state.researchSources, ctx).filter((s) => s.runId === run.id);
+      },
+      async saveSources(ctx, runId, sources) {
+        const run = scopedFind(state.onboardingRuns, ctx, (r) => r.id === runId);
+        if (!run) return;
+        for (const source of sources) {
+          state.researchSources.push({
+            ...source,
+            organisationId: ctx.organisationId,
+            runId: run.id,
+          });
+        }
+      },
+      async candidates(ctx, runId) {
+        const run = scopedFind(state.onboardingRuns, ctx, (r) => r.id === runId);
+        if (!run) return [];
+        return scoped(state.profileCandidates, ctx).filter((c) => c.runId === run.id);
+      },
+      async getCandidate(ctx, id) {
+        return scopedFind(state.profileCandidates, ctx, (c) => c.id === id);
+      },
+      async saveCandidates(ctx, runId, candidates) {
+        const run = scopedFind(state.onboardingRuns, ctx, (r) => r.id === runId);
+        if (!run) return;
+        for (const candidate of candidates) {
+          state.profileCandidates.push({
+            ...candidate,
+            organisationId: ctx.organisationId,
+            runId: run.id,
+          });
+        }
+      },
+      async decide(ctx, candidateId, decision, editedValue) {
+        const candidate = scopedFind(state.profileCandidates, ctx, (c) => c.id === candidateId);
+        if (!candidate) return null;
+
+        const actor = state.users.find((u) => u.id === ctx.userId);
+        // `applyReview` owns the rule that a confirmation yields `verified`
+        // and an edit yields `provided` — the value became the human's, not
+        // the source's. Restating it here would be a second copy to drift.
+        const outcome = applyReview(candidate, {
+          decision,
+          value: editedValue,
+          reviewerId: ctx.userId,
+          reviewerName: actor?.name ?? "Unknown reviewer",
+          at: ctx.now(),
+        });
+
+        state.candidateDecisions.push({
+          runId: candidate.runId,
+          candidateId,
+          organisationId: ctx.organisationId,
+          decision,
+          editedValue,
+          at: stamp(ctx),
+          by: ctx.userId,
+        });
+
+        let claimId: string | undefined;
+        if (outcome.attested) {
+          // An approved candidate becomes a claim, which is what carries its
+          // provenance everywhere else in the product. Rejection writes
+          // nothing but the decision itself.
+          const claim = candidateToClaim(
+            { ...candidate, value: outcome.attested.value },
+            ctx.organisationId,
+            ctx.now(),
+            newId("clm"),
+          );
+          const stored = {
+            ...claim,
+            verification: outcome.verificationState as Claim["verification"],
+            verifiedBy: ctx.userId,
+            verifiedAt: stamp(ctx),
+            producedBy: { method: "human", actorId: ctx.userId } as const,
+          };
+          state.claims.push(stored);
+          claimId = stored.id;
+        }
+
+        await recordAudit(ctx, {
+          action: `onboarding.candidate_${decision}`,
+          entityType: "research_source",
+          entityId: candidateId,
+          summary: `${candidate.field}: ${decision}${
+            editedValue ? ` (edited)` : ""
+          } from ${candidate.sourceUrl}`,
+        });
+
+        return { candidate, claimId };
+      },
+      async decisions(ctx, runId) {
+        const run = scopedFind(state.onboardingRuns, ctx, (r) => r.id === runId);
+        if (!run) return {};
+        const out: Record<string, { decision: "confirm" | "edit" | "reject"; at: string; by?: string }> =
+          {};
+        for (const record of scoped(state.candidateDecisions, ctx)) {
+          if (record.runId !== run.id) continue;
+          out[record.candidateId] = {
+            decision: record.decision,
+            at: record.at,
+            by: record.by,
+          };
+        }
+        return out;
+      },
+    },
+
+    strategy: {
+      async priorities(ctx) {
+        return scoped(state.strategicPriorities, ctx).sort((a, b) => a.order - b.order);
+      },
+      async getPriority(ctx, id) {
+        return scopedFind(state.strategicPriorities, ctx, (p) => p.id === id);
+      },
+      async programmesFor(ctx, priorityId) {
+        const priority = scopedFind(state.strategicPriorities, ctx, (p) => p.id === priorityId);
+        if (!priority) return [];
+        const programmeIds = new Set(
+          scoped(state.relations, ctx)
+            .filter(
+              (r) =>
+                r.kind === "pursues" &&
+                r.from.type === "strategic_priority" &&
+                r.from.id === priority.id &&
+                r.to.type === "programme",
+            )
+            .map((r) => r.to.id),
+        );
+        return scoped(state.programmes, ctx).filter((p: Programme) => programmeIds.has(p.id));
+      },
+    },
+
+    finance: {
+      async funds(ctx) {
+        return scoped(state.funds, ctx);
+      },
+      async getFund(ctx, id) {
+        return scopedFind(state.funds, ctx, (f) => f.id === id);
+      },
+      async transactions(ctx) {
+        return scoped(state.transactions, ctx);
+      },
+      async transactionsForFund(ctx, fundId) {
+        const fund = scopedFind(state.funds, ctx, (f) => f.id === fundId);
+        if (!fund) return [];
+        return scoped(state.transactions, ctx).filter(
+          (t: FinancialTransaction) => t.fundId === fund.id,
+        );
+      },
+      async getTransaction(ctx, id) {
+        return scopedFind(state.transactions, ctx, (t) => t.id === id);
+      },
+      async allocations(ctx) {
+        return scoped(state.allocations, ctx);
+      },
+      async allocationsFor(ctx, entity) {
+        // The typed columns carry the common attributions; the `allocated_to`
+        // relation carries anything the columns cannot name.
+        const viaRelation = new Set(
+          scoped(state.relations, ctx)
+            .filter((r) => r.kind === "allocated_to" && sameRef(r.to, entity))
+            .map((r) => r.from.id),
+        );
+        return scoped(state.allocations, ctx).filter((a: FinancialAllocation) => {
+          if (viaRelation.has(a.id)) return true;
+          switch (entity.type) {
+            case "programme":
+              return a.programmeId === entity.id;
+            case "activity":
+              return a.activityId === entity.id;
+            case "grant":
+              return a.grantId === entity.id;
+            case "outcome":
+              return a.outcomeId === entity.id;
+            case "fund":
+              return a.fundId === entity.id;
+            case "strategic_priority":
+              return a.strategicPriorityId === entity.id;
+            default:
+              return false;
+          }
+        });
+      },
+      async budgets(ctx) {
+        return scoped(state.budgets, ctx);
+      },
+      async budgetLines(ctx, budgetId) {
+        const budget = scopedFind(state.budgets, ctx, (b) => b.id === budgetId);
+        if (!budget) return [];
+        return scoped(state.budgetLines, ctx).filter((l) => l.budgetId === budget.id);
+      },
+      async recordTransaction(ctx, input) {
+        const id = newId("txn");
+        state.transactions.push({ ...input, id, organisationId: ctx.organisationId });
+        await recordAudit(ctx, {
+          action: "transaction.recorded",
+          entityType: "transaction",
+          entityId: id,
+          summary: `${input.direction} ${input.amount.minorUnits} ${input.amount.currency}: ${input.description}`,
+        });
+        return id;
+      },
+      async allocate(ctx, input) {
+        // Every id the allocation names must be this tenant's. An allocation is
+        // the record that makes a cost-per-outcome figure defensible, so an
+        // allocation pointing at a foreign programme is worse than no figure.
+        const targets: EntityReference[] = [];
+        if (input.transactionId) targets.push({ type: "transaction", id: input.transactionId });
+        if (input.fundId) targets.push({ type: "fund", id: input.fundId });
+        if (input.programmeId) targets.push({ type: "programme", id: input.programmeId });
+        if (input.grantId) targets.push({ type: "grant", id: input.grantId });
+        if (input.activityId) targets.push({ type: "activity", id: input.activityId });
+        if (input.outcomeId) targets.push({ type: "outcome", id: input.outcomeId });
+        if (input.budgetLineId) targets.push({ type: "budget_line", id: input.budgetLineId });
+        if (input.strategicPriorityId) {
+          targets.push({ type: "strategic_priority", id: input.strategicPriorityId });
+        }
+        if (targets.length === 0) return null;
+        if (!targets.every((ref) => entityExists(ctx, ref))) return null;
+
+        const id = newId("alloc");
+        state.allocations.push({ ...input, id, organisationId: ctx.organisationId });
+        await recordAudit(ctx, {
+          action: "allocation.created",
+          entityType: "allocation",
+          entityId: id,
+          summary:
+            `${input.amount.minorUnits} ${input.amount.currency} allocated ` +
+            `by ${input.allocationMethod}${input.allocationBasis ? ` on ${input.allocationBasis}` : ""}`,
+        });
+        return id;
+      },
+    },
+
+    requirements: {
+      async list(ctx) {
+        return scoped(state.reportingRequirements, ctx);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.reportingRequirements, ctx, (r) => r.id === id);
+      },
+      async forGrant(ctx, grantId) {
+        const grant = scopedFind(state.grants, ctx, (g) => g.id === grantId);
+        if (!grant) return [];
+        return scoped(state.reportingRequirements, ctx).filter(
+          (r: ReportingRequirement) => r.grantId === grant.id,
+        );
+      },
+      async requires(ctx, requirementId) {
+        const requirement = scopedFind(
+          state.reportingRequirements,
+          ctx,
+          (r) => r.id === requirementId,
+        );
+        if (!requirement) return [];
+        return scoped(state.relations, ctx)
+          .filter(
+            (r) =>
+              r.kind === "requires" &&
+              r.from.type === "reporting_requirement" &&
+              r.from.id === requirement.id,
+          )
+          .map((r) => r.to);
       },
     },
 
@@ -482,12 +1128,50 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
       async getIndicator(ctx, id) {
         return scopedFind(state.indicators, ctx, (i) => i.id === id);
       },
+      async getOutcome(ctx, id) {
+        return scopedFind(state.outcomes, ctx, (o) => o.id === id);
+      },
+      async activities(ctx, programmeId) {
+        const programme = scopedFind(state.programmes, ctx, (p) => p.id === programmeId);
+        if (!programme) return [];
+        return scoped(state.activities, ctx).filter((a: Activity) => a.programmeId === programme.id);
+      },
+      async getActivity(ctx, id) {
+        return scopedFind(state.activities, ctx, (a) => a.id === id);
+      },
+      async outputs(ctx, programmeId) {
+        const programme = scopedFind(state.programmes, ctx, (p) => p.id === programmeId);
+        if (!programme) return [];
+        return scoped(state.outputs, ctx).filter((o: Output) => o.programmeId === programme.id);
+      },
+      async getOutput(ctx, id) {
+        return scopedFind(state.outputs, ctx, (o) => o.id === id);
+      },
+      async measurements(ctx, indicatorId) {
+        const indicator = scopedFind(state.indicators, ctx, (i) => i.id === indicatorId);
+        if (!indicator) return [];
+        return scoped(state.indicatorMeasurements, ctx)
+          .filter((m) => m.indicatorId === indicator.id)
+          .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+      },
       async updateIndicator(ctx, indicatorId, value, note) {
         const indicator = scopedFind(state.indicators, ctx, (i) => i.id === indicatorId);
         if (!indicator) return;
         indicator.currentValue = value;
         indicator.lastUpdated = ctx.now().toISOString().slice(0, 10);
         indicator.audit.updatedAt = stamp(ctx);
+        // Record the reading as well as the current value. Overwriting alone
+        // loses the previous figure, and a report published against it can
+        // then no longer resolve what it was written from.
+        state.indicatorMeasurements.push({
+          id: newId("meas"),
+          organisationId: ctx.organisationId,
+          indicatorId: indicator.id,
+          value,
+          recordedAt: ctx.now().toISOString().slice(0, 10),
+          note,
+          recordedBy: ctx.userId,
+        });
         recordActivity(
           ctx,
           "updated indicator",
@@ -526,6 +1210,25 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
         return scoped(state.evidenceItems, ctx).filter((e: EvidenceItem) =>
           evidenceIds.has(e.id),
         );
+      },
+      async forEntity(ctx, entity) {
+        const evidenceIds = new Set(
+          scoped(state.relations, ctx)
+            .filter((r) => r.kind === "evidences" && r.from.type === "evidence" && sameRef(r.to, entity))
+            .map((r) => r.from.id),
+        );
+        return scoped(state.evidenceItems, ctx).filter((e: EvidenceItem) => evidenceIds.has(e.id));
+      },
+      async support(ctx, evidenceId, entity, note) {
+        const item = scopedFind(state.evidenceItems, ctx, (e) => e.id === evidenceId);
+        if (!item) return null;
+        const relation = await repository.graph.connect(ctx, {
+          from: { type: "evidence", id: item.id },
+          to: entity,
+          kind: "evidences",
+          note,
+        });
+        return relation?.id ?? null;
       },
       async add(ctx, item) {
         const id = newId("ev");
@@ -830,4 +1533,6 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
       },
     },
   };
+
+  return repository;
 }

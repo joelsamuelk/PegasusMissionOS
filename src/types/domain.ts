@@ -68,6 +68,9 @@ export type EntityType =
   | "user"
   | "claim"
   | "document"
+  | "document_version"
+  | "extracted_claim"
+  | "onboarding_run"
   | "research_source"
   | "report"
   | "funder"
@@ -81,8 +84,10 @@ export type EntityType =
   | "programme"
   | "outcome"
   | "indicator"
+  | "indicator_measurement"
   | "evidence"
   | "impact_report"
+  | "reporting_requirement"
   | "task"
   | "commitment"
   | "interaction"
@@ -95,6 +100,7 @@ export type EntityType =
   // than competing with it; these are the kinds its statements point at.
   | "transaction"
   | "allocation"
+  | "fund"
   | "budget"
   | "budget_line"
   | "workstream"
@@ -118,6 +124,80 @@ export interface EntityReference {
   label?: string;
 }
 
+// --- The Relation primitive ---------------------------------------------
+
+/**
+ * The shipped edge vocabulary.
+ *
+ * Open, like `RelationshipRole`, and for the same reason: a tenant-specific
+ * edge should not require a migration. Known kinds carry structural meaning
+ * and are the only ones traversal follows, so an unrecognised kind is inert
+ * rather than dangerous — it records a connection without asserting one.
+ */
+export type KnownRelationKind =
+  /** The results chain: activity → output → outcome → outcome. */
+  | "contributes_to"
+  /** Evidence supports a measurement, an indicator, an outcome, a claim. */
+  | "evidences"
+  /** An indicator measures an outcome. */
+  | "measures"
+  /** A funder requirement points at what it asked for. */
+  | "requires"
+  /** A fund or grant funds a programme or activity. */
+  | "funds"
+  /** An allocation attributes money to delivery. */
+  | "allocated_to"
+  /** Money is held in a fund. */
+  | "held_in"
+  /** A strategic priority owns a programme or a funding need. */
+  | "pursues"
+  /** Generic derivation, where no more specific kind applies. */
+  | "derived_from"
+  /** A relationship's edge into the graph. Qualified by `role`. */
+  | "party_to";
+
+export type RelationKind = KnownRelationKind | (string & {});
+
+/**
+ * A cross-domain edge, recorded as a record rather than implied by a column.
+ *
+ * The rule for choosing between this and a foreign key: if an edge is
+ * single-meaning, always present and read on every page load, it is a foreign
+ * key (`indicator.outcomeId`, `grant.applicationId`). `Relation` is for edges
+ * whose **existence is itself information** — this output contributes to that
+ * outcome, this evidence supports that measurement, this funder requires that
+ * indicator. Those are many-to-many, semantically varied, and would otherwise
+ * become a sprawl of one-purpose join tables.
+ *
+ * Both endpoints must belong to `organisationId`. That is enforced on write
+ * rather than assumed, because this is the first table in the model where a
+ * row can point at anything: a tenant check on the row alone would let an edge
+ * reach across the boundary while looking correctly scoped.
+ */
+export interface Relation {
+  id: UUID;
+  organisationId: UUID;
+  from: EntityReference;
+  to: EntityReference;
+  kind: RelationKind;
+  /**
+   * A qualifier within the kind. For `party_to` it carries the
+   * `RelationshipRole`; for `contributes_to` it is normally absent.
+   */
+  role?: string;
+  /**
+   * Weighting, 0..1, for attributions that are not whole. Deliberately
+   * optional and deliberately not defaulted to 1: "we did not say" and "we
+   * said all of it" are different statements, and defaulting would silently
+   * convert the first into the second.
+   */
+  weight?: number;
+  note?: string;
+  /** The edge's own trust state. An asserted link is not a verified one. */
+  attested?: Attested<null>;
+  audit: AuditStamp;
+}
+
 // --- Knowledge: sources, claims, derivation -----------------------------
 
 /**
@@ -125,20 +205,37 @@ export interface EntityReference {
  *
  *   FACT           we hold a record of this
  *   CALCULATION    we derived this from records, by a method we can show
- *   FORECAST       we projected this forward; it has not happened
+ *   INFERENCE      we reasoned this from records; the reasoning is not arithmetic
  *   ASSUMPTION     we had to assume this to produce the above
+ *   HYPOTHESIS     we are proposing this to be tested; it is not yet believed
+ *   FORECAST       we projected this forward; it has not happened
  *   RECOMMENDATION we suggest you act
  *
  * Introduced by Finance Intelligence and promoted here, because the
  * distinction is not a finance concern: it applies to anything Pegasus asserts.
  * The kind is part of the model, not UI copy, so a recommendation cannot be
  * rendered without the chain it stands on.
+ *
+ * `inference` and `hypothesis` were added by MG-1. They are distinct from their
+ * neighbours in a way that matters:
+ *
+ * - An **inference** differs from a calculation in what it can offer as proof.
+ *   A calculation shows its arithmetic; an inference can only show what it
+ *   reasoned from. "This funder favours youth work" inferred from six past
+ *   awards is not a calculation, and labelling it one implies a check that
+ *   cannot be performed.
+ * - A **hypothesis** differs from an assumption in direction. An assumption is
+ *   adopted so that work can proceed and is believed until contradicted; a
+ *   hypothesis is advanced *in order to be tested* and is not yet believed at
+ *   all. Collapsing the two lets a proposal be reported as a working premise.
  */
 export type ClaimKind =
   | "fact"
   | "calculation"
-  | "forecast"
+  | "inference"
   | "assumption"
+  | "hypothesis"
+  | "forecast"
   | "recommendation";
 
 /**
@@ -346,6 +443,257 @@ export interface OrganisationProfile {
   unrestrictedNeeds: Attested<string>;
   pastFunders: Attested<string[]>;
   matchFundingAvailable: Attested<string>;
+}
+
+// --- Strategy -----------------------------------------------------------
+
+/**
+ * What the organisation is trying to achieve, as a node.
+ *
+ * Promoted from `OrganisationProfile.strategicPriorities: Attested<string[]>`,
+ * which could describe a priority but could not connect one to anything. A
+ * priority that cannot own a programme or a funding need cannot answer "which
+ * programmes depend on funding ending this year?" or "what would happen if
+ * this funder did not renew?" — both of which are traversals from strategy
+ * down through delivery to money.
+ *
+ * The profile field remains as the `Attested<T>` projection, so the migration
+ * is field-by-field rather than a single irreversible commit.
+ */
+export interface StrategicPriority {
+  id: UUID;
+  organisationId: UUID;
+  title: string;
+  description?: string;
+  /** Where this sits in the strategy period, e.g. "2026-2029". */
+  periodLabel?: string;
+  order: number;
+  status: "proposed" | "active" | "achieved" | "paused" | "retired";
+  ownerId?: UUID;
+  /** The claim that carries this priority's provenance, where one exists. */
+  claimId?: UUID;
+  audit: AuditStamp;
+}
+
+// --- Documents ----------------------------------------------------------
+
+/**
+ * Document ingestion.
+ *
+ * The rule that shapes all four types below: **an uploaded file is not
+ * arbitrary AI context.** A charity's annual report is a governance record,
+ * and handing it to a model as a blob of text loses the two things that make
+ * its contents usable — where a statement sat in the document, and whether
+ * anyone has stood behind it.
+ *
+ * So the path is parse → structure → review → approve, and it is the same path
+ * a website takes. `ExtractedClaim` is the join: nothing reaches the
+ * organisation's profile without passing through a human, whatever it was
+ * extracted from.
+ */
+
+export type DocumentFormat = "pdf" | "docx" | "csv" | "xlsx" | "txt" | "html" | "unknown";
+
+/**
+ * What the document is, which decides how much authority its contents carry.
+ *
+ * Deliberately the same vocabulary as `SourceType` in Organisation
+ * Intelligence: a set of accounts is a set of accounts whether it was found on
+ * a website or uploaded by the finance officer.
+ */
+export type DocumentKind =
+  | "annual_report"
+  | "impact_report"
+  | "accounts"
+  | "strategy"
+  | "evaluation"
+  | "policy"
+  | "governance"
+  | "funding_agreement"
+  | "data_export"
+  | "other";
+
+/** How the file reached Mission OS. */
+export type DocumentOrigin = "upload" | "website_discovery" | "registry" | "integration";
+
+/**
+ * A canonical document, independent of any single file.
+ *
+ * The document is the *thing* — "our 2025 annual report". The bytes are a
+ * `DocumentVersion`. Separating them is what lets a re-uploaded corrected
+ * report supersede the old one without orphaning every claim extracted from
+ * it, and what lets a re-crawl notice that a published PDF has changed.
+ */
+export interface Document {
+  id: UUID;
+  organisationId: UUID;
+  title: string;
+  kind: DocumentKind;
+  description?: string;
+  /** Period the document covers, where it states one. */
+  reportingPeriod?: string;
+  /** The version currently treated as authoritative. */
+  currentVersionId?: UUID;
+  /**
+   * Sensitivity, declared rather than inferred. Documents are the most likely
+   * route for beneficiary or personal data to enter the product, and the
+   * default must not be "share with a model".
+   */
+  containsPersonalData: boolean;
+  tags: string[];
+  audit: AuditStamp;
+}
+
+export type DocumentParseStatus =
+  | "pending"
+  | "parsed"
+  /** Read, but the text recovered was not good enough to extract from. */
+  | "unreadable"
+  | "unsupported_format"
+  | "failed";
+
+/**
+ * One set of bytes, and what could be recovered from them.
+ *
+ * `parseStatus` is deliberately five-valued rather than a boolean.
+ * "We have not read this yet", "we cannot read this format", "we read it and
+ * the text was garbage" and "it failed" are four different statements to a
+ * user deciding whether to re-upload, and collapsing them into `false` is how
+ * a product ends up silently ignoring a document someone believes it has read.
+ */
+export interface DocumentVersion {
+  id: UUID;
+  organisationId: UUID;
+  documentId: UUID;
+  version: number;
+  format: DocumentFormat;
+  fileName: string;
+  fileSizeBytes: number;
+  /** Content hash. Re-uploading identical bytes is not a new version. */
+  contentHash: string;
+  /** Where the bytes live. Absent while storage is not configured. */
+  storageKey?: string;
+  parseStatus: DocumentParseStatus;
+  /** Why parsing did not produce usable text. Always set when it did not. */
+  parseNote?: string;
+  /** Recovered plain text. Never the raw file, and never sent anywhere by default. */
+  textContent?: string;
+  pageCount?: number;
+  wordCount?: number;
+  uploadedBy?: UUID;
+  createdAt: ISODate;
+}
+
+/**
+ * Where a document came from, as a record rather than a field.
+ *
+ * A document can legitimately have more than one: found on the website *and*
+ * later uploaded by a person, or published by a regulator *and* mirrored on
+ * the organisation's own site. Each arrival carries its own authority and its
+ * own retrieval time, and merging them into one column loses the distinction
+ * that reconciliation depends on.
+ */
+export interface DocumentSource {
+  id: UUID;
+  organisationId: UUID;
+  documentId: UUID;
+  versionId?: UUID;
+  origin: DocumentOrigin;
+  authority: SourceAuthority;
+  url?: string;
+  publisher?: string;
+  retrievedAt: ISODate;
+  /** The research source this arrived through, where there was one. */
+  researchSourceId?: UUID;
+}
+
+/**
+ * A candidate fact recovered from a document, before anyone has seen it.
+ *
+ * Distinct from `Claim`, and the distinction is the whole point: a `Claim` is
+ * something the organisation asserts, an `ExtractedClaim` is something a
+ * machine thinks a document says. The transition between them is a human
+ * decision, recorded in `reviewedBy`.
+ */
+export interface ExtractedClaim {
+  id: UUID;
+  organisationId: UUID;
+  documentId: UUID;
+  versionId: UUID;
+  /** What aspect this speaks to, e.g. "missionStatement", "totalIncome". */
+  predicate: string;
+  value: ClaimValue;
+  /** The sentence or cell as it appeared, so a reviewer can check it. */
+  excerpt: string;
+  /** Where in the document: "page 4", "sheet:Income!B12", "para 37". */
+  locator: string;
+  extractionMethod: string;
+  /** 0..1 — extractor certainty. Never promotes verification. */
+  confidence: number;
+  /** Set when the excerpt contained instruction-shaped content. */
+  injectionSuspected: boolean;
+  status: "pending" | "approved" | "edited" | "rejected";
+  /** The claim created when a human approved it. */
+  claimId?: UUID;
+  reviewedBy?: UUID;
+  reviewedAt?: ISODate;
+  createdAt: ISODate;
+}
+
+// --- Onboarding ---------------------------------------------------------
+
+export type OnboardingStage =
+  | "identity"
+  | "website_research"
+  | "registry_research"
+  | "document_discovery"
+  | "extraction"
+  | "reconciliation"
+  | "review"
+  | "complete";
+
+export type OnboardingRunStatus = "running" | "awaiting_review" | "complete" | "failed";
+
+/**
+ * One attempt to understand an organisation from public information.
+ *
+ * Persisted rather than held in a request, for a reason that is not
+ * convenience: research reaches external sources, and a run that is lost on
+ * refresh gets repeated. Repeating it means fetching someone's website again
+ * for nothing, which is rude, and re-asking a registry, which costs money.
+ */
+export interface OnboardingRun {
+  id: UUID;
+  organisationId: UUID;
+  /** What the organisation told us before any research happened. */
+  input: {
+    name: string;
+    websiteUrl?: string;
+    country?: string;
+    registrationNumber?: string;
+    organisationType?: OrganisationType;
+  };
+  stage: OnboardingStage;
+  status: OnboardingRunStatus;
+  startedAt: ISODate;
+  completedAt?: ISODate;
+  /** Real counts from the run. Never a fabricated progress percentage. */
+  counts: {
+    sourcesDiscovered: number;
+    pagesRead: number;
+    documentsFound: number;
+    documentsParsed: number;
+    candidatesFound: number;
+    conflicts: number;
+  };
+  /**
+   * Set when research could not proceed. The run still completes and the
+   * organisation still gets a guided setup — a degraded run is not a failure
+   * the user has to resolve before continuing.
+   */
+  degraded?: { reason: string; guidance: string };
+  startedBy?: UUID;
+  audit: AuditStamp;
 }
 
 // --- Evidence -----------------------------------------------------------
@@ -639,6 +987,231 @@ export interface GrantReport {
   status: "not_started" | "drafting" | "submitted";
 }
 
+export type ReportingFrequency =
+  | "one_off"
+  | "monthly"
+  | "quarterly"
+  | "six_monthly"
+  | "annual"
+  | "on_completion";
+
+/**
+ * Something a funder asked for, as an edge rather than a sentence.
+ *
+ * Before this existed, "what did we promise this funder?" could only be
+ * answered by reading `FundingOpportunity.reportingRequirements: string[]` and
+ * `Grant.conditions: string[]` — free text that points at nothing. A
+ * requirement that cannot name the outcome or indicator it wants cannot drive
+ * report readiness, cannot tell you which evidence is missing, and cannot warn
+ * you that the indicator it depends on has not been measured this period.
+ *
+ * What the requirement asks for is recorded as `Relation { kind: "requires" }`
+ * edges into outcomes, indicators and outputs, not as a column here. That is
+ * the point of the primitive: one funder may want two outcomes and an
+ * indicator, and none of those is a foreign key.
+ */
+export interface ReportingRequirement {
+  id: UUID;
+  organisationId: UUID;
+  /** Exactly one of these is set. */
+  grantId?: UUID;
+  opportunityId?: UUID;
+  title: string;
+  description?: string;
+  frequency: ReportingFrequency;
+  dueDate?: ISODate;
+  /** Evidence types the funder specified, where they specified any. */
+  evidenceTypes: EvidenceType[];
+  /** Set when the requirement was taken from a funder document, not inferred. */
+  sourceRef?: EntityReference;
+  status: "open" | "met" | "waived" | "overdue";
+  audit: AuditStamp;
+}
+
+// --- Money --------------------------------------------------------------
+
+/**
+ * The money model.
+ *
+ * `Money`, `FinancialTransaction` and `FinancialAllocation` were designed in
+ * `lib/finance-intelligence/types.ts` and are **promoted here** by MG-1,
+ * exactly as `ClaimKind` was promoted out of the same module: they are not a
+ * finance concern, they are what the graph attributes. The finance library
+ * re-exports them, so its nineteen calculation modules are untouched.
+ *
+ * Two rules govern everything below, and both come from that library:
+ *
+ * 1. **Money is never a float.** Integer minor units with an explicit
+ *    currency. Cost-per-outcome arithmetic divides and apportions constantly,
+ *    and accumulated float drift shows up as figures that do not reconcile.
+ * 2. **Nothing is calculated straight from a transaction.** Money reaches
+ *    delivery through a `FinancialAllocation` that records *how* it was
+ *    attributed. A cost-per-participant figure is only as defensible as the
+ *    allocation beneath it, so the allocation is a reviewable record and not a
+ *    join.
+ */
+
+/** ISO 4217. Currency is data, not a constant. */
+export type CurrencyCode = string;
+
+export interface Money {
+  /** Integer minor units (pence, cents). Never fractional. */
+  readonly minorUnits: number;
+  readonly currency: CurrencyCode;
+}
+
+export type FundRestriction = "unrestricted" | "restricted" | "endowment" | "designated";
+
+/**
+ * A pot of money with a restriction attached.
+ *
+ * The entity the §9 acceptance chain needed and did not have. `Grant.restricted`
+ * is a boolean on an award; it cannot hold a balance, cannot be spent from, and
+ * cannot answer "how much unrestricted runway do we have?" — which is a
+ * question about funds, not about grants.
+ *
+ * `designated` is distinct from `restricted` and the difference is legal rather
+ * than cosmetic: a restriction is imposed by the funder and binds the charity,
+ * a designation is chosen by the trustees and can be undesignated by them.
+ */
+export interface Fund {
+  id: UUID;
+  organisationId: UUID;
+  name: string;
+  description?: string;
+  restriction: FundRestriction;
+  currency: CurrencyCode;
+  /** What the restriction actually says, where it is restricted. */
+  restrictionPurpose?: string;
+  /** The grant or donation that established the fund, where there is one. */
+  originRef?: EntityReference;
+  openedAt?: ISODate;
+  closedAt?: ISODate;
+  status: "open" | "closed";
+  audit: AuditStamp;
+}
+
+export type TransactionDirection = "income" | "expenditure";
+
+export type TransactionSource = "bank_feed" | "accounting_system" | "manual" | "import";
+
+export interface FinancialTransaction {
+  id: UUID;
+  organisationId: UUID;
+  accountId?: UUID;
+  date: ISODate;
+  description: string;
+  amount: Money;
+  direction: TransactionDirection;
+  /** Chart-of-accounts or expenditure category, as classified. */
+  category?: string;
+  counterparty?: string;
+  /** Whether the money carries a funder restriction. */
+  restricted: boolean;
+  /** Set only where the transaction is unambiguously attributable. */
+  grantId?: UUID;
+  /** Which pot it moved into or out of. */
+  fundId?: UUID;
+  source: TransactionSource;
+  verificationState: VerificationState;
+}
+
+/**
+ * How the attribution was made. Distinct from `AllocationBasis`, which says
+ * *what the apportionment was driven by*.
+ */
+export type AllocationMethod =
+  | "direct"
+  | "proportional"
+  | "shared_cost"
+  | "manual"
+  | "suggested"
+  | "unknown";
+
+/** The driver behind a proportional or shared-cost apportionment. */
+export type AllocationBasis =
+  | "direct"
+  | "headcount"
+  | "programme_expenditure"
+  | "staff_time"
+  | "participant_volume"
+  | "equal"
+  | "custom_percentage"
+  | "unallocated";
+
+/**
+ * The layer between money and delivery.
+ *
+ * An allocation always records its method, its basis and its confidence, so
+ * that a figure built on eight estimated apportionments can never be presented
+ * with the same authority as one built on eight invoices.
+ */
+export interface FinancialAllocation {
+  id: UUID;
+  organisationId: UUID;
+
+  transactionId?: UUID;
+  budgetLineId?: UUID;
+  fundId?: UUID;
+  programmeId?: UUID;
+  grantId?: UUID;
+  activityId?: UUID;
+  workstreamId?: UUID;
+  outcomeId?: UUID;
+  strategicPriorityId?: UUID;
+
+  amount: Money;
+
+  allocationMethod: AllocationMethod;
+  allocationBasis?: AllocationBasis;
+  /** Shown next to the figure, e.g. "42% of programme expenditure". */
+  allocationNote?: string;
+
+  /** 0..1 — how well the method fits this cost. Never a truth claim. */
+  confidence?: number;
+
+  /** Whether the money was restricted at source. */
+  restricted?: boolean;
+
+  /** Date the allocation applies to; drives period roll-ups. */
+  effectiveDate: ISODate;
+
+  verificationState: VerificationState;
+
+  createdBy?: UUID;
+  verifiedBy?: UUID;
+  verifiedAt?: ISODate;
+}
+
+export interface Budget {
+  id: UUID;
+  organisationId: UUID;
+  name: string;
+  /** Exactly one of these, or neither for an organisational budget. */
+  programmeId?: UUID;
+  grantId?: UUID;
+  currency: CurrencyCode;
+  periodStart: ISODate;
+  /** Inclusive. */
+  periodEnd: ISODate;
+  status: "draft" | "approved" | "superseded";
+  approvedBy?: UUID;
+  approvedAt?: ISODate;
+  audit: AuditStamp;
+}
+
+export interface BudgetLine {
+  id: UUID;
+  organisationId: UUID;
+  budgetId: UUID;
+  label: string;
+  category?: string;
+  plannedAmount: Money;
+  /** What the line is for, in graph terms: an activity, an output, a workstream. */
+  target?: EntityReference;
+  note?: string;
+}
+
 // --- Programmes and outcomes -------------------------------------------
 
 export interface Programme {
@@ -653,8 +1226,20 @@ export interface Programme {
   location?: string;
   communitiesServed: string[];
   budget?: number;
+  /**
+   * @deprecated Free text. Superseded by the `Activity` entity, which has an
+   * identity and can therefore be pointed at — by an allocation attributing
+   * money to it, and by a `contributes_to` relation into an output. Retained
+   * as a display fallback until the backfill completes, following the same
+   * pattern as `Funder.contactName`.
+   */
   activities: string[];
+  /** @deprecated See `activities`. Superseded by the `Output` entity. */
   outputs: string[];
+  /**
+   * @deprecated Superseded by `RelationshipLink` / `Relation`, which name the
+   * partner as a canonical external organisation rather than as a string.
+   */
   deliveryPartners: string[];
   risks: string[];
   audit: AuditStamp;
@@ -665,6 +1250,52 @@ export interface ProgrammeGrantLink {
   organisationId: UUID;
   programmeId: UUID;
   grantId: UUID;
+}
+
+/**
+ * A unit of delivery.
+ *
+ * Promoted from `Programme.activities: string[]` by MG-1. The string array
+ * could not participate in the graph at all: money cannot be attributed to a
+ * string, and a string cannot contribute to an output. The `activities` table
+ * has existed in Postgres since `0001` — this is the TypeScript model catching
+ * up with the schema, not a new concept.
+ */
+export interface Activity {
+  id: UUID;
+  organisationId: UUID;
+  programmeId: UUID;
+  title: string;
+  description?: string;
+  startDate?: ISODate;
+  endDate?: ISODate;
+  status: "planned" | "active" | "paused" | "complete" | "cancelled";
+  /** Who delivers it, where that is a named internal owner. */
+  ownerId?: UUID;
+  location?: string;
+  audit: AuditStamp;
+}
+
+/**
+ * What an activity produced, counted.
+ *
+ * Distinct from an `Outcome`: an output is what we did (240 sessions
+ * delivered), an outcome is what changed as a result. Conflating them is the
+ * most common failure in impact reporting, and it is why `Outcome.level`
+ * exists as well — a programme may legitimately track both.
+ */
+export interface Output {
+  id: UUID;
+  organisationId: UUID;
+  programmeId: UUID;
+  title: string;
+  description?: string;
+  /** "sessions", "participants", "meals". */
+  unit?: string;
+  targetValue?: number;
+  currentValue?: number;
+  reportingPeriod?: string;
+  audit: AuditStamp;
 }
 
 export interface Outcome {

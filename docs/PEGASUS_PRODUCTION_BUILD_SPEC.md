@@ -3,6 +3,7 @@
 **Status:** Active. This document **supersedes** [`PEGASUS_IMPLEMENTATION_PLAN.md`](./PEGASUS_IMPLEMENTATION_PLAN.md) as the sequencing authority.
 **Date:** 2026-08-17
 **Companions:** [`PEGASUS_ARCHITECTURE_AUDIT.md`](./PEGASUS_ARCHITECTURE_AUDIT.md), [`PEGASUS_TARGET_ARCHITECTURE.md`](./PEGASUS_TARGET_ARCHITECTURE.md), [`FINANCE_INTELLIGENCE.md`](./FINANCE_INTELLIGENCE.md), [`ORGANISATION_INTELLIGENCE.md`](./ORGANISATION_INTELLIGENCE.md), [`RELATIONSHIPS_COMMUNICATIONS_ARCHITECTURE.md`](./RELATIONSHIPS_COMMUNICATIONS_ARCHITECTURE.md)
+**Mission Graph Expansion Programme:** [`MISSION_GRAPH_ARCHITECTURE.md`](./MISSION_GRAPH_ARCHITECTURE.md) (semantic architecture and the §9 acceptance test), [`MISSION_OS_EXPANSION_PLAN.md`](./MISSION_OS_EXPANSION_PLAN.md) (MG-1…MG-12 reconciled with slices A–I; **corrects the Slice C status recorded in §7 below**), [`MISSION_OS_CAPABILITY_MAP.md`](./MISSION_OS_CAPABILITY_MAP.md)
 
 > **Milestone:** turn Pegasus from a high-fidelity Mission OS *demonstration* into a production-capable Mission OS, while activating the Finance, Reporting and Intelligence architecture already designed.
 
@@ -563,11 +564,14 @@ No slice is complete unless it works end to end.
 
 ## 7. Status
 
+> **Amended by the Mission Graph Expansion Programme.** [`MISSION_OS_EXPANSION_PLAN.md`](./MISSION_OS_EXPANSION_PLAN.md) §1 verifies this table against the working tree and corrects two entries. **MG-1 (Mission Graph completion) is complete and verified** — migrations `0017`–`0020`, the `Relation` primitive, the results chain, money entities, reporting requirements and strategy — and precedes the remainder of Slice C. Ten of the twelve links in the architectural acceptance test now hold.
+
 | Slice | State |
 |---|---|
 | A — Legacy data path removal | ✅ **Complete and verified** |
 | B — Knowledge / Claims + migration 0004 | ✅ **Complete and verified** |
-| C — Supabase adapter + auth | ⏳ **Next** (partially blocked, see §6) |
+| **MG-1 — Mission Graph completion** | ✅ **Complete and verified** (migrations `0017`–`0020`) |
+| C — Supabase adapter + auth | 🟡 **Split, and the split matters.** Auth and permission enforcement **shipped**; `resolveSupabaseRequestContext` validates session and membership. **The data adapter does not exist** — `src/server/data/supabase/` holds a client, a mapping helper and middleware, and no repository. `getRepository()` returns in-memory unconditionally. The storage half is **MG-2** and is the critical path. |
 | D — Reporting engine | 🟡 **In progress** — generic types, 12 templates, nine-state lifecycle, deterministic readiness, claim-pinned sections, neutral export payload and the impact-report UI are built and verified. Report creation, format adapters and full legacy-content migration remain. |
 | E — Finance vertical | ⏳ Planned |
 | F — Intelligence orchestrator | ⏳ Planned |

@@ -213,6 +213,144 @@ export function describeRepositoryContract(
       });
     });
 
+    /**
+     * MG-1. `Relation` is the first table whose rows can name any other row,
+     * so the tenant guarantee every other table gets for free — a correctly
+     * stamped `organisation_id`, enforced twice by the adapter and by RLS —
+     * does not hold here. RLS confines the row; it cannot confine what the row
+     * points at, because the endpoints are not foreign keys and cannot be.
+     *
+     * That check therefore lives in the adapter, which is exactly the kind of
+     * rule a second adapter can implement differently or forget. It belongs in
+     * the contract for the same reason tenant scoping does.
+     */
+    describe("graph edges are checked at both endpoints", () => {
+      it("refuses an edge whose target belongs to another tenant", async () => {
+        const { repo, ctxA, fixtures, foreign } = h;
+
+        const relation = await repo.graph.connect(ctxA, {
+          from: { type: "programme", id: fixtures.programmeId },
+          to: { type: "grant", id: foreign.grantId },
+          kind: "funds",
+        });
+
+        expect(relation).toBeNull();
+      });
+
+      it("refuses an edge whose source belongs to another tenant", async () => {
+        const { repo, ctxA, fixtures, foreign } = h;
+
+        const relation = await repo.graph.connect(ctxA, {
+          from: { type: "grant", id: foreign.grantId },
+          to: { type: "programme", id: fixtures.programmeId },
+          kind: "funds",
+        });
+
+        expect(relation).toBeNull();
+      });
+
+      it("refuses an edge to a record that does not exist at all", async () => {
+        const { repo, ctxA, fixtures } = h;
+
+        const relation = await repo.graph.connect(ctxA, {
+          from: { type: "programme", id: fixtures.programmeId },
+          to: { type: "outcome", id: "no-such-outcome" },
+          kind: "contributes_to",
+        });
+
+        expect(relation).toBeNull();
+      });
+
+      it("stamps a created edge with the caller's organisation", async () => {
+        const { repo, ctxA, fixtures } = h;
+
+        const relation = await repo.graph.connect(ctxA, {
+          from: { type: "programme", id: fixtures.programmeId },
+          to: { type: "evidence", id: fixtures.evidenceId },
+          kind: "derived_from",
+        });
+
+        expect(relation).not.toBeNull();
+        expect(relation!.organisationId).toBe(ctxA.organisationId);
+      });
+
+      it("does not traverse into another tenant", async () => {
+        const { repo, ctxB, fixtures } = h;
+
+        // Tenant B naming tenant A's programme reaches nothing: edges are
+        // scoped before the walk begins, not filtered after it.
+        const reachable = await repo.graph.reach(
+          ctxB,
+          { type: "programme", id: fixtures.programmeId },
+          "contributes_to",
+        );
+
+        expect(reachable).toEqual([]);
+      });
+    });
+
+    /**
+     * The expansion brief's prohibition, at the storage boundary: a machine
+     * may not silently transform a hypothesis into a fact. `effectiveClaimKind`
+     * computes the weakest link over a support chain, so the cheapest way to
+     * defeat it is not to argue with the chain but to replace a weak link with
+     * a strong successor.
+     */
+    describe("a producer may not strengthen a claim by superseding it", () => {
+      it("refuses a model-produced successor of a stronger kind", async () => {
+        const { repo, ctxA, fixtures } = h;
+
+        const original = (await repo.claims.get(ctxA, fixtures.claimId))!;
+        const weak = await repo.claims.supersede(ctxA, original.id, {
+          ...original,
+          id: "contract-hypothesis",
+          kind: "hypothesis",
+          verification: "needs_review",
+          producedBy: { method: "human", actorId: ctxA.userId },
+        });
+        expect(weak).not.toBeNull();
+
+        await expect(
+          repo.claims.supersede(ctxA, weak!.id, {
+            ...weak!,
+            id: "contract-laundered",
+            kind: "fact",
+            producedBy: {
+              method: "model",
+              provider: "anthropic",
+              model: "m",
+              promptVersion: "v1",
+            },
+          }),
+        ).rejects.toThrow();
+
+        // The hypothesis still stands, unsuperseded.
+        expect((await repo.claims.get(ctxA, weak!.id))?.supersededBy).toBeUndefined();
+      });
+
+      it("allows a human to establish what a machine could not", async () => {
+        const { repo, ctxA, fixtures } = h;
+
+        const original = (await repo.claims.get(ctxA, fixtures.claimId))!;
+        const weak = (await repo.claims.supersede(ctxA, original.id, {
+          ...original,
+          id: "contract-hypothesis-2",
+          kind: "hypothesis",
+          verification: "needs_review",
+          producedBy: { method: "human", actorId: ctxA.userId },
+        }))!;
+
+        const established = await repo.claims.supersede(ctxA, weak.id, {
+          ...weak,
+          id: "contract-established",
+          kind: "fact",
+          producedBy: { method: "human", actorId: ctxA.userId },
+        });
+
+        expect(established?.kind).toBe("fact");
+      });
+    });
+
     describe("claims are immutable", () => {
       it("superseding writes a new claim and links the predecessor", async () => {
         const { repo, ctxA, fixtures } = h;

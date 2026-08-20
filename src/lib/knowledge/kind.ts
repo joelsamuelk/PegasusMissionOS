@@ -3,27 +3,52 @@ import type { Claim, ClaimKind } from "@/types/domain";
 /**
  * Claim kinds and the rule that governs chains of them.
  *
- * Generalised from `finance-intelligence/statements.ts`, where the five kinds
- * were first introduced. The behaviour is unchanged — the finance suite asserts
- * it — but the concept is not a finance concern, so it now lives here and
- * finance re-exports it.
+ * Generalised from `finance-intelligence/statements.ts`, where five of the
+ * seven kinds were first introduced. The concept is not a finance concern, so
+ * it lives here and finance re-exports it.
+ *
+ * MG-1 added `inference` and `hypothesis`. The relative order of the original
+ * five is unchanged, so the finance suite that asserts weakest-link behaviour
+ * continues to hold without amendment.
  */
 
 export const CLAIM_KIND_LABELS: Record<ClaimKind, string> = {
   fact: "FACT",
   calculation: "CALCULATION",
-  forecast: "FORECAST",
+  inference: "INFERENCE",
   assumption: "ASSUMPTION",
+  hypothesis: "HYPOTHESIS",
+  forecast: "FORECAST",
   recommendation: "RECOMMENDATION",
 };
 
-/** How far a kind is from a recorded fact. Ascending. */
+/**
+ * How far a kind is from a recorded fact. Ascending.
+ *
+ * The gaps between values are deliberately 1 and the numbers themselves carry
+ * no meaning beyond their order — only comparisons are performed. Inserting
+ * `inference` and `hypothesis` therefore renumbered the scale, and the
+ * *relative* order of the original five is unchanged, which is why the finance
+ * suite that asserts weakest-link behaviour still holds.
+ *
+ * Placement, both of which are behavioural rather than cosmetic:
+ *
+ * - `inference` above `calculation`: a calculation can show its workings and an
+ *   inference cannot, so a chain containing an inference must not present
+ *   itself as arithmetic.
+ * - `hypothesis` above `assumption`: an assumption is adopted in order to
+ *   proceed; a hypothesis is advanced in order to be tested. Anything resting
+ *   on something not yet believed is weaker than something resting on a
+ *   working premise.
+ */
 export const CLAIM_KIND_DISTANCE: Record<ClaimKind, number> = {
   fact: 0,
   calculation: 1,
-  assumption: 2,
-  forecast: 3,
-  recommendation: 4,
+  inference: 2,
+  assumption: 3,
+  hypothesis: 4,
+  forecast: 5,
+  recommendation: 6,
 };
 
 export type ClaimIndex = ReadonlyMap<string, Claim>;

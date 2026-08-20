@@ -11,7 +11,7 @@ export function MarketingFooter() {
         <div className="rounded-2xl bg-navy px-6 py-8 text-white shadow-elev-2 sm:px-10 sm:py-10">
           <div className="grid gap-9 lg:grid-cols-[1.35fr_1px_0.8fr_0.8fr_0.8fr] lg:items-start lg:gap-9">
             <div className="max-w-sm">
-              <a
+              <Link
                 href="/"
                 className="inline-flex items-center gap-3 rounded-md"
                 aria-label="Pegasus Mission OS, home"
@@ -25,7 +25,7 @@ export function MarketingFooter() {
                     Mission OS
                   </span>
                 </span>
-              </a>
+              </Link>
               <p className="mt-5 text-sm leading-relaxed text-white/65">
                 The operating system for mission-driven organisations. One organisation,
                 one source of truth, one intelligence layer.

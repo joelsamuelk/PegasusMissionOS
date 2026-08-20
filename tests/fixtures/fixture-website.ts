@@ -78,12 +78,27 @@ const CONTACT = `<!doctype html>
   <p>Tel: 0113 496 0000</p>
 </body></html>`;
 
-/** Malformed JSON-LD must be skipped, not crash the extractor. */
+/**
+ * Malformed JSON-LD must be skipped, not crash the extractor.
+ *
+ * The programme list is a `<ul>`, which is how organisations actually present
+ * delivery, and the trailing paragraph is prose. A list extractor that cannot
+ * tell the two apart swallows the paragraph as a fourth programme, so both are
+ * present deliberately.
+ */
 const WHAT_WE_DO = `<!doctype html>
 <html><head>
   <title>What we do | Northstar</title>
   <script type="application/ld+json">{ this is not valid json }</script>
-</head><body><h1>Programmes</h1><p>Youth Futures. Digital Bridge.</p></body></html>`;
+</head><body>
+  <h1>Our programmes</h1>
+  <ul>
+    <li>Youth Futures</li>
+    <li>Digital Bridge</li>
+    <li>Family Anchor</li>
+  </ul>
+  <p>Each programme is delivered with local partners, and we review them every year against the outcomes we agreed with our funders.</p>
+</body></html>`;
 
 const PAGES: Record<string, string> = {
   "https://northstarcf.org.uk/": HOME,

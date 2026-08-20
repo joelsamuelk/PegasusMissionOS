@@ -166,14 +166,23 @@ No change to `fit.ts` is required or made.
 
 | Phase | Scope | State |
 |---|---|---|
-| **1** | Onboarding foundation: identity, source model, URL normalisation, authority, classification, **deterministic extraction**, sanitisation, dedup, conflicts, candidate → attested approval | ✅ **This slice** |
-| 2 | Website Intelligence: real crawler behind the fetcher port, robots.txt, rate limiting, link discovery at depth | ⏳ |
-| 3 | Review & Trust UI: guided review, conflicts, freshness, completeness | ⏳ |
-| 4 | Document Intelligence: annual/impact/strategy/accounts extraction | ⏳ |
-| 5 | Website Audit + Gap engine + actions | ⏳ |
-| 6 | Funding Profile + eligibility profile + taxonomy | ⏳ |
-| 7 | Funding Intelligence activation | ⏳ |
-| 8 | Continuous refresh + source change detection | ⏳ |
+| **1** | Onboarding foundation: identity, source model, URL normalisation, authority, classification, **deterministic extraction**, sanitisation, dedup, conflicts, candidate → attested approval | ✅ **Complete** |
+| 2 | Website Intelligence: real crawler behind the fetcher port, robots.txt, rate limiting, link discovery at depth | ✅ **MG-3** — `PolitePageFetcher` |
+| 3 | Review & Trust UI: guided review, conflicts, freshness, completeness | ✅ **MG-3** — `/onboarding/review` |
+| 4 | Document Intelligence: annual/impact/strategy/accounts extraction | ✅ **MG-3** — `lib/documents`, zero dependencies |
+| 5 | Website Audit + Gap engine + actions | ✅ **MG-3** — `lib/onboarding/audit.ts`, `/onboarding/audit` |
+| 6 | Funding Profile + eligibility profile + taxonomy | 🟡 **Partial (MG-3)** — the fields funders match on are extracted and a funding-readiness assessment exists; the eligibility taxonomy does not |
+| 7 | Funding Intelligence activation | 🟡 **Partial (MG-3)** — recommendations match established regions and communities against opportunities **already in the workspace**. Live discovery is not connected |
+| 8 | Continuous refresh + source change detection | ⏳ — `contentHash` is stored on every version and source, so the comparison is possible; nothing schedules it (MG-6) |
+
+### What MG-3 added, and the two things it deliberately did not
+
+**Added.** A real crawler that obeys robots.txt and paces itself; registry lookup by number behind a provider-independent `RegistryLookup` port; a zero-dependency document parser for PDF, DOCX, XLSX, CSV and TXT with a text-quality gate; document ingestion as `Document` / `DocumentVersion` / `DocumentSource` / `ExtractedClaim`; persistence for runs, sources and candidates; the six-group review screen; the nine-section deterministic audit; and grounded first-value recommendations.
+
+**Not added, and why.**
+
+- **Semantic (AI) extraction.** Every extractor added is still deterministic and label-driven. That is not timidity: the provenance contract has to hold for extraction whose reasoning *can* be checked before it is extended to extraction whose reasoning cannot. A model can be added behind the same `ProfileCandidate` contract, and it will have to produce a locator like everything else.
+- **Automatic approval of anything.** `isSafeForBulkConfirm` has existed since Phase 1 and is still not called by any UI. It is a reasonable idea and a poor first move: a bulk-confirm button is how a review step becomes a formality.
 
 ---
 
