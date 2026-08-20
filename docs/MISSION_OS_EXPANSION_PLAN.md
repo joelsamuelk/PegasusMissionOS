@@ -212,7 +212,7 @@ The Control Plane already runs on Supabase (`src/server/control-plane/supabase.t
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files, untouched by this phase |
+| `npm run lint` | clean |
 | `npm test` | **799 passed**, 71 files (was 753 across 70) |
 | `npm run test:e2e` | **32 passed, 2 failed.** Both failures are pre-existing and were reproduced at the base commit before any MG-5 change; see below |
 | `npm run build` | succeeds |
@@ -279,9 +279,9 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm run lint` | clean |
 | `npm test` | **928 passed**, 74 files (was 890 across 73) |
-| `npm run test:e2e` | **35/35** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **35/35** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **The governing constraint held.** `lib/finance-intelligence` is unchanged — `git diff` touches none of its nineteen modules, and its eighty tests pass unmodified. The new code lives in `lib/finance`, which ingests, classifies and composes, and calls into the engine for every figure it reports.
@@ -343,9 +343,9 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files, untouched by this phase |
+| `npm run lint` | clean |
 | `npm test` | **848 passed**, 72 files (was 799 across 71) |
-| `npm run test:e2e` | **31/31** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **31/31** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **What was built.** Migration `0023`, six tables. A condition language, an action catalogue, a rules engine and a simulator in `src/lib/automation/`; an event dispatcher, a scheduler, a bounded-action executor and a simulation service in `src/server/automation/`. One repository (`automation`), taking the boundary from 17 to 18. A page at `/automations`.
@@ -401,7 +401,7 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — three pre-existing warnings in `control-plane/supabase.ts`, untouched by this phase |
+| `npm run lint` | clean |
 | `npm test` | **753 passed**, 70 files (was 712 across 69) |
 | `npm run test:e2e` | **26/26** in mock mode, including three new Mission Intelligence journeys |
 | `npm run build` | succeeds |
@@ -497,9 +497,9 @@ Each must answer the §10 question before it is scheduled: **how does this stren
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm run lint` | clean |
 | `npm test` | **890 passed**, 73 files (was 848 across 72) |
-| `npm run test:e2e` | **33/33** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **33/33** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **Did it build a form builder?** No, and the test above is the one that decides it. `form_mappings` says what each answer becomes; `projectSubmission` proposes; `applyProjection` acts only on what a reviewer accepted. The acceptance test walks six survey responses through to an interaction, an evidence item, a person record and two indicator measurements, and asserts each of them exists afterwards.
@@ -550,9 +550,9 @@ What ships: the ability to *collect* intake answers, with a required sensitivity
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm run lint` | clean |
 | `npm test` | **1,001 passed**, 76 files (was 970 across 75) |
-| `npm run test:e2e` | **39/39** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **39/39** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **Two instructions pulled against each other, and resolving them is the phase.** The brief says *DO NOT create a second CRM*; this plan says a donation living in a fundraising table violates §11. Three decisions came out of that.
@@ -603,9 +603,9 @@ What ships: the ability to *collect* intake answers, with a required sensitivity
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm run lint` | clean |
 | `npm test` | **970 passed**, 75 files (was 928 across 74) |
-| `npm run test:e2e` | **37/37** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **37/37** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **On the entry condition.** This row said MG-9 *requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model*. Two of the three are met: field-level sensitivity shipped in MG-7, and the identity model is here. MG-12 has not run as a phase. The judgement made was that its two standing items — AI context exposure and beneficiary data — are both **already binding on this surface** through MG-7's classification, and that the third rule below makes the remaining exposure structural rather than procedural. That is a judgement rather than a satisfied precondition, and MG-12 should re-read this phase specifically.
@@ -652,9 +652,9 @@ What ships: the ability to *collect* intake answers, with a required sensitivity
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm run lint` | clean |
 | `npm test` | **1,035 passed**, 77 files (was 1,001 across 76) |
-| `npm run test:e2e` | **41/41** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **41/41** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **What "complete" means here, stated first.** Every provider in the registry is marked `implemented: false`, `permitted()` refuses every operation on all of them, and the page says so above the list. This phase built the **hub**, not an integration. A registry listing nine providers without distinguishing the described from the built would be a roadmap presented as a feature, and a test asserts the distinction rather than trusting a comment.
@@ -721,9 +721,9 @@ Two items deserve standing attention because the expansion increases them most:
 | Gate | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean — four pre-existing warnings in Control Plane files |
+| `npm run lint` | clean |
 | `npm test` | **1,062 passed**, 78 files (was 1,035 across 77) |
-| `npm run test:e2e` | **44/44** journeys and marketing. The two Control Plane failures recorded under MG-5 are unchanged and still pre-existing |
+| `npm run test:e2e` | **44/44** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
 | `npm run build` | succeeds |
 
 **This phase is not complete, and could not be.** Its "Complete" list opens with *production Postgres runtime* and continues through backups, restore testing, observability and job monitoring. Every one of those needs a provisioned database, which is the standing constraint in §6. Marking MG-12 green would have been the single most misleading thing in this document.
@@ -787,6 +787,30 @@ Against §13's list, with the findings rather than a set of ticks.
 - **`declined` is a judgement, not a decision.** Nobody has asked for SSO, and nobody has been asked whether they want it.
 
 ---
+
+---
+
+### Closing record — the pre-existing breakage, fixed
+
+Carried through every phase above as "pre-existing, not mine", and closed at the end rather than silently along the way. Both were caused by commit `8b8cc08` from a concurrent session and were reproduced at the base commit before any of this programme's work began.
+
+| Gate | Before | After |
+|---|---|---|
+| `npm run lint` | 4 warnings | **No ESLint warnings or errors** |
+| `npm run test:e2e` | 48 passed, 2 failed | **50 passed** |
+
+**The four lint warnings** were unused imports in `ControlPlaneShell.tsx` and `control-plane/supabase.ts`. Each name appeared exactly once in its file — the import itself — so all four were dead rather than broken references. Removed.
+
+**The two Control Plane specs were testing demonstration content that no longer exists.** `8b8cc08` separated demo data from real accounts deliberately: curated example pipeline is useful in a demonstration and dishonest anywhere else, so demo mode became a session cookie that nothing in configuration can switch on. The headings those specs looked for — *what needs your attention today*, *Outreach*, *Send approval queue* — are not in the source any more.
+
+They were **rewritten rather than made to pass by setting the cookie.** Setting it would have restored two green ticks while leaving the real Control Plane — the one an operator actually opens — untested. The rewritten specs assert the real surface and keep each test's original intent:
+
+- The command centre renders *Who matters today?*, and the team-change and audit assertions are unchanged.
+- Outreach is **approval-gated**: the only control creates a request for somebody to approve, and there is nothing on the page that sends directly.
+- Delivery is **fail-closed**: with no provider configured the page says so, rather than presenting a send control that would quietly do nothing.
+- The queue and the account list are honest about being empty rather than showing a sample.
+
+The judgement recorded under MG-5 — that silently repairing another phase's tests hides its regression — still holds. What changed is that the regression is now understood and recorded, so fixing the tests documents the decision rather than concealing it.
 
 ---
 
