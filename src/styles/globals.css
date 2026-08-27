@@ -170,6 +170,22 @@ h6 {
 }
 
 @layer components {
+  @keyframes pegasus-loader-breathe {
+    0%,
+    100% {
+      transform: translateY(0) scale(1);
+      box-shadow: 0 14px 36px rgba(20, 33, 61, 0.16);
+    }
+    50% {
+      transform: translateY(-5px) scale(1.025);
+      box-shadow: 0 20px 44px rgba(20, 33, 61, 0.22);
+    }
+  }
+
+  .pegasus-loader-mark {
+    animation: pegasus-loader-breathe 1.6s ease-in-out infinite;
+  }
+
   .eyebrow {
     @apply font-heading text-eyebrow font-semibold uppercase text-ink-subtle;
   }
