@@ -17,6 +17,7 @@ import {
   SlidersHorizontal,
   SunMedium,
   ShieldCheck,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,7 @@ const groups = [
     label: "Customers",
     items: [
       ["Organisations", "/control/organisations", Building2],
+      ["Process Intelligence", "/control/process-intelligence", Workflow],
       ["Conversions", "/control/conversions", Building2],
       ["Onboarding", "/control/onboarding", ClipboardList],
       ["Customer 360", "/control/customers", Users],
