@@ -115,7 +115,7 @@ create or replace function resolve_process_intake_token(p_token text) returns js
   case when p.id is null then null else jsonb_build_object('firstName',p.first_name,'department',p.department,'team',p.team,'jobTitle',p.job_title) end)
  from process_invitation_tokens t join process_intake_campaigns c on c.id=t.campaign_id join organisations o on o.id=c.organisation_id
  left join process_participants p on p.id=t.participant_id
- where t.token_digest=encode(digest(p_token,'sha256'),'hex') and t.revoked_at is null and t.expires_at>now()
+ where t.token_digest=encode(extensions.digest(p_token,'sha256'),'hex') and t.revoked_at is null and t.expires_at>now()
  and c.status='active' and (c.opens_at is null or c.opens_at<=now()) and (c.closes_at is null or c.closes_at>now()) limit 1 $$;
 revoke all on function resolve_process_intake_token(text) from public;
 grant execute on function resolve_process_intake_token(text) to anon, authenticated;
