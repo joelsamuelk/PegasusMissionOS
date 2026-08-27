@@ -24,23 +24,39 @@
 -- published by a regulator, and those arrivals carry different authority.
 -- ---------------------------------------------------------------------------
 
-create type document_format as enum ('pdf', 'docx', 'csv', 'xlsx', 'txt', 'html', 'unknown');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'document_format') then
+    create type document_format as enum ('pdf', 'docx', 'csv', 'xlsx', 'txt', 'html', 'unknown');
+  end if;
+end $$;
 
-create type document_kind as enum (
-  'annual_report', 'impact_report', 'accounts', 'strategy', 'evaluation',
-  'policy', 'governance', 'funding_agreement', 'data_export', 'other'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'document_kind') then
+    create type document_kind as enum (
+      'annual_report', 'impact_report', 'accounts', 'strategy', 'evaluation',
+      'policy', 'governance', 'funding_agreement', 'data_export', 'other'
+    );
+  end if;
+end $$;
 
-create type document_origin as enum ('upload', 'website_discovery', 'registry', 'integration');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'document_origin') then
+    create type document_origin as enum ('upload', 'website_discovery', 'registry', 'integration');
+  end if;
+end $$;
 
 -- Five states rather than a boolean, deliberately. "Not read yet", "cannot
 -- read this format", "read it and the text was unusable" and "it failed" are
 -- four different things to a person deciding whether to re-upload, and
 -- collapsing them into `parsed = false` is how a product silently ignores a
 -- document someone believes it has read.
-create type document_parse_status as enum (
-  'pending', 'parsed', 'unreadable', 'unsupported_format', 'failed'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'document_parse_status') then
+    create type document_parse_status as enum (
+      'pending', 'parsed', 'unreadable', 'unsupported_format', 'failed'
+    );
+  end if;
+end $$;
 
 create table if not exists documents (
   id uuid primary key default gen_random_uuid(),
@@ -88,9 +104,13 @@ create table if not exists document_versions (
 create unique index if not exists document_versions_hash_idx
   on document_versions (organisation_id, content_hash);
 
-alter table documents
-  add constraint documents_current_version_fkey
-  foreign key (current_version_id) references document_versions(id) on delete set null;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'documents_current_version_fkey') then
+    alter table documents
+    add constraint documents_current_version_fkey
+    foreign key (current_version_id) references document_versions(id) on delete set null;
+  end if;
+end $$;
 
 create table if not exists document_sources (
   id uuid primary key default gen_random_uuid(),
@@ -115,7 +135,11 @@ create index if not exists document_sources_document_idx
 -- a machine thinks a document says. `claim_id` is null until a person has made
 -- the transition, and that column being null is the boundary between the two.
 -- ---------------------------------------------------------------------------
-create type extracted_claim_status as enum ('pending', 'approved', 'edited', 'rejected');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'extracted_claim_status') then
+    create type extracted_claim_status as enum ('pending', 'approved', 'edited', 'rejected');
+  end if;
+end $$;
 
 create table if not exists extracted_claims (
   id uuid primary key default gen_random_uuid(),
@@ -153,12 +177,20 @@ create index if not exists extracted_claims_document_idx
 -- run lost on refresh gets repeated, which is rude to the first and expensive
 -- to the second.
 -- ---------------------------------------------------------------------------
-create type onboarding_stage as enum (
-  'identity', 'website_research', 'registry_research', 'document_discovery',
-  'extraction', 'reconciliation', 'review', 'complete'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'onboarding_stage') then
+    create type onboarding_stage as enum (
+      'identity', 'website_research', 'registry_research', 'document_discovery',
+      'extraction', 'reconciliation', 'review', 'complete'
+    );
+  end if;
+end $$;
 
-create type onboarding_run_status as enum ('running', 'awaiting_review', 'complete', 'failed');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'onboarding_run_status') then
+    create type onboarding_run_status as enum ('running', 'awaiting_review', 'complete', 'failed');
+  end if;
+end $$;
 
 create table if not exists onboarding_runs (
   id uuid primary key default gen_random_uuid(),
@@ -252,7 +284,11 @@ create index if not exists profile_candidates_run_idx
 -- The human decision. Recorded as its own row rather than as a status column,
 -- because who decided and when is the audit trail for the one transition in
 -- the pipeline that a person is required to make.
-create type candidate_decision as enum ('confirm', 'edit', 'reject');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'candidate_decision') then
+    create type candidate_decision as enum ('confirm', 'edit', 'reject');
+  end if;
+end $$;
 
 create table if not exists candidate_decisions (
   id uuid primary key default gen_random_uuid(),
@@ -296,6 +332,7 @@ begin
     'onboarding_runs', 'research_sources', 'profile_candidates', 'candidate_decisions'
   ]
   loop
+    execute format('drop policy if exists %I_member_all on %I', t, t);
     execute format(
       'create policy %I_member_all on %I for all
          using (is_org_member(organisation_id))
@@ -305,9 +342,11 @@ begin
   end loop;
 end $$;
 
+drop trigger if exists documents_set_updated_at on documents;
 create trigger documents_set_updated_at
   before update on documents
   for each row execute function set_updated_at();
+drop trigger if exists onboarding_runs_set_updated_at on onboarding_runs;
 create trigger onboarding_runs_set_updated_at
   before update on onboarding_runs
   for each row execute function set_updated_at();

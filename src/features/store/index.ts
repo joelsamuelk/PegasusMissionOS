@@ -14,26 +14,52 @@
 import type {
   Activity,
   ActivityEvent,
+  Appeal,
+  Campaign,
+  Donation,
+  GiftAidClaim,
+  GiftAidDeclaration,
+  RecurringCommitment,
+  StewardshipPlan,
+  SupporterProfile,
   AIGeneration,
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Automation,
+  AutomationFailure,
+  AutomationRun,
+  AutomationStep,
   Budget,
   BudgetLine,
   Claim,
   ClaimConflict,
+  ConsentRecord,
   ClaimUsage,
   Commitment,
   Document,
+  DomainEvent,
   DocumentSource,
   DocumentVersion,
   EvidenceItem,
   EvidenceLink,
+  ExternalIdentity,
   ExternalOrganisation,
+  IntegrationConnection,
+  IntegrationMapping,
+  SyncConflict,
+  SyncCursor,
+  SyncRun,
+  WebhookEvent,
   ExtractedClaim,
   FinancialAllocation,
   FinancialTransaction,
   FitAssessment,
+  Form,
+  FormField,
+  FormMapping,
+  FormSubmission,
+  FormVersion,
   Fund,
   Funder,
   FundingOpportunity,
@@ -54,11 +80,27 @@ import type {
   Outcome,
   Output,
   Person,
+  Portal,
+  PortalGrantRecord,
+  PortalIdentity,
+  PortalMembership,
+  PortalMessage,
+  PortalSubmission,
   Programme,
   ProgrammeGrantLink,
   Relation,
   Relationship,
   RelationshipLink,
+  ReportApproval,
+  ReportContributor,
+  ReportDefinition,
+  ReportRequirement,
+  ReportSnapshot,
+  ReportTemplateIngestion,
+  ReportVersion,
+  ScheduledJob,
+  SubmissionAnswer,
+  SubmissionAttachment,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -68,6 +110,10 @@ import type {
   ProfileCandidate,
   ResearchSource,
 } from "@/lib/organisation-intelligence/types";
+import type {
+  FinancialImport,
+  TransactionCandidateRecord,
+} from "@/server/data/types";
 import * as seed from "./seed";
 
 /** A reviewer's decision on one candidate, recorded rather than inferred. */
@@ -141,6 +187,63 @@ export interface StoreState {
   notifications: Notification[];
   activity: ActivityEvent[];
   impactReports: ImpactReport[];
+  // MG-5. Definitions carry a template's structure and provenance; versions
+  // and snapshots are what stop a published report moving when its data does.
+  reportDefinitions: ReportDefinition[];
+  reportVersions: ReportVersion[];
+  reportSnapshots: ReportSnapshot[];
+  reportContributors: ReportContributor[];
+  reportApprovals: ReportApproval[];
+  reportRequirements: ReportRequirement[];
+  reportTemplateIngestions: ReportTemplateIngestion[];
+  // MG-6. Events are what became true; automations react to them; runs record
+  // what happened whether or not anything did.
+  // MG-7. A submission answers the version it was shown, so versions and
+  // fields are stored separately and never edited after publication.
+  // MG-8. An import is a thing that happened, and a candidate is a suggestion
+  // rather than a value.
+  // MG-9. Identities are not users, grants are per record, and views live in
+  // code because a field allowlist is not data an organisation should edit.
+  // MG-10. A donation points at a transaction and carries no amount: the
+  // money is finance, and this is what the money was.
+  // MG-11. Provider ids live here and never on a core entity.
+  integrationConnections: IntegrationConnection[];
+  externalIdentities: ExternalIdentity[];
+  syncCursors: SyncCursor[];
+  syncRuns: SyncRun[];
+  syncConflicts: SyncConflict[];
+  webhookEvents: WebhookEvent[];
+  integrationMappings: IntegrationMapping[];
+  campaigns: Campaign[];
+  appeals: Appeal[];
+  donations: Donation[];
+  recurringCommitments: RecurringCommitment[];
+  giftAidDeclarations: GiftAidDeclaration[];
+  giftAidClaims: GiftAidClaim[];
+  supporterProfiles: SupporterProfile[];
+  stewardshipPlans: StewardshipPlan[];
+  portals: Portal[];
+  portalIdentities: PortalIdentity[];
+  portalMemberships: PortalMembership[];
+  portalGrants: PortalGrantRecord[];
+  portalSubmissions: PortalSubmission[];
+  portalMessages: PortalMessage[];
+  financialImports: FinancialImport[];
+  transactionCandidates: TransactionCandidateRecord[];
+  forms: Form[];
+  formVersions: FormVersion[];
+  formFields: FormField[];
+  formMappings: FormMapping[];
+  formSubmissions: FormSubmission[];
+  submissionAnswers: SubmissionAnswer[];
+  submissionAttachments: SubmissionAttachment[];
+  consentRecords: ConsentRecord[];
+  automations: Automation[];
+  domainEvents: DomainEvent[];
+  automationRuns: AutomationRun[];
+  automationSteps: AutomationStep[];
+  automationFailures: AutomationFailure[];
+  scheduledJobs: ScheduledJob[];
   auditEvents: AuditEvent[];
   fitAssessments: FitAssessment[];
   aiGenerations: AIGeneration[];
@@ -208,6 +311,50 @@ export function createStoreState(): StoreState {
     notifications: clone(seed.notifications),
     activity: clone(seed.activity),
     impactReports: clone(seed.impactReports),
+    reportDefinitions: clone(seed.reportDefinitions ?? []),
+    reportVersions: [],
+    reportSnapshots: [],
+    reportContributors: [],
+    reportApprovals: [],
+    reportRequirements: clone(seed.reportRequirements ?? []),
+    reportTemplateIngestions: [],
+    integrationConnections: [],
+    externalIdentities: [],
+    syncCursors: [],
+    syncRuns: [],
+    syncConflicts: [],
+    webhookEvents: [],
+    integrationMappings: [],
+    campaigns: clone(seed.campaigns ?? []),
+    appeals: clone(seed.appeals ?? []),
+    donations: clone(seed.donations ?? []),
+    recurringCommitments: clone(seed.recurringCommitments ?? []),
+    giftAidDeclarations: clone(seed.giftAidDeclarations ?? []),
+    giftAidClaims: [],
+    supporterProfiles: clone(seed.supporterProfiles ?? []),
+    stewardshipPlans: [],
+    portals: clone(seed.portals ?? []),
+    portalIdentities: clone(seed.portalIdentities ?? []),
+    portalMemberships: clone(seed.portalMemberships ?? []),
+    portalGrants: clone(seed.portalGrants ?? []),
+    portalSubmissions: [],
+    portalMessages: [],
+    financialImports: [],
+    transactionCandidates: [],
+    forms: clone(seed.forms ?? []),
+    formVersions: clone(seed.formVersions ?? []),
+    formFields: clone(seed.formFields ?? []),
+    formMappings: clone(seed.formMappings ?? []),
+    formSubmissions: [],
+    submissionAnswers: [],
+    submissionAttachments: [],
+    consentRecords: [],
+    automations: clone(seed.automations ?? []),
+    domainEvents: [],
+    automationRuns: [],
+    automationSteps: [],
+    automationFailures: [],
+    scheduledJobs: [],
     auditEvents: clone(seed.auditEvents),
     fitAssessments: [],
     aiGenerations: [],

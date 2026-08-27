@@ -13,6 +13,21 @@ import type {
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Appeal,
+  Automation,
+  Campaign,
+  Donation,
+  Form,
+  GiftAidDeclaration,
+  RecurringCommitment,
+  SupporterProfile,
+  Portal,
+  PortalGrantRecord,
+  PortalIdentity,
+  PortalMembership,
+  FormField,
+  FormMapping,
+  FormVersion,
   Budget,
   BudgetLine,
   Claim,
@@ -46,6 +61,8 @@ import type {
   Relation,
   Relationship,
   RelationshipLink,
+  ReportDefinition,
+  ReportRequirement,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -1068,6 +1085,35 @@ export const people: Person[] = [
     isDemo: true,
     audit: stamp("2026-05-19", "2026-07-09"),
   },
+  /**
+   * An individual supporter.
+   *
+   * Added by MG-10. Every other seeded person is a professional contact at a
+   * funder or a partner; a fundraising phase needs somebody who gives their
+   * own money, and the distinction matters because Gift Aid, stewardship and
+   * recognition preferences all apply to individuals and to nobody else.
+   */
+  {
+    id: "per-rowan",
+    organisationId: ORG_ID,
+    firstName: "Rowan",
+    lastName: "Whitfield",
+    emails: [
+      { id: "cp-rowan-1", kind: "email", value: "rowan.whitfield@example.org", label: "Personal", isPrimary: true, verification: "provided" },
+    ],
+    phones: [],
+    location: { city: "Leeds", country: "United Kingdom" },
+    communicationPreferences: operationalContact(),
+    consent: {
+      basis: "consent",
+      source: "Spring appeal donation form",
+      recordedAt: "2026-03-14",
+      jurisdiction: "UK-GDPR",
+    },
+    tags: ["individual-supporter"],
+    isDemo: true,
+    audit: stamp("2026-03-14"),
+  },
   {
     id: "per-nadia",
     organisationId: ORG_ID,
@@ -1880,6 +1926,713 @@ export const impactReports: ImpactReport[] = [
   },
 ];
 
+/**
+ * The Henderson Trust's reporting template, as ingested and confirmed.
+ *
+ * Seeded as `origin: "ingested"` with confirmed requirements, because that is
+ * the state the demo needs to show: the workspace built from a funder's own
+ * questions rather than from Pegasus's generic sections. The requirements are
+ * `provided` rather than `verified` — the organisation stood behind the
+ * reading of the document, and nobody has checked it against the funder.
+ */
+export const reportDefinitions: ReportDefinition[] = [
+  {
+    id: "repdef-henderson-interim",
+    organisationId: ORG_ID,
+    name: "Henderson Trust interim report",
+    type: "funder",
+    origin: "ingested",
+    funderId: "fnd-henderson",
+    sections: [
+      { key: "delivery_summary", title: "Summary of delivery to date", type: "narrative", required: true },
+      { key: "progression", title: "Progression outcomes achieved", type: "metrics", required: true },
+      { key: "evidence", title: "Supporting evidence", type: "evidence", required: true },
+      { key: "finance", title: "Financial utilisation", type: "financial", required: true },
+      { key: "learning", title: "Challenges and learning", type: "narrative", required: false },
+    ],
+    audit: stamp("2025-04-02"),
+  },
+];
+
+export const reportRequirements: ReportRequirement[] = [
+  {
+    id: "repreq-1",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "delivery_summary",
+    kind: "narrative",
+    prompt: "Describe what the grant has delivered in the period covered by this report.",
+    wordLimit: 500,
+    required: true,
+    order: 0,
+    verification: "provided",
+  },
+  {
+    id: "repreq-2",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "progression",
+    kind: "indicator",
+    prompt: "How many young people moved into education, employment or training?",
+    target: { type: "indicator", id: "ind-eet", label: "Progression into EET" },
+    required: true,
+    order: 1,
+    verification: "provided",
+  },
+  {
+    id: "repreq-3",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "evidence",
+    kind: "evidence",
+    prompt: "Please enclose an independent evaluation or equivalent supporting evidence.",
+    evidenceTypes: ["evaluation", "statistic"],
+    required: true,
+    order: 2,
+    verification: "provided",
+  },
+  {
+    id: "repreq-4",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "finance",
+    kind: "financial",
+    prompt: "State expenditure against the awarded budget for the period.",
+    guidance: "A figure typed into prose does not satisfy this; it must cite a recorded calculation.",
+    required: true,
+    order: 3,
+    verification: "provided",
+  },
+  {
+    id: "repreq-5",
+    organisationId: ORG_ID,
+    definitionId: "repdef-henderson-interim",
+    sectionKey: "learning",
+    kind: "narrative",
+    prompt: "What has not worked as expected, and what have you changed?",
+    wordLimit: 300,
+    required: false,
+    order: 4,
+    verification: "provided",
+  },
+];
+
+/**
+ * Seeded automations.
+ *
+ * Three, chosen because each demonstrates a different property of the engine
+ * rather than because a demo needs three rules.
+ *
+ * The first is the brief's own worked example. The second closes §9 link 12 of
+ * the architectural acceptance chain — *the relationship owner is reminded 30
+ * days before reporting* — which was the last link in that chain with no
+ * machinery behind it. The third is deliberately left `draft`: an automation
+ * that fires the moment it is created is one nobody chose to switch on.
+ */
+/**
+ * The Youth Futures outcome survey.
+ *
+ * Seeded because it is this phase's acceptance test made concrete: *a
+ * programme survey response can become participant interaction + indicator
+ * measurement + evidence without someone re-entering the information
+ * elsewhere.* Every field is mapped, and the mappings are what turn a
+ * submission from a row into three graph records.
+ *
+ * **No special category field, deliberately.** The engine supports Article 9
+ * data with a lawful basis, an enforced retention period and its own
+ * capability, and the demo workspace does not collect any. Shipping seeded
+ * health or ethnicity answers to demonstrate a control would be a strange way
+ * to demonstrate restraint; the refusals are proven in tests instead.
+ */
+export const forms: Form[] = [
+  {
+    id: "form-youth-survey",
+    organisationId: ORG_ID,
+    name: "Youth Futures outcome survey",
+    purpose: "outcome_measurement",
+    description:
+      "Sent to participants at the end of a mentoring cycle. Answers become indicator measurements and evidence.",
+    subject: { type: "programme", id: "prog-youth", label: "Youth Futures" },
+    currentVersionId: "formv-youth-survey-1",
+    // A link rather than a public URL: the organisation knows who was asked,
+    // which matters more here than reach.
+    access: "link",
+    slug: "youth-futures-outcomes",
+    status: "open",
+    confirmationMessage:
+      "Thank you. Your answers help us show what the programme achieved, and nothing identifying you is published.",
+    lawfulBasis: {
+      basis: "consent",
+      source: "Survey consent field, recorded per response",
+      recordedAt: "2026-04-01",
+      jurisdiction: "UK-GDPR",
+    },
+    retentionDays: 1095,
+    rateLimitPerHour: 20,
+    audit: stamp("2026-04-01"),
+  },
+];
+
+export const formVersions: FormVersion[] = [
+  {
+    id: "formv-youth-survey-1",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    versionNumber: 1,
+    status: "published",
+    sections: [
+      { key: "about", title: "About your time on the programme", order: 0 },
+      {
+        key: "outcome",
+        title: "What changed",
+        order: 1,
+      },
+      { key: "permission", title: "Permission", order: 2 },
+    ],
+    publishedAt: "2026-04-01T09:00:00Z",
+    publishedBy: "user-priya",
+    audit: stamp("2026-04-01"),
+  },
+];
+
+const surveyField = (
+  key: string,
+  label: string,
+  type: FormField["type"],
+  sensitivity: FormField["sensitivity"],
+  order: number,
+  extra: Partial<FormField> = {},
+): FormField => ({
+  id: `formf-${key}`,
+  organisationId: ORG_ID,
+  versionId: "formv-youth-survey-1",
+  sectionKey: extra.sectionKey ?? "about",
+  key,
+  label,
+  type,
+  required: false,
+  order,
+  sensitivity,
+  ...extra,
+});
+
+export const formFields: FormField[] = [
+  surveyField("respondent_role", "Were you a participant or a mentor?", "select", "internal", 0, {
+    required: true,
+    options: [
+      { value: "participant", label: "Participant" },
+      { value: "mentor", label: "Mentor" },
+    ],
+  }),
+  surveyField(
+    "progressed_to_eet",
+    "Did you move into education, employment or training?",
+    "checkbox",
+    "internal",
+    1,
+    {
+      // Only participants are asked. A mentor answering it would corrupt the
+      // progression figure, and the branching is what prevents that rather
+      // than a note in the guidance.
+      visibleWhen: {
+        type: "field",
+        field: "respondent_role",
+        operator: "eq",
+        value: "participant",
+      },
+      requiredWhen: {
+        type: "field",
+        field: "respondent_role",
+        operator: "eq",
+        value: "participant",
+      },
+    },
+  ),
+  surveyField("wellbeing_score", "How would you rate your confidence now, out of 10?", "scale", "internal", 2, {
+    sectionKey: "outcome",
+    validation: { min: 0, max: 10 },
+  }),
+  surveyField("what_changed", "What changed for you?", "textarea", "internal", 3, {
+    sectionKey: "outcome",
+    validation: { maxLength: 1200 },
+    help: "Anything you write here may be quoted anonymously if you give permission below.",
+  }),
+  surveyField("contact_name", "Your name", "text", "personal", 4, {
+    sectionKey: "permission",
+  }),
+  surveyField("contact_email", "Your email address", "email", "personal", 5, {
+    sectionKey: "permission",
+  }),
+  surveyField("quote_consent", "May we quote you anonymously?", "consent", "personal", 6, {
+    sectionKey: "permission",
+    required: true,
+    consentPurpose:
+      "Quoting your answer anonymously in reports to funders and on our website. You can withdraw this at any time.",
+  }),
+];
+
+/**
+ * What each answer becomes.
+ *
+ * The table that decides whether this is a form builder. Note that the two
+ * personal fields map to a `person` record and to `consent`, and nothing else:
+ * a name cannot become a claim, because the knowledge layer is read by report
+ * generation and by AI grounding.
+ */
+export const formMappings: FormMapping[] = [
+  {
+    id: "formm-1",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "progressed_to_eet",
+    target: "indicator_measurement",
+    predicate: "progression_into_eet",
+    targetRef: { type: "indicator", id: "ind-eet", label: "Progression into EET" },
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-2",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "wellbeing_score",
+    target: "indicator_measurement",
+    predicate: "wellbeing",
+    targetRef: { type: "indicator", id: "ind-wellbeing", label: "Improved wellbeing" },
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-3",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "what_changed",
+    target: "evidence",
+    predicate: "participant_account",
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-4",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "respondent_role",
+    target: "interaction",
+    predicate: "survey_response",
+    targetRef: { type: "programme", id: "prog-youth", label: "Youth Futures" },
+    requiresReview: false,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-5",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "contact_email",
+    target: "person",
+    predicate: "email",
+    requiresReview: true,
+    audit: stamp("2026-04-01"),
+  },
+  {
+    id: "formm-6",
+    organisationId: ORG_ID,
+    formId: "form-youth-survey",
+    fieldKey: "quote_consent",
+    target: "consent",
+    predicate: "anonymous_quotation",
+    requiresReview: false,
+    audit: stamp("2026-04-01"),
+  },
+];
+
+/**
+ * The funder portal.
+ *
+ * One portal, one identity, and three records shared deliberately. The point
+ * of the seed is the last part: the Henderson Trust contact can see the grant,
+ * one report and one piece of evidence, and **cannot see** the Youth Futures
+ * programme those three all point at — because nobody shared it. That is the
+ * rule the phase exists to make structural, and a seed where everything was
+ * shared would demonstrate the opposite.
+ */
+/**
+ * A spring appeal, and one supporter's giving.
+ *
+ * Seeded to walk the acceptance chain the expansion plan sets: *Person →
+ * Relationship → Donation → Fund → Finance → Programme where restricted →
+ * Reporting → Stewardship, without duplicate records.*
+ *
+ * Note what is **not** here. No donation carries an amount. Every one points
+ * at a transaction in `transactions`, which is why the spring appeal's total
+ * appears in the Finance Command Centre's income figure without anybody
+ * entering it twice.
+ */
+export const campaigns: Campaign[] = [
+  {
+    id: "camp-spring-2026",
+    organisationId: ORG_ID,
+    name: "Spring appeal 2026",
+    description:
+      "Unrestricted appeal to individual supporters, funding the core costs behind Youth Futures.",
+    targetMinorUnits: 1_500_000,
+    currency: "GBP",
+    startsOn: "2026-03-01",
+    endsOn: "2026-05-31",
+    fundId: "fund-general",
+    costMinorUnits: 120_000,
+    status: "closed",
+    audit: stamp("2026-02-14"),
+  },
+];
+
+export const appeals: Appeal[] = [
+  {
+    id: "appeal-spring-letter",
+    organisationId: ORG_ID,
+    campaignId: "camp-spring-2026",
+    name: "Spring letter",
+    channel: "cheque",
+    sentOn: "2026-03-04",
+    audienceSize: 420,
+    costMinorUnits: 84_000,
+    audit: stamp("2026-02-14"),
+  },
+  {
+    id: "appeal-spring-email",
+    organisationId: ORG_ID,
+    campaignId: "camp-spring-2026",
+    name: "Spring email",
+    channel: "card",
+    sentOn: "2026-03-11",
+    audienceSize: 1_180,
+    costMinorUnits: 36_000,
+    audit: stamp("2026-02-14"),
+  },
+];
+
+/**
+ * The gifts, and the transactions underneath them.
+ *
+ * The transactions are appended to the finance ledger by `donationLedger()`
+ * below, so there is exactly one record of each amount and it is the one the
+ * accounts see.
+ */
+const SEEDED_GIFTS: {
+  id: string;
+  txnId: string;
+  personId?: string;
+  amount: number;
+  receivedOn: string;
+  channel: Donation["channel"];
+  appealId: string;
+  anonymous?: boolean;
+  thanked?: boolean;
+  giftAidDeclarationId?: string;
+}[] = [
+  {
+    id: "don-1",
+    txnId: "txn-don-1",
+    personId: "per-rowan",
+    amount: 25_000,
+    receivedOn: "2026-03-14",
+    channel: "card",
+    appealId: "appeal-spring-email",
+    thanked: true,
+    giftAidDeclarationId: "gad-rowan",
+  },
+  {
+    id: "don-2",
+    txnId: "txn-don-2",
+    personId: "per-rowan",
+    amount: 50_000,
+    receivedOn: "2026-04-02",
+    channel: "card",
+    appealId: "appeal-spring-email",
+    thanked: true,
+    giftAidDeclarationId: "gad-rowan",
+  },
+  {
+    id: "don-3",
+    txnId: "txn-don-3",
+    amount: 100_000,
+    receivedOn: "2026-03-20",
+    channel: "cheque",
+    appealId: "appeal-spring-letter",
+    // Anonymous to the public. The organisation could not identify this donor
+    // at all, so no Gift Aid is claimable on it.
+    anonymous: true,
+  },
+  {
+    id: "don-4",
+    txnId: "txn-don-4",
+    personId: "per-nadia",
+    amount: 15_000,
+    receivedOn: "2026-03-18",
+    channel: "cheque",
+    appealId: "appeal-spring-letter",
+    // Deliberately unthanked, so the stewardship engine has something true to
+    // find. A seed where everything is in order demonstrates nothing.
+  },
+];
+
+export const donations: Donation[] = SEEDED_GIFTS.map((gift) => ({
+  id: gift.id,
+  organisationId: ORG_ID,
+  transactionId: gift.txnId,
+  personId: gift.personId,
+  kind: "one_off",
+  channel: gift.channel,
+  receivedOn: gift.receivedOn,
+  campaignId: "camp-spring-2026",
+  appealId: gift.appealId,
+  anonymous: gift.anonymous ?? false,
+  restricted: false,
+  giftAidDeclarationId: gift.giftAidDeclarationId,
+  giftAidClaimed: false,
+  thankedAt: gift.thanked ? `${gift.receivedOn}T16:00:00Z` : undefined,
+  audit: stamp(gift.receivedOn),
+}));
+
+/** The money behind the seeded gifts. One record of each amount, in finance. */
+function donationLedger(): FinancialTransaction[] {
+  return SEEDED_GIFTS.map((gift) => ({
+    id: gift.txnId,
+    organisationId: ORG_ID,
+    date: gift.receivedOn,
+    description: gift.anonymous
+      ? "Anonymous donation, spring appeal"
+      : `Donation, spring appeal (${gift.channel})`,
+    amount: gbp(gift.amount),
+    direction: "income" as const,
+    category: "Donations received",
+    restricted: false,
+    fundId: "fund-general",
+    source: "manual" as const,
+    verificationState: "provided" as const,
+  }));
+}
+
+export const recurringCommitments: RecurringCommitment[] = [
+  {
+    id: "rec-rowan",
+    organisationId: ORG_ID,
+    personId: "per-rowan",
+    amountMinorUnits: 2_000,
+    currency: "GBP",
+    frequency: "monthly",
+    channel: "direct_debit",
+    startedOn: "2026-05-01",
+    status: "active",
+    audit: stamp("2026-05-01"),
+  },
+];
+
+export const giftAidDeclarations: GiftAidDeclaration[] = [
+  {
+    id: "gad-rowan",
+    organisationId: ORG_ID,
+    personId: "per-rowan",
+    fullName: "Rowan Whitfield",
+    addressLine: "14 Cardigan Road",
+    postcode: "LS6 1LJ",
+    taxpayerConfirmed: true,
+    declaredOn: "2026-03-14",
+    scope: "enduring",
+    audit: stamp("2026-03-14"),
+  },
+];
+
+export const supporterProfiles: SupporterProfile[] = [
+  {
+    id: "sup-rowan",
+    organisationId: ORG_ID,
+    personId: "per-rowan",
+    stewardId: "user-james",
+    stage: "regular",
+    recognitionPreference: "named",
+    doNotSolicit: false,
+    audit: stamp("2026-03-14"),
+  },
+];
+
+export const portals: Portal[] = [
+  {
+    id: "portal-funder",
+    organisationId: ORG_ID,
+    audience: "funder",
+    name: "Funder portal",
+    description:
+      "Where funders see the grants they made, the reports against them, and the evidence behind those reports.",
+    status: "open",
+    slug: "funders",
+    welcomeMessage:
+      "You can see the grants you have made to Northstar and the reporting against them. Anything not shown has not been shared with you.",
+    contactUserId: "user-amara",
+    audit: stamp("2026-05-04"),
+  },
+];
+
+export const portalIdentities: PortalIdentity[] = [
+  {
+    id: "pid-daniel-osei",
+    organisationId: ORG_ID,
+    email: "daniel.osei@hendersontrust.example",
+    displayName: "Daniel Osei",
+    // Linked to the canonical relationship record, one-directionally. Nothing
+    // about the person changes because a portal identity exists.
+    personId: "per-daniel",
+    externalOrganisationId: "xorg-henderson",
+    status: "active",
+    invitedAt: "2026-05-04T09:00:00Z",
+    audit: stamp("2026-05-04"),
+  },
+];
+
+export const portalMemberships: PortalMembership[] = [
+  {
+    id: "pmem-daniel",
+    organisationId: ORG_ID,
+    portalId: "portal-funder",
+    identityId: "pid-daniel-osei",
+    capabilities: ["portal:view", "portal:download", "portal:message"],
+    invitedBy: "user-amara",
+    audit: stamp("2026-05-04"),
+  },
+];
+
+export const portalGrants: PortalGrantRecord[] = [
+  {
+    id: "pgrant-1",
+    organisationId: ORG_ID,
+    membershipId: "pmem-daniel",
+    entity: { type: "grant", id: "grant-henderson", label: "Youth Futures programme grant" },
+    viewKey: "funder.grant",
+    grantedBy: "user-amara",
+    grantedAt: "2026-05-04T09:05:00Z",
+    reason: "Their own award.",
+  },
+  {
+    id: "pgrant-2",
+    organisationId: ORG_ID,
+    membershipId: "pmem-daniel",
+    entity: { type: "impact_report", id: "report-youth-2026", label: "Youth Futures interim report" },
+    viewKey: "funder.report",
+    grantedBy: "user-amara",
+    grantedAt: "2026-05-04T09:05:00Z",
+    reason: "The interim report their grant requires.",
+  },
+  {
+    id: "pgrant-3",
+    organisationId: ORG_ID,
+    membershipId: "pmem-daniel",
+    entity: { type: "evidence", id: "ev-eval-2025", label: "Youth Futures independent evaluation" },
+    viewKey: "funder.evidence",
+    grantedBy: "user-amara",
+    grantedAt: "2026-05-04T09:06:00Z",
+    reason: "Cited in the interim report.",
+  },
+];
+
+export const automations: Automation[] = [
+  {
+    id: "auto-evidence-gap",
+    organisationId: ORG_ID,
+    name: "Chase evidence when a report is due and its evidence is thin",
+    description:
+      "The brief's worked example. Deterministically identifies what is missing, assembles an evidence-gap brief, and creates a task for whoever owns the data.",
+    trigger: { kind: "report.due_soon", entityType: "grant_report" },
+    condition: {
+      type: "all",
+      conditions: [
+        { type: "days_until", field: "report.dueDate", operator: "lte", days: 30 },
+        // Below 70%, exactly as the brief states it. Where completeness has
+        // not been computed this is `unknown`, and the automation does not
+        // fire on a report nobody has assessed.
+        { type: "field", field: "report.evidenceCompleteness", operator: "lt", value: 0.7 },
+      ],
+    },
+    actions: [
+      {
+        kind: "request_evidence",
+        params: { entityType: "grant_report", entityId: "{{subject.id}}" },
+      },
+      { kind: "generate_brief", params: {} },
+    ],
+    status: "active",
+    requiresApproval: false,
+    ownerId: "user-priya",
+    audit: stamp("2026-05-02"),
+  },
+  {
+    id: "auto-reporting-reminder",
+    organisationId: ORG_ID,
+    name: "Remind the owner 30 days before a funder report is due",
+    description:
+      "Closes the last link of the acceptance chain: a dated obligation with an accountable owner, and something that actually reminds them.",
+    trigger: {
+      kind: "date.approaching",
+      entityType: "reporting_requirement",
+      dateField: "requirement.dueDate",
+      daysBefore: 30,
+    },
+    condition: {
+      type: "field",
+      field: "requirement.status",
+      operator: "eq",
+      value: "open",
+    },
+    actions: [
+      {
+        kind: "create_task",
+        params: {
+          title: "Prepare the funder report due in 30 days",
+          relatedType: "reporting_requirement",
+          relatedId: "{{subject.id}}",
+        },
+      },
+      {
+        kind: "notify_user",
+        params: {
+          userId: "user-priya",
+          message: "A funder report falls due in 30 days.",
+        },
+      },
+    ],
+    status: "active",
+    requiresApproval: false,
+    ownerId: "user-amara",
+    audit: stamp("2026-05-02"),
+  },
+  {
+    id: "auto-grant-at-risk",
+    organisationId: ORG_ID,
+    name: "Draft a note to the funder when a grant becomes at risk",
+    description:
+      "Left as a draft on purpose. It drafts an external communication, so it can never run without a person, and switching it on is a decision somebody has to take.",
+    trigger: { kind: "grant.health_changed", entityType: "grant" },
+    condition: {
+      type: "changed",
+      field: "grant.health",
+      to: "at_risk",
+    },
+    actions: [
+      {
+        kind: "draft_communication",
+        params: {
+          recipientType: "funder",
+          recipientId: "{{grant.funderId}}",
+          purpose: "Flag a delivery risk early, before the funder finds out from a report.",
+        },
+      },
+    ],
+    status: "draft",
+    // Forced by the action catalogue regardless of what is stored here.
+    requiresApproval: true,
+    ownerId: "user-amara",
+    audit: stamp("2026-06-14"),
+  },
+];
+
 export const auditEvents: AuditEvent[] = [
   { id: "aud-1", organisationId: ORG_ID, actorId: "user-amara", actorName: "Amara Okafor", action: "application.answer.approved", entityType: "application_answer", entityId: "ans-d1", summary: "Approved Digital Bridge answer 1", createdAt: "2026-07-16T14:02:00Z" },
   { id: "aud-2", organisationId: ORG_ID, actorId: "user-priya", actorName: "Priya Sharma", action: "indicator.updated", entityType: "indicator", entityId: "ind-supported", summary: "Updated 'Young people supported' to 168", createdAt: "2026-07-05T11:12:00Z" },
@@ -2148,6 +2901,9 @@ export const funds: Fund[] = [
     name: "General funds",
     restriction: "unrestricted",
     currency: "GBP",
+    // Brought forward, not received during the period. Recording it as income
+    // would make the burn rate report that the core covers itself.
+    openingBalance: { minorUnits: 4_200_000, currency: "GBP" },
     openedAt: "2019-04-01",
     status: "open",
     audit: stamp("2019-04-01"),
@@ -2186,7 +2942,94 @@ export const transactions: FinancialTransaction[] = [
     source: "manual",
     verificationState: "verified",
   },
+  /**
+   * A year of unrestricted movement.
+   *
+   * Added by MG-8 so the calculation engine has something to calculate from.
+   * Before this the demo held two transactions, which is enough to prove a
+   * schema and not enough to produce a runway, a burn rate or a variance — and
+   * a Finance Command Centre whose every figure reads "cannot be calculated"
+   * demonstrates the refusal machinery and nothing else.
+   *
+   * Deliberately unglamorous and deliberately tight: an organisation with
+   * roughly five months of unrestricted runway, which is the position most
+   * small charities are actually in and the one the cliff and runway engines
+   * were written for.
+   */
+  ...unrestrictedLedger(),
+  // MG-10. The money behind the seeded gifts. One record of each amount, and
+  // it is the one the accounts see.
+  ...donationLedger(),
 ];
+
+/**
+ * Twelve months of core income and expenditure.
+ *
+ * Generated rather than typed out, because thirty near-identical literals are
+ * thirty chances to mistype a figure and none of them is more realistic than
+ * an arithmetic series. The shape is what matters: monthly core costs that
+ * exceed monthly unrestricted income, which is what produces a finite runway.
+ */
+function unrestrictedLedger(): FinancialTransaction[] {
+  const months = [
+    "2025-08", "2025-09", "2025-10", "2025-11", "2025-12",
+    "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07",
+  ];
+
+  const rows: FinancialTransaction[] = [];
+
+  months.forEach((month, index) => {
+    // Unrestricted income: small, irregular, and not enough.
+    if (index % 2 === 0) {
+      rows.push({
+        id: `txn-donations-${month}`,
+        organisationId: ORG_ID,
+        date: `${month}-12`,
+        description: `Individual donations, ${month}`,
+        amount: gbp(180_000 + index * 4_000),
+        direction: "income",
+        category: "Donations received",
+        counterparty: "Various donors",
+        restricted: false,
+        fundId: "fund-general",
+        source: "import",
+        verificationState: "provided",
+      });
+    }
+
+    rows.push({
+      id: `txn-core-salaries-${month}`,
+      organisationId: ORG_ID,
+      date: `${month}-28`,
+      description: `Core salaries, ${month}`,
+      amount: gbp(310_000),
+      direction: "expenditure",
+      category: "Salaries",
+      counterparty: "Payroll",
+      restricted: false,
+      fundId: "fund-general",
+      source: "import",
+      verificationState: "provided",
+    });
+
+    rows.push({
+      id: `txn-premises-${month}`,
+      organisationId: ORG_ID,
+      date: `${month}-05`,
+      description: `Office rent and utilities, ${month}`,
+      amount: gbp(78_000),
+      direction: "expenditure",
+      category: "Premises",
+      counterparty: "Kirkgate Workspace",
+      restricted: false,
+      fundId: "fund-general",
+      source: "import",
+      verificationState: "provided",
+    });
+  });
+
+  return rows;
+}
 
 export const allocations: FinancialAllocation[] = [
   {

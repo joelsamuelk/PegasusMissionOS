@@ -13,14 +13,22 @@
  */
 export const NAV_LABELS = [
   "Command Centre",
+  "Intelligence",
   "Relationships",
+  "Supporters",
   "Funding",
   "Applications",
   "Grants",
+  "Finance",
   "Programmes",
   "Impact",
   "Evidence",
+  "Forms",
+  "Automations",
+  "Portals",
+  "Integrations",
   "Organisation",
   "Team",
+  "Trust Centre",
   "Settings",
 ] as const;

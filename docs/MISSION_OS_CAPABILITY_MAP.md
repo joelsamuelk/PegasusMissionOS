@@ -187,7 +187,7 @@ Two cautions about that column.
 | Authentication | ● | Session validated with `getUser()`; membership grants access; role comes from the membership row, never a client claim |
 | Permission enforcement | ● | Every mutating action; a new action without a gate fails the build unless it declares `@public-action` with a reason |
 | Tenant isolation (application layer) | ● | Two-tenant suite; disabling `scoped()` fails 27 tests |
-| **Tenant isolation (RLS)** | ◐ | All 72 tenant tables covered in reviewed SQL. **Never executed.** Defence in depth is currently defence in one layer |
+| **Tenant isolation (RLS)** | ◐ | All 72 tenant tables covered, and **now executing**: migrations `0001`-`0021` are applied to a live project, and anonymous callers are blocked on every table tested. The stronger claim, that an authenticated member of one tenant cannot read another, still needs MG-2 |
 | Multi-surface hosting | ● | Marketing / customer app / Control Plane, resolved in middleware. Host is never an authentication factor |
 | Provider independence | ● | AI and communications behind ports; provider ids confined to a separate map |
 | Rate limiting | ◐ | Implemented and tested for the Control Plane |
@@ -230,7 +230,7 @@ Where it is genuinely ahead, and where the investment should stay:
 
 Where it is behind, and honestly so:
 
-1. **It has never read from a production database.** Everything above is proven in-memory. Row level security across 64 tenant tables is reviewed SQL that has never executed, so defence in depth is currently defence in one layer. This is the single largest gap and it is what MG-2 exists to close.
+1. **The application has still never read from Postgres.** The schema is live and its constraints are verified, but `getRepository()` returns the in-memory adapter unconditionally, so not one page reads the database. That adapter is what remains of MG-2, and it is the single largest gap.
 2. **The strongest capabilities are the least reachable.** Finance and Organisation Intelligence still have no customer-facing surface. MG-1 gave the finance engine the inputs it had never had; MG-8 gives it a screen.
 3. **Nothing MG-1 built is visible.** Ten capabilities moved to ● without a page reading them. A model that can represent something is not the same as a product that lets you do it, and this map should not be read as though it were.
 4. **All extraction is deterministic.** MG-3 calls no model anywhere. Label-driven extraction finds less than a model would, and every value it finds carries a locator a person can check. That is the right order to build in, and it is still less than the brief's field list implies.

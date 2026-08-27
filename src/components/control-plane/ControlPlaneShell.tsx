@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
-  BadgePoundSterling,
   Building2,
   ClipboardList,
   Command,

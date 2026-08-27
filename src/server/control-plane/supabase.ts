@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ControlRepository } from "./repository";
-import type { ActivationCriterion, ActivationSnapshot, AiOperationTrace, ContactCompliance, ControlFeatureFlag, ControlFeatureTarget, CustomerFeedback, CustomerHealthSnapshot, CustomerMetadataProjection, CustomerAccount, CustomerConversion, CustomerValueEvent, InternalTask, InternalUser, OnboardingPlan, OnboardingStep, OutreachSendRequest, OutreachSequence, OutreachTemplate, PrivacySafeUsageEvent, ProspectFact, ProspectOrganisation, ProspectPerson, ProspectQualification, ProspectResearchSource, ProvisioningRun, SalesOpportunity, SequenceEnrollment, SequenceStep, StoredInternalAuditEvent, SupportAccessEvent, SupportAccessSession, SystemComponentStatus } from "./types";
+import type { ActivationCriterion, AiOperationTrace, ControlFeatureFlag, ControlFeatureTarget, CustomerFeedback, CustomerHealthSnapshot, CustomerMetadataProjection, CustomerAccount, CustomerConversion, CustomerValueEvent, InternalTask, InternalUser, OnboardingPlan, OnboardingStep, OutreachSendRequest, OutreachSequence, OutreachTemplate, PrivacySafeUsageEvent, ProspectFact, ProspectOrganisation, ProspectPerson, ProspectResearchSource, ProvisioningRun, SalesOpportunity, SequenceEnrollment, SequenceStep, StoredInternalAuditEvent, SupportAccessEvent, SupportAccessSession, SystemComponentStatus } from "./types";
 
 type Row = Record<string, unknown>;
 

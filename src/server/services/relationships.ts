@@ -16,6 +16,7 @@ import type {
   Task,
   User,
 } from "@/types/domain";
+import { hrefForEntity } from "@/lib/entity-links";
 import type { RequestContext } from "@/server/context/request-context";
 import type { MissionRepository } from "@/server/data";
 import {
@@ -600,25 +601,7 @@ export async function buildProgrammeEcosystem(
   return entries.sort((a, b) => a.organisation.name.localeCompare(b.organisation.name));
 }
 
-export function hrefForEntity(type: string, id: string): string | undefined {
-  switch (type) {
-    case "grant":
-      return `/grants/${id}`;
-    case "application":
-      return `/applications/${id}`;
-    case "funding_opportunity":
-      return `/funding/${id}`;
-    case "programme":
-      return `/programmes/${id}`;
-    case "impact_report":
-      return `/impact/${id}`;
-    case "evidence":
-      return "/evidence";
-    case "external_organisation":
-      return `/relationships/${id}`;
-    case "person":
-      return `/relationships/people/${id}`;
-    default:
-      return undefined;
-  }
-}
+// Promoted to `lib/entity-links` so surfaces that are not server services —
+// the intelligence citations in particular — can resolve a link too. Re-exported
+// here because the shipped call sites import it from this module.
+export { hrefForEntity };

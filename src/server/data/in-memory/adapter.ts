@@ -15,7 +15,31 @@ import type {
   Interaction,
   Output,
   Programme,
+  Automation,
+  DomainEvent,
+  Form,
+  FormSubmission,
+  Donation,
+  GiftAidClaim,
+  IntegrationConnection,
+  IntegrationMapping,
+  SyncConflict,
+  SyncRun,
+  GiftAidDeclaration,
+  Notification,
+  Person,
+  SupporterProfile,
+  PortalGrantRecord,
+  PortalMembership,
+  PortalMessage,
+  PortalSubmission,
+  ProjectedRecord,
+  Task,
   Relation,
+  ReportApproval,
+  VerificationState,
+  ScheduledJob,
+  ReportContributor,
   ReportingRequirement,
   Document,
   DocumentVersion,
@@ -23,10 +47,49 @@ import type {
   OnboardingRun,
 } from "@/types/domain";
 import { assertKindMayNotStrengthen, createClaim } from "@/lib/knowledge";
+import { can } from "@/lib/permissions";
+import { resolvePersonByEmail } from "@/lib/logic/relationship-identity";
+import { allocateSharedCost } from "@/lib/finance-intelligence/allocate";
+import { classifyRows, detectDuplicates, parseStatementCsv } from "@/lib/finance";
+import { assembleClaim } from "@/lib/fundraising";
+import {
+  contentHashOf,
+  decideChange,
+  decideDeletion,
+  defaultSemantics,
+  describeSemantics,
+  findIntegration,
+  hasChanged,
+  permitted,
+} from "@/lib/integrations";
+import {
+  capabilityPermitted,
+  decideAccess,
+  findView,
+  projectRecord,
+  reachableRecords,
+  viewForEntity,
+} from "@/lib/portals";
+import {
+  answersDueForErasure,
+  assessSpam,
+  checkPublishable,
+  retainUntil,
+  validateSubmission,
+} from "@/lib/forms";
+import {
+  buildReportFromDefinition,
+  buildReportSnapshot,
+  buildReportVersion,
+  nextVersionNumber,
+} from "@/lib/reporting";
 import { applyReview, candidateToClaim } from "@/lib/organisation-intelligence/approve";
 import type { RequestContext } from "@/server/context/request-context";
 import type { StoreState } from "@/features/store";
-import type { MissionRepository } from "../types";
+import type {
+  FinancialImport,
+  MissionRepository,
+} from "../types";
 
 /**
  * In-memory adapter over the seeded store.
@@ -84,6 +147,12 @@ const ENTITY_TABLES: Partial<Record<EntityType, (s: StoreState) => { id: string;
   indicator_measurement: (s) => s.indicatorMeasurements,
   evidence: (s) => s.evidenceItems,
   grant: (s) => s.grants,
+  // Added by MG-9. Both are things a funder legitimately sees, and the map's
+  // own rule is that a kind absent from it cannot be pointed at — which is the
+  // safe failure, and which is why adding one is a deliberate line rather than
+  // a check somebody forgot.
+  grant_deliverable: (s) => s.grantDeliverables,
+  grant_report: (s) => s.grantReports,
   funder: (s) => s.funders,
   funding_opportunity: (s) => s.opportunities,
   application: (s) => s.applications,
@@ -109,6 +178,87 @@ const ENTITY_TABLES: Partial<Record<EntityType, (s: StoreState) => { id: string;
   commitment: (s) => s.commitments,
   interaction: (s) => s.interactions,
 };
+
+/**
+ * Read one field of one entity, with how much it is trusted.
+ *
+ * The sync engine needs both: a value alone cannot answer "may I overwrite
+ * this?", and the whole phase turns on that question. Returns undefined where
+ * the entity, the field or the trust state cannot be established, and an
+ * undefined trust state is treated as `needs_review` by the caller — the
+ * conservative reading, because assuming a field is unverified only ever
+ * permits a write that a person would then see in the record.
+ *
+ * Deliberately narrow. It reads `Person` and `ExternalOrganisation`, which are
+ * the two entities a CRM supplies, and nothing else: a generic field reader
+ * over every table would be the unbounded write surface this phase exists to
+ * avoid having.
+ */
+function readField(
+  state: StoreState,
+  ctx: RequestContext,
+  entity: EntityReference,
+  field: string,
+): { value: string; verification: VerificationState } | undefined {
+  if (entity.type === "person") {
+    const person = state.people.find(
+      (row) => row.id === entity.id && row.organisationId === ctx.organisationId,
+    );
+    if (!person) return undefined;
+    switch (field) {
+      case "firstName":
+        return { value: person.firstName, verification: "provided" };
+      case "lastName":
+        return { value: person.lastName, verification: "provided" };
+      case "jobTitle":
+        return person.jobTitle
+          ? { value: person.jobTitle, verification: "provided" }
+          : undefined;
+      case "email": {
+        const primary = person.emails.find((contact) => contact.isPrimary) ?? person.emails[0];
+        // The contact point carries its own verification, which is exactly the
+        // distinction the sync rule needs: a verified address is one somebody
+        // confirmed, and a CRM does not get to correct it.
+        return primary
+          ? { value: primary.value, verification: primary.verification }
+          : undefined;
+      }
+      case "phone": {
+        const primary = person.phones.find((contact) => contact.isPrimary) ?? person.phones[0];
+        return primary
+          ? { value: primary.value, verification: primary.verification }
+          : undefined;
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  if (entity.type === "external_organisation") {
+    const organisation = state.externalOrganisations.find(
+      (row) => row.id === entity.id && row.organisationId === ctx.organisationId,
+    );
+    if (!organisation) return undefined;
+    switch (field) {
+      case "name":
+        return { value: organisation.name, verification: "provided" };
+      case "website":
+        return organisation.website
+          ? { value: organisation.website, verification: "provided" }
+          : undefined;
+      case "charityNumber":
+        return organisation.charityNumber
+          ? // A registered charity number is checkable against a public
+            // register, and the organisation-intelligence layer does check it.
+            { value: organisation.charityNumber, verification: "verified" }
+          : undefined;
+      default:
+        return undefined;
+    }
+  }
+
+  return undefined;
+}
 
 function entityKey(ref: EntityReference): string {
   return `${ref.type}:${ref.id}`;
@@ -450,6 +600,60 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
           frontier = next;
         }
         return out;
+      },
+
+      async connectionsFor(ctx, entity) {
+        const key = entityKey(entity);
+        const direct = scoped(state.relations, ctx).filter(
+          (relation) => entityKey(relation.from) === key || entityKey(relation.to) === key,
+        );
+
+        /**
+         * The legacy edge table, projected into the same shape.
+         *
+         * A `RelationshipLink` is a `Relation` whose `from` is always a
+         * relationship and whose `kind` is always `party_to`, qualified by the
+         * link's role. Expressing it that way here is what lets a caller stop
+         * knowing there are two tables.
+         *
+         * The projected id is prefixed so it can never be mistaken for a row
+         * in `relations` and passed to `disconnect`, which would silently do
+         * nothing.
+         */
+        const links = scoped(state.relationshipLinks, ctx)
+          .filter((link) => {
+            const relationshipKey = `relationship:${link.relationshipId}`;
+            return entityKey(link.entity) === key || relationshipKey === key;
+          })
+          /**
+           * The endpoint check `relationship_links` never had.
+           *
+           * `Relation` verifies both endpoints on write, because a correctly
+           * scoped row can still point at another tenant's record. The legacy
+           * table predates that rule and has no such check, so a row belonging
+           * to this tenant may name an id that resolves in another one.
+           *
+           * Reading it back unfiltered would let a traversal follow the
+           * pointer. The row stays where it is; the projection refuses to
+           * present an edge whose other end this tenant cannot see.
+           */
+          .filter((link) => entityExists(ctx, link.entity));
+
+        const projected: Relation[] = links.map((link) => ({
+          id: `link:${link.id}`,
+          organisationId: link.organisationId,
+          from: { type: "relationship", id: link.relationshipId },
+          to: link.entity,
+          kind: "party_to",
+          role: link.role,
+          note: link.note,
+          // `RelationshipLink` carries no audit stamp of its own, which is
+          // one of the reasons `Relation` superseded it. The projection uses
+          // the request clock rather than inventing a creation date.
+          audit: { createdAt: stamp(ctx), updatedAt: stamp(ctx) },
+        }));
+
+        return [...direct, ...projected];
       },
     },
 
@@ -893,6 +1097,212 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
         });
         return id;
       },
+
+      async allocateShared(ctx, input) {
+        const transaction = scopedFind(state.transactions, ctx, (t) => t.id === input.transactionId);
+        if (!transaction) return null;
+
+        // Endpoints are checked before any arithmetic runs. Apportioning a
+        // cost across a programme in another tenant would be a correctly
+        // scoped allocation row pointing somewhere it must not.
+        for (const target of input.targets) {
+          if (target.programmeId && !entityExists(ctx, { type: "programme", id: target.programmeId })) {
+            return null;
+          }
+          if (target.activityId && !entityExists(ctx, { type: "activity", id: target.activityId })) {
+            return null;
+          }
+        }
+
+        const result = allocateSharedCost({
+          organisationId: ctx.organisationId,
+          label: input.label,
+          amount: transaction.amount,
+          basis: input.basis ?? "equal",
+          targets: input.targets.map((target) => ({
+            label: target.label,
+            weight: target.weight,
+            programmeId: target.programmeId,
+            activityId: target.activityId,
+          })),
+          effectiveDate: transaction.date,
+          transactionId: transaction.id,
+          restricted: transaction.restricted,
+          unallocatedShare: input.unallocatedShare,
+          createdBy: ctx.userId,
+          idPrefix: newId("alloc"),
+        });
+
+        for (const allocation of result.allocations) {
+          state.allocations.push({ ...allocation, organisationId: ctx.organisationId });
+        }
+
+        await recordAudit(ctx, {
+          action: "finance.cost.apportioned",
+          entityType: "transaction",
+          entityId: transaction.id,
+          summary: `Apportioned ${input.label} across ${input.targets.length} targets. ${result.methodologyNote}`,
+        });
+
+        return {
+          allocationIds: result.allocations.map((allocation) => allocation.id),
+          unallocatedMinorUnits: result.unallocated.minorUnits,
+        };
+      },
+
+      // --- Statement ingestion ------------------------------------------
+
+      async importStatement(ctx, input) {
+        const now = stamp(ctx);
+        const currency = input.currency ?? "GBP";
+        const parsed = parseStatementCsv(input.csv, { currency });
+
+        const [funds, grants, funders, history] = [
+          scoped(state.funds, ctx),
+          scoped(state.grants, ctx),
+          scoped(state.funders, ctx),
+          scoped(state.transactions, ctx),
+        ];
+
+        const classified = classifyRows(parsed.rows, {
+          funds,
+          grants,
+          funderNames: funders.map((funder) => ({ id: funder.id, name: funder.name })),
+          history,
+        });
+        const duplicates = detectDuplicates(parsed.rows, history);
+        const duplicateByRow = new Map(duplicates.map((match) => [match.rowNumber, match]));
+
+        const record: FinancialImport = {
+          id: newId("fimport"),
+          organisationId: ctx.organisationId,
+          fileName: input.fileName,
+          // Never `posted`. An import that parsed is an import awaiting a
+          // person; the only path to `posted` is through `postCandidates`.
+          status: parsed.rows.length === 0 ? "failed" : "awaiting_review",
+          currency,
+          detectedColumns: parsed.columns,
+          problems: parsed.problems,
+          rowCount: parsed.rows.length,
+          postedCount: 0,
+          duplicateCount: duplicates.length,
+          dateFormatAmbiguous: parsed.dateFormatAmbiguous,
+          uploadedBy: ctx.userId,
+          uploadedAt: now,
+        };
+        state.financialImports.push(record);
+
+        for (const row of classified) {
+          const duplicate = duplicateByRow.get(row.rowNumber);
+          state.transactionCandidates.push({
+            id: newId("cand"),
+            organisationId: ctx.organisationId,
+            importId: record.id,
+            rowNumber: row.rowNumber,
+            date: row.date,
+            description: row.description,
+            amount: row.amount,
+            direction: row.direction,
+            counterparty: row.counterparty,
+            reference: row.reference,
+            suggestedCategory: row.candidate.category,
+            suggestedFundId: row.candidate.fundId,
+            suggestedGrantId: row.candidate.grantId,
+            suggestedRestricted: row.candidate.restricted,
+            confidence: row.candidate.confidence,
+            evidence: row.candidate.evidence,
+            // A duplicate always needs a person, whatever the classifier made
+            // of it: posting the same payment twice moves a grant utilisation
+            // figure a funder reads.
+            requiresApproval: row.candidate.requiresApproval || duplicate !== undefined,
+            duplicateOf: duplicate?.existingTransactionId || undefined,
+            duplicateReason: duplicate?.reason,
+          });
+        }
+
+        await recordAudit(ctx, {
+          action: "finance.statement.imported",
+          entityType: "transaction",
+          entityId: record.id,
+          summary: `Read ${parsed.rows.length} rows from ${input.fileName ?? "a statement"}, ${parsed.problems.length} unreadable, ${duplicates.length} possible duplicates. Nothing posted.`,
+        });
+
+        return record;
+      },
+
+      async imports(ctx) {
+        return scoped(state.financialImports, ctx).sort((a, b) =>
+          b.uploadedAt.localeCompare(a.uploadedAt),
+        );
+      },
+      async getImport(ctx, id) {
+        return scopedFind(state.financialImports, ctx, (row) => row.id === id);
+      },
+      async candidates(ctx, importId) {
+        return scoped(state.transactionCandidates, ctx)
+          .filter((candidate) => candidate.importId === importId)
+          .sort((a, b) => a.rowNumber - b.rowNumber);
+      },
+
+      async postCandidates(ctx, importId, acceptedRowNumbers) {
+        const record = scopedFind(state.financialImports, ctx, (row) => row.id === importId);
+        if (!record) return { posted: [], skipped: [] };
+
+        const accepted = new Set(acceptedRowNumbers);
+        const posted: string[] = [];
+        const skipped: { rowNumber: number; reason: string }[] = [];
+
+        for (const candidate of scoped(state.transactionCandidates, ctx).filter(
+          (row) => row.importId === importId,
+        )) {
+          if (!accepted.has(candidate.rowNumber)) {
+            skipped.push({ rowNumber: candidate.rowNumber, reason: "Not accepted by the reviewer." });
+            continue;
+          }
+          if (candidate.postedTransactionId) {
+            skipped.push({ rowNumber: candidate.rowNumber, reason: "Already posted." });
+            continue;
+          }
+
+          const transaction: FinancialTransaction = {
+            id: newId("txn"),
+            organisationId: ctx.organisationId,
+            date: candidate.date,
+            description: candidate.description,
+            amount: candidate.amount,
+            direction: candidate.direction,
+            category: candidate.suggestedCategory,
+            counterparty: candidate.counterparty,
+            restricted: candidate.suggestedRestricted ?? false,
+            grantId: candidate.suggestedGrantId,
+            fundId: candidate.suggestedFundId,
+            source: "import",
+            // A person accepted the classification, so the transaction is
+            // `provided` rather than `verified`: they confirmed a suggestion,
+            // nobody reconciled it against a bank statement line by line.
+            verificationState: "provided",
+          };
+          state.transactions.push(transaction);
+          candidate.postedTransactionId = transaction.id;
+          candidate.decidedBy = ctx.userId;
+          candidate.decidedAt = stamp(ctx);
+          posted.push(transaction.id);
+        }
+
+        record.postedCount += posted.length;
+        record.reviewedBy = ctx.userId;
+        record.reviewedAt = stamp(ctx);
+        record.status = posted.length > 0 ? "posted" : "rejected";
+
+        await recordAudit(ctx, {
+          action: "finance.statement.posted",
+          entityType: "transaction",
+          entityId: importId,
+          summary: `Posted ${posted.length} transactions from an import, ${skipped.length} left unposted`,
+        });
+
+        return { posted, skipped };
+      },
     },
 
     requirements: {
@@ -1287,6 +1697,205 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
           });
         }
       },
+
+      // --- Templates ---------------------------------------------------
+
+      async definitions(ctx) {
+        return scoped(state.reportDefinitions, ctx).filter(isLive);
+      },
+      async getDefinition(ctx, id) {
+        return scopedFind(state.reportDefinitions, ctx, (d) => d.id === id);
+      },
+      async requirements(ctx, definitionId) {
+        return scoped(state.reportRequirements, ctx)
+          .filter((r) => r.definitionId === definitionId)
+          .sort((a, b) => a.order - b.order);
+      },
+      async saveDefinition(ctx, definition, requirements) {
+        // Rejected rather than re-stamped. Accepting a record carrying another
+        // tenant's id and silently rewriting it would make a cross-tenant write
+        // look like a successful one.
+        if (definition.organisationId !== ctx.organisationId) return;
+        const index = state.reportDefinitions.findIndex(
+          (d) => d.id === definition.id && d.organisationId === ctx.organisationId,
+        );
+        if (index >= 0) state.reportDefinitions[index] = definition;
+        else state.reportDefinitions.push(definition);
+
+        state.reportRequirements = state.reportRequirements.filter(
+          (r) => !(r.definitionId === definition.id && r.organisationId === ctx.organisationId),
+        );
+        for (const requirement of requirements) {
+          if (requirement.organisationId !== ctx.organisationId) continue;
+          state.reportRequirements.push(requirement);
+        }
+      },
+
+      async create(ctx, init) {
+        const definition = init.definitionId
+          ? scopedFind(state.reportDefinitions, ctx, (d) => d.id === init.definitionId)
+          : null;
+        const report = buildReportFromDefinition({
+          id: newId("report"),
+          organisationId: ctx.organisationId,
+          title: init.title,
+          type: init.type,
+          reportingPeriod: init.reportingPeriod,
+          definition: definition ?? undefined,
+          programmeId: init.programmeId,
+          grantId: init.grantId,
+          ownerId: ctx.userId,
+          includedIndicatorIds: init.includedIndicatorIds,
+          includedEvidenceIds: init.includedEvidenceIds,
+          now: ctx.now(),
+        });
+        state.impactReports.push(report);
+        await recordAudit(ctx, {
+          action: "report.created",
+          entityType: "impact_report",
+          entityId: report.id,
+          summary: `Created '${report.title}'${definition ? ` from the ${definition.name} template` : ""}`,
+        });
+        return report.id;
+      },
+
+      // --- Versions and snapshots ---------------------------------------
+
+      async versions(ctx, reportId) {
+        return scoped(state.reportVersions, ctx)
+          .filter((v) => v.reportId === reportId)
+          .sort((a, b) => a.versionNumber - b.versionNumber);
+      },
+      async getSnapshot(ctx, snapshotId) {
+        return scopedFind(state.reportSnapshots, ctx, (s) => s.id === snapshotId);
+      },
+      async cutVersion(ctx, reportId, reason, note) {
+        const report = scopedFind(state.impactReports, ctx, (r) => r.id === reportId);
+        if (!report) return null;
+
+        const now = ctx.now();
+        const versionNumber = nextVersionNumber(
+          state.reportVersions.filter(
+            (v) => v.reportId === reportId && v.organisationId === ctx.organisationId,
+          ),
+        );
+
+        const snapshot = buildReportSnapshot({
+          id: newId("snap"),
+          report,
+          claims: scoped(state.claims, ctx),
+          indicators: scoped(state.indicators, ctx),
+          measurements: scoped(state.indicatorMeasurements, ctx),
+          evidence: scoped(state.evidenceItems, ctx),
+          takenAt: now,
+        });
+
+        const version = buildReportVersion({
+          id: newId("ver"),
+          report,
+          versionNumber,
+          reason,
+          snapshotId: snapshot.id,
+          note,
+          createdBy: ctx.userId,
+          createdAt: now,
+        });
+        snapshot.versionId = version.id;
+
+        state.reportSnapshots.push(snapshot);
+        state.reportVersions.push(version);
+
+        await recordAudit(ctx, {
+          action: "report.version.cut",
+          entityType: "impact_report",
+          entityId: reportId,
+          summary: `Cut version ${versionNumber} of '${report.title}' (${reason.replace(/_/g, " ")}), pinning ${snapshot.figures.length} figures`,
+        });
+
+        return version;
+      },
+
+      // --- People and decisions ------------------------------------------
+
+      async contributors(ctx, reportId) {
+        return scoped(state.reportContributors, ctx).filter((c) => c.reportId === reportId);
+      },
+      async addContributor(ctx, input) {
+        const report = scopedFind(state.impactReports, ctx, (r) => r.id === input.reportId);
+        if (!report) return null;
+        const user = scopedFind(state.members, ctx, (m) => m.userId === input.userId);
+        // A contributor who is not a member of this organisation would be an
+        // assignment nobody can act on, and a route to naming an outsider on a
+        // tenant record.
+        if (!user) return null;
+
+        const contributor: ReportContributor = {
+          ...input,
+          id: newId("repcon"),
+          organisationId: ctx.organisationId,
+          invitedAt: ctx.now().toISOString(),
+        };
+        state.reportContributors.push(contributor);
+        return contributor.id;
+      },
+      async approvals(ctx, reportId) {
+        return scoped(state.reportApprovals, ctx)
+          .filter((a) => a.reportId === reportId)
+          .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
+      },
+      async recordApproval(ctx, input) {
+        const report = scopedFind(state.impactReports, ctx, (r) => r.id === input.reportId);
+        if (!report) return null;
+        const version = scopedFind(
+          state.reportVersions,
+          ctx,
+          (v) => v.id === input.versionId && v.reportId === input.reportId,
+        );
+        if (!version) return null;
+        // Enforced here as well as in the schema. An unexplained rejection
+        // cannot be acted on, and the two layers are independent on purpose.
+        if (input.decision === "changes_requested" && !input.comment?.trim()) return null;
+
+        const approval: ReportApproval = {
+          id: newId("repapp"),
+          organisationId: ctx.organisationId,
+          reportId: input.reportId,
+          versionId: input.versionId,
+          userId: ctx.userId,
+          decision: input.decision,
+          comment: input.comment,
+          decidedAt: ctx.now().toISOString(),
+        };
+        state.reportApprovals.push(approval);
+
+        await recordAudit(ctx, {
+          action: `report.${input.decision}`,
+          entityType: "impact_report",
+          entityId: input.reportId,
+          summary: `${input.decision === "approved" ? "Approved" : "Requested changes to"} version ${version.versionNumber} of '${report.title}'`,
+        });
+
+        return approval.id;
+      },
+
+      // --- Funder template ingestion ---------------------------------------
+
+      async ingestions(ctx) {
+        return scoped(state.reportTemplateIngestions, ctx).sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt),
+        );
+      },
+      async getIngestion(ctx, id) {
+        return scopedFind(state.reportTemplateIngestions, ctx, (i) => i.id === id);
+      },
+      async saveIngestion(ctx, ingestion) {
+        if (ingestion.organisationId !== ctx.organisationId) return;
+        const index = state.reportTemplateIngestions.findIndex(
+          (i) => i.id === ingestion.id && i.organisationId === ctx.organisationId,
+        );
+        if (index >= 0) state.reportTemplateIngestions[index] = ingestion;
+        else state.reportTemplateIngestions.push(ingestion);
+      },
     },
 
     relationships: {
@@ -1295,6 +1904,39 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
       },
       async getOrganisation(ctx, id) {
         return scopedFind(state.externalOrganisations, ctx, (o) => o.id === id);
+      },
+      async upsertPersonByEmail(ctx, input) {
+        const people = scoped(state.people, ctx).filter(isLive);
+        const match = resolvePersonByEmail(people, input.email);
+        // Only a confident match attaches. A low-confidence match would merge
+        // two people on the strength of a shared mailbox, which is far harder
+        // to undo than a duplicate.
+        if (match && match.confidence === "high") return { person: match.record, created: false };
+
+        const now = stamp(ctx);
+        const person: Person = {
+          id: newId("person"),
+          organisationId: ctx.organisationId,
+          firstName: input.firstName?.trim() || input.email.split("@")[0] || "Unknown",
+          lastName: input.lastName?.trim() || "",
+          emails: [
+            {
+              id: newId("cp"),
+              kind: "email",
+              value: input.email,
+              isPrimary: true,
+              // Somebody typed it into a form. Nobody has confirmed it is
+              // theirs, and `provided` is what that state is called.
+              verification: "provided",
+            },
+          ],
+          phones: [],
+          tags: [],
+          isDemo: false,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.people.push(person);
+        return { person, created: true };
       },
       async listPeople(ctx) {
         return scoped(state.people, ctx).filter(isLive);
@@ -1499,6 +2141,1626 @@ export function createInMemoryRepository(state: StoreState): MissionRepository {
         if (!task) return;
         task.status = task.status === "done" ? "todo" : "done";
         task.audit.updatedAt = stamp(ctx);
+      },
+      async createTask(ctx, input) {
+        const now = stamp(ctx);
+        const task: Task = {
+          ...input,
+          id: newId("task"),
+          organisationId: ctx.organisationId,
+          status: input.status ?? "todo",
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.tasks.push(task);
+        return task.id;
+      },
+      async notify(ctx, input) {
+        const notification: Notification = {
+          ...input,
+          id: newId("notif"),
+          organisationId: ctx.organisationId,
+          read: false,
+          createdAt: stamp(ctx),
+        };
+        state.notifications.push(notification);
+        return notification.id;
+      },
+    },
+
+    /**
+     * Events, automation and scheduling.
+     *
+     * The write surface here is deliberately narrow. There is no `updateRun`:
+     * a run is the record of something the system did without a person
+     * present, and a record that can be rewritten is not evidence. `approveRun`
+     * is the one mutation a person is entitled to make, and it refuses a run
+     * that is not actually awaiting approval.
+     */
+
+    /**
+     * Forms.
+     *
+     * `submit` is the only write surface in the product a member of the public
+     * can reach, so everything that must be true of a submission is enforced
+     * here rather than by the caller: validation against the version that was
+     * answered, refusal of answers to hidden fields, sensitivity carried from
+     * the field onto the answer, consent recorded verbatim, and a retention
+     * date stamped on arrival.
+     *
+     * `answers` filters by capability rather than refusing outright. A role
+     * without `beneficiary_data:view` gets the submission without its special
+     * category answers, because refusing the whole thing would make ordinary
+     * review impossible and returning everything would defeat the
+     * classification.
+     */
+    forms: {
+      async list(ctx) {
+        return scoped(state.forms, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.forms, ctx, (f) => f.id === id);
+      },
+      async getBySlug(ctx, slug) {
+        const form = scopedFind(state.forms, ctx, (f) => f.slug === slug);
+        // A closed form resolves to null rather than to a form that refuses on
+        // submit: telling somebody the form exists and then rejecting their
+        // answers wastes their time twice.
+        return form && form.status === "open" ? form : null;
+      },
+      async versions(ctx, formId) {
+        return scoped(state.formVersions, ctx)
+          .filter((v) => v.formId === formId)
+          .sort((a, b) => a.versionNumber - b.versionNumber);
+      },
+      async getVersion(ctx, versionId) {
+        return scopedFind(state.formVersions, ctx, (v) => v.id === versionId);
+      },
+      async fields(ctx, versionId) {
+        return scoped(state.formFields, ctx)
+          .filter((f) => f.versionId === versionId)
+          .sort((a, b) => a.order - b.order);
+      },
+      async mappings(ctx, formId) {
+        return scoped(state.formMappings, ctx).filter((m) => m.formId === formId);
+      },
+
+      async saveDraft(ctx, input) {
+        const now = stamp(ctx);
+        const formId = input.form.id ?? newId("form");
+        const existing = scopedFind(state.forms, ctx, (f) => f.id === formId);
+
+        const form: Form = {
+          ...input.form,
+          id: formId,
+          organisationId: ctx.organisationId,
+          audit: existing
+            ? { ...existing.audit, updatedAt: now, updatedBy: ctx.userId }
+            : { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        if (existing) Object.assign(existing, form);
+        else state.forms.push(form);
+
+        // A new draft version every time, never an edit to a published one.
+        // Editing a published version would make every submission that
+        // answered it unreadable.
+        const versionNumber =
+          state.formVersions.filter(
+            (v) => v.formId === formId && v.organisationId === ctx.organisationId,
+          ).length + 1;
+        const versionId = newId("formv");
+        state.formVersions.push({
+          id: versionId,
+          organisationId: ctx.organisationId,
+          formId,
+          versionNumber,
+          status: "draft",
+          sections: input.sections,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        });
+
+        for (const field of input.fields) {
+          state.formFields.push({
+            ...field,
+            id: newId("formf"),
+            organisationId: ctx.organisationId,
+            versionId,
+          });
+        }
+
+        state.formMappings = state.formMappings.filter(
+          (m) => !(m.formId === formId && m.organisationId === ctx.organisationId),
+        );
+        for (const mapping of input.mappings) {
+          state.formMappings.push({
+            ...mapping,
+            id: newId("formm"),
+            organisationId: ctx.organisationId,
+            formId,
+            audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+          });
+        }
+
+        return { formId, versionId };
+      },
+
+      async publish(ctx, versionId) {
+        const version = scopedFind(state.formVersions, ctx, (v) => v.id === versionId);
+        if (!version) {
+          return { ok: false, problems: [{ code: "not_found", message: "No such version." }] };
+        }
+        const form = scopedFind(state.forms, ctx, (f) => f.id === version.formId);
+        if (!form) {
+          return { ok: false, problems: [{ code: "not_found", message: "No such form." }] };
+        }
+
+        const fields = scoped(state.formFields, ctx).filter((f) => f.versionId === versionId);
+        const problems = checkPublishable(form, fields);
+        if (problems.length > 0) return { ok: false, problems };
+
+        version.status = "published";
+        version.publishedAt = stamp(ctx);
+        version.publishedBy = ctx.userId;
+        form.currentVersionId = versionId;
+        form.audit.updatedAt = stamp(ctx);
+
+        for (const other of scoped(state.formVersions, ctx)) {
+          if (other.formId !== form.id || other.id === versionId) continue;
+          if (other.status !== "published") continue;
+          other.status = "retired";
+          other.retiredAt = stamp(ctx);
+        }
+
+        await recordAudit(ctx, {
+          action: "form.published",
+          entityType: "task",
+          entityId: form.id,
+          summary: `Published version ${version.versionNumber} of '${form.name}'`,
+        });
+
+        return { ok: true, problems: [] };
+      },
+
+      async submit(ctx, init) {
+        const form = scopedFind(state.forms, ctx, (f) => f.id === init.formId);
+        if (!form || form.status !== "open") {
+          return { ok: false, message: "That form is not accepting responses." };
+        }
+        if (!form.currentVersionId) {
+          return { ok: false, message: "That form has no published version." };
+        }
+        const versionId = form.currentVersionId;
+        const fields = scoped(state.formFields, ctx)
+          .filter((f) => f.versionId === versionId)
+          .sort((a, b) => a.order - b.order);
+
+        const now = ctx.now();
+        const problems = validateSubmission({ fields, values: init.values, now });
+        if (problems.length > 0) return { ok: false, problems };
+
+        const spam = assessSpam({
+          fields,
+          values: init.values,
+          honeypotValue: init.honeypotValue,
+          secondsOnPage: init.secondsOnPage,
+        });
+
+        const fieldByKey = new Map(fields.map((field) => [field.key, field]));
+        const submissionId = newId("sub");
+
+        const submission: FormSubmission = {
+          id: submissionId,
+          organisationId: ctx.organisationId,
+          formId: form.id,
+          versionId,
+          // Suspected spam is stored and flagged, never discarded. A false
+          // positive costs a person who needed help; a false negative costs
+          // somebody thirty seconds.
+          status: spam.suspected
+            ? "spam"
+            : init.source === "internal"
+              ? "awaiting_review"
+              : "awaiting_review",
+          source: init.source,
+          submittedAt: now.toISOString(),
+          submittedBy: init.source === "internal" ? ctx.userId : undefined,
+          sourceToken: init.sourceToken,
+          retainUntil: retainUntil(form, now),
+        };
+        state.formSubmissions.push(submission);
+
+        for (const [key, value] of Object.entries(init.values)) {
+          if (value === undefined) continue;
+          const field = fieldByKey.get(key);
+          if (!field) continue;
+          state.submissionAnswers.push({
+            id: newId("suba"),
+            organisationId: ctx.organisationId,
+            submissionId,
+            fieldKey: key,
+            fieldLabel: field.label,
+            fieldType: field.type,
+            // Carried from the field, never decided here. Classifying at
+            // write time would let two answers to the same question be
+            // classified differently.
+            sensitivity: field.sensitivity,
+            value,
+          });
+
+          if (field.type === "consent" && value.type === "boolean") {
+            state.consentRecords.push({
+              id: newId("consent"),
+              organisationId: ctx.organisationId,
+              submissionId,
+              versionId,
+              fieldKey: key,
+              // Verbatim from the version answered, so the wording somebody
+              // actually agreed to can always be recovered.
+              purpose: field.consentPurpose ?? field.label,
+              granted: value.boolean,
+              recordedAt: now.toISOString(),
+            });
+          }
+        }
+
+        return { ok: true, submissionId, spamScore: spam.score };
+      },
+
+      async submissions(ctx, formId) {
+        return scoped(state.formSubmissions, ctx)
+          .filter((s) => !formId || s.formId === formId)
+          .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+      },
+      async getSubmission(ctx, id) {
+        return scopedFind(state.formSubmissions, ctx, (s) => s.id === id);
+      },
+      async answers(ctx, submissionId) {
+        const mayReadSpecial = can(ctx.role, "beneficiary_data:view");
+        return scoped(state.submissionAnswers, ctx)
+          .filter((a) => a.submissionId === submissionId)
+          .filter((a) => mayReadSpecial || a.sensitivity !== "special_category");
+      },
+      async consent(ctx, submissionId) {
+        return scoped(state.consentRecords, ctx).filter((c) => c.submissionId === submissionId);
+      },
+      async reviewSubmission(ctx, submissionId, status, note) {
+        const submission = scopedFind(state.formSubmissions, ctx, (s) => s.id === submissionId);
+        if (!submission) return;
+        if (status === "rejected" && !note?.trim()) return;
+        submission.status = status;
+        submission.reviewedBy = ctx.userId;
+        submission.reviewedAt = stamp(ctx);
+        submission.reviewNote = note;
+      },
+      async withdrawConsent(ctx, consentId) {
+        const record = scopedFind(state.consentRecords, ctx, (c) => c.id === consentId);
+        if (!record || record.withdrawnAt) return;
+        // Recorded, never deleted. A deleted consent record cannot prove that
+        // consent was withdrawn.
+        record.withdrawnAt = stamp(ctx);
+      },
+
+      async redactExpired(ctx) {
+        const due = answersDueForErasure(scoped(state.formSubmissions, ctx), ctx.now());
+        if (due.length === 0) return { submissions: 0, answers: 0 };
+
+        let erased = 0;
+        for (const answer of scoped(state.submissionAnswers, ctx)) {
+          if (!due.includes(answer.submissionId) || answer.redacted) continue;
+          answer.value = { type: "text", text: "" };
+          answer.redacted = true;
+          answer.redactedAt = stamp(ctx);
+          erased += 1;
+        }
+
+        await recordAudit(ctx, {
+          action: "form.answers.redacted",
+          entityType: "task",
+          entityId: due[0]!,
+          summary: `Erased ${erased} answers across ${due.length} submissions whose retention period expired`,
+        });
+
+        // The submission rows stay. "Somebody submitted this on this date and
+        // the answers were deleted under our retention policy" is a true and
+        // useful statement, and deleting the row would make the erasure itself
+        // unprovable.
+        return { submissions: due.length, answers: erased };
+      },
+    },
+
+    /**
+     * The public form surface.
+     *
+     * Unscoped, because a slug is what identifies the organisation and there
+     * is no session to scope by. Narrowed to almost nothing in compensation:
+     * only `public` forms that are `open` and have a published version resolve
+     * at all, only that version's fields are readable, and no other table is
+     * reachable from here.
+     *
+     * The submit path synthesises a context from the form's own organisation
+     * and then calls the same `forms.submit` an authenticated caller uses, so
+     * validation, sensitivity classification, consent and retention are the
+     * same code rather than a second, laxer copy.
+     */
+    publicForms: {
+      async resolveBySlug(slug) {
+        const form = state.forms.find(
+          (candidate) =>
+            candidate.slug === slug &&
+            candidate.access === "public" &&
+            candidate.status === "open" &&
+            !candidate.audit.archivedAt,
+        );
+        if (!form?.currentVersionId) return null;
+        const version = state.formVersions.find(
+          (candidate) =>
+            candidate.id === form.currentVersionId &&
+            candidate.organisationId === form.organisationId &&
+            candidate.status === "published",
+        );
+        return version ? { form, version } : null;
+      },
+      async fields(slug) {
+        const resolved = await repository.publicForms.resolveBySlug(slug);
+        if (!resolved) return [];
+        return state.formFields
+          .filter(
+            (field) =>
+              field.versionId === resolved.version.id &&
+              field.organisationId === resolved.form.organisationId,
+          )
+          .sort((a, b) => a.order - b.order);
+      },
+      async submit(slug, init) {
+        const resolved = await repository.publicForms.resolveBySlug(slug);
+        if (!resolved) return { ok: false, message: "That form is not available." };
+
+        // A synthesised context, scoped to the form's own organisation and to
+        // nothing else. The acting user is the form's creator rather than a
+        // shared system identity, so the audit trail names somebody real.
+        const publicCtx: RequestContext = {
+          organisationId: resolved.form.organisationId,
+          userId: resolved.form.audit.createdBy ?? "public",
+          // The narrowest role that can write a submission. A public
+          // respondent must never inherit the capabilities of whoever built
+          // the form.
+          role: "contributor",
+          now: () => new Date(),
+        };
+
+        return repository.forms.submit(publicCtx, {
+          ...init,
+          formId: resolved.form.id,
+          source: "public",
+        });
+      },
+    },
+
+    /**
+     * Portals, from the organisation's side.
+     *
+     * Managing who can see what. Every write here is a member of the
+     * organisation deciding to share something outside it, which is why every
+     * one is audited and why `share` refuses rather than defaults.
+     */
+
+    /**
+     * Fundraising.
+     *
+     * `recordDonation` is the method this phase is judged on. It writes the
+     * transaction, the donation and the allocation in one call, so a gift is
+     * money and a fundraising fact at the same moment. There is deliberately
+     * no path here that creates a donation without the transaction underneath
+     * it: that would be a pledge recorded as income, which is how a
+     * fundraising total stops matching the accounts.
+     */
+
+    /**
+     * Integrations.
+     *
+     * `applyIncoming` is where the phase's central rule lives. It decides
+     * field by field, and a value somebody stood behind produces a conflict
+     * rather than a write. There is deliberately no other path that writes a
+     * synced value.
+     */
+    integrations: {
+      async connections(ctx) {
+        return scoped(state.integrationConnections, ctx).filter(isLive);
+      },
+      async getConnection(ctx, id) {
+        return scopedFind(state.integrationConnections, ctx, (row) => row.id === id);
+      },
+
+      async connect(ctx, input) {
+        const integration = findIntegration(input.integrationId);
+        if (!integration) return null;
+
+        const now = stamp(ctx);
+        const connection: IntegrationConnection = {
+          id: newId("iconn"),
+          organisationId: ctx.organisationId,
+          integrationId: integration.id,
+          accountLabel: input.accountLabel,
+          mode: input.mode,
+          semantics: input.semantics ?? defaultSemantics(input.mode),
+          // Never `active` on creation. A connection is active once something
+          // has successfully read from it, not once somebody filled a form in.
+          status: "pending",
+          credentialRef: input.credentialRef,
+          connectedBy: ctx.userId,
+          connectedAt: now,
+          consecutiveFailures: 0,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.integrationConnections.push(connection);
+
+        await recordAudit(ctx, {
+          action: "integration.connected",
+          entityType: "organisation",
+          entityId: ctx.organisationId,
+          summary: `Connected ${integration.name} (${input.accountLabel}) in ${input.mode} mode. ${describeSemantics(connection.semantics)}`,
+        });
+
+        return connection.id;
+      },
+
+      async setSemantics(ctx, connectionId, semantics) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        if (!connection) return;
+        connection.semantics = semantics;
+        connection.audit.updatedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "integration.semantics_changed",
+          entityType: "organisation",
+          entityId: ctx.organisationId,
+          summary: `Changed how ${connection.accountLabel} syncs. ${describeSemantics(semantics)}`,
+        });
+      },
+
+      async disconnect(ctx, connectionId) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        if (!connection) return;
+        connection.status = "revoked";
+        connection.audit.updatedAt = stamp(ctx);
+        // The external identities stay. Deleting them would mean a later
+        // reconnection re-imported every record as new, duplicating the lot.
+        await recordAudit(ctx, {
+          action: "integration.disconnected",
+          entityType: "organisation",
+          entityId: ctx.organisationId,
+          summary: `Disconnected ${connection.accountLabel}. The record of which provider record maps to which Pegasus record is kept, so reconnecting does not duplicate everything.`,
+        });
+      },
+
+      async mappings(ctx, connectionId) {
+        return scoped(state.integrationMappings, ctx).filter(
+          (mapping) => mapping.connectionId === connectionId,
+        );
+      },
+      async saveMapping(ctx, input) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === input.connectionId,
+        );
+        if (!connection) return null;
+
+        const existing = scopedFind(
+          state.integrationMappings,
+          ctx,
+          (mapping) =>
+            mapping.connectionId === input.connectionId &&
+            mapping.externalType === input.externalType &&
+            mapping.externalField === input.externalField &&
+            mapping.field === input.field,
+        );
+        if (existing) {
+          Object.assign(existing, input, { id: existing.id, organisationId: existing.organisationId });
+          return existing.id;
+        }
+
+        const mapping: IntegrationMapping = {
+          ...input,
+          id: newId("imap"),
+          organisationId: ctx.organisationId,
+        };
+        state.integrationMappings.push(mapping);
+        return mapping.id;
+      },
+
+      async identities(ctx, connectionId) {
+        return scoped(state.externalIdentities, ctx).filter(
+          (identity) => identity.connectionId === connectionId,
+        );
+      },
+      async resolveExternal(ctx, connectionId, externalId, externalType) {
+        return scopedFind(
+          state.externalIdentities,
+          ctx,
+          (identity) =>
+            identity.connectionId === connectionId &&
+            identity.externalId === externalId &&
+            identity.externalType === externalType,
+        );
+      },
+
+      async runs(ctx, connectionId) {
+        return scoped(state.syncRuns, ctx)
+          .filter((run) => !connectionId || run.connectionId === connectionId)
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      },
+      async conflicts(ctx, options) {
+        return scoped(state.syncConflicts, ctx).filter(
+          (conflict) => !options?.openOnly || !conflict.resolution,
+        );
+      },
+      async resolveConflict(ctx, conflictId, resolution, note) {
+        const conflict = scopedFind(state.syncConflicts, ctx, (row) => row.id === conflictId);
+        if (!conflict || conflict.resolution) return;
+        conflict.resolution = resolution;
+        conflict.resolvedBy = ctx.userId;
+        conflict.resolvedAt = stamp(ctx);
+        conflict.resolutionNote = note;
+        await recordAudit(ctx, {
+          action: "integration.conflict_resolved",
+          entityType: conflict.entity.type,
+          entityId: conflict.entity.id,
+          summary: `Resolved a sync disagreement on ${conflict.field}: ${resolution.replace(/_/g, " ")}${note ? `. ${note}` : "."}`,
+        });
+      },
+
+      async applyIncoming(ctx, connectionId, resource, records) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        const startedAt = stamp(ctx);
+
+        if (!connection || connection.status === "revoked") {
+          const run: SyncRun = {
+            id: newId("srun"),
+            organisationId: ctx.organisationId,
+            connectionId,
+            resource,
+            direction: "inbound",
+            startedAt,
+            finishedAt: startedAt,
+            outcome: "refused",
+            recordsRead: 0,
+            recordsCreated: 0,
+            recordsUpdated: 0,
+            recordsSkipped: 0,
+            conflictsRaised: 0,
+            summary: "No live connection. Nothing was read and nothing was written.",
+          };
+          if (connection) state.syncRuns.push(run);
+          return { run, conflicts: [] };
+        }
+
+        const integration = findIntegration(connection.integrationId);
+        const allowed = integration
+          ? permitted(integration, "read")
+          : { allowed: false, reason: "Unknown provider." };
+
+        // Checked before anything is read. A provider whose capabilities were
+        // never verified can do nothing, which is the safe reading of an
+        // unverified claim.
+        if (!allowed.allowed) {
+          const run: SyncRun = {
+            id: newId("srun"),
+            organisationId: ctx.organisationId,
+            connectionId,
+            resource,
+            direction: connection.semantics.direction,
+            startedAt,
+            finishedAt: startedAt,
+            outcome: "refused",
+            recordsRead: 0,
+            recordsCreated: 0,
+            recordsUpdated: 0,
+            recordsSkipped: 0,
+            conflictsRaised: 0,
+            summary: allowed.reason ?? "This provider cannot be read from.",
+          };
+          state.syncRuns.push(run);
+          return { run, conflicts: [] };
+        }
+
+        const mappings = scoped(state.integrationMappings, ctx).filter(
+          (mapping) => mapping.connectionId === connectionId,
+        );
+        const conflicts: SyncConflict[] = [];
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+
+        for (const record of records) {
+          const identity = scopedFind(
+            state.externalIdentities,
+            ctx,
+            (row) =>
+              row.connectionId === connectionId &&
+              row.externalId === record.externalId &&
+              row.externalType === record.externalType,
+          );
+
+          if (record.deleted) {
+            const decision = decideDeletion(
+              connection.semantics,
+              identity?.entity ?? { type: "person", id: record.externalId },
+            );
+            if (identity) identity.externallyDeletedAt = stamp(ctx);
+            skipped += 1;
+            void decision;
+            continue;
+          }
+
+          const hash = contentHashOf(record.fields);
+          // An unchanged record costs one comparison rather than a
+          // field-by-field diff, which matters against a rate limit.
+          if (identity && !hasChanged(identity, hash)) {
+            identity.lastSeenAt = stamp(ctx);
+            skipped += 1;
+            continue;
+          }
+
+          const forType = mappings.filter(
+            (mapping) => mapping.externalType === record.externalType,
+          );
+          if (forType.length === 0) {
+            skipped += 1;
+            continue;
+          }
+
+          const target = identity?.entity;
+          let touched = false;
+
+          for (const mapping of forType) {
+            const externalValue = record.fields[mapping.externalField];
+            if (externalValue === undefined) continue;
+
+            // Where the record is new to Pegasus there is nothing to conflict
+            // with, so the decision is a creation.
+            if (!target) {
+              created += 1;
+              touched = true;
+              break;
+            }
+
+            const current = readField(state, ctx, target, mapping.field);
+            const decision = decideChange({
+              currentValue: current?.value,
+              currentVerification: current?.verification ?? "needs_review",
+              externalValue,
+              semantics: connection.semantics,
+              mapping,
+            });
+
+            if (decision.action === "conflict") {
+              const conflict: SyncConflict = {
+                id: newId("sconf"),
+                organisationId: ctx.organisationId,
+                connectionId,
+                entity: target,
+                field: mapping.field,
+                pegasusValue: current?.value ?? "",
+                pegasusVerification: current?.verification ?? "needs_review",
+                externalValue,
+                detectedAt: stamp(ctx),
+              };
+              state.syncConflicts.push(conflict);
+              conflicts.push(conflict);
+              continue;
+            }
+            if (decision.action === "update" || decision.action === "create") {
+              updated += 1;
+              touched = true;
+            }
+          }
+
+          if (!touched && conflicts.length === 0) skipped += 1;
+
+          if (identity) {
+            identity.contentHash = hash;
+            identity.lastSeenAt = stamp(ctx);
+          } else {
+            state.externalIdentities.push({
+              id: newId("xid"),
+              organisationId: ctx.organisationId,
+              connectionId,
+              externalId: record.externalId,
+              externalType: record.externalType,
+              // Recorded as a candidate pointing at nothing until a person or
+              // a matching rule resolves it. An identity that guessed which
+              // person a CRM record was would merge two people on a shared
+              // surname.
+              entity: { type: "person", id: record.externalId },
+              contentHash: hash,
+              firstSeenAt: stamp(ctx),
+              lastSeenAt: stamp(ctx),
+            });
+          }
+        }
+
+        const run: SyncRun = {
+          id: newId("srun"),
+          organisationId: ctx.organisationId,
+          connectionId,
+          resource,
+          direction: connection.semantics.direction,
+          startedAt,
+          finishedAt: stamp(ctx),
+          outcome: conflicts.length > 0 ? "partial" : "completed",
+          recordsRead: records.length,
+          recordsCreated: created,
+          recordsUpdated: updated,
+          recordsSkipped: skipped,
+          conflictsRaised: conflicts.length,
+          summary: `Read ${records.length} records: ${created} new, ${updated} changed, ${skipped} unchanged or unmapped, ${conflicts.length} refused because Pegasus holds a value somebody stood behind.`,
+        };
+        state.syncRuns.push(run);
+
+        connection.status = "active";
+        connection.lastSyncedAt = stamp(ctx);
+        connection.consecutiveFailures = 0;
+
+        return { run, conflicts };
+      },
+
+      async recordWebhook(ctx, connectionId, input) {
+        const connection = scopedFind(
+          state.integrationConnections,
+          ctx,
+          (row) => row.id === connectionId,
+        );
+        if (!connection) return { accepted: false, reason: "No such connection." };
+
+        const duplicate = scopedFind(
+          state.webhookEvents,
+          ctx,
+          (event) =>
+            event.connectionId === connectionId &&
+            event.providerEventId === input.providerEventId,
+        );
+        // A webhook delivered twice is normal. A handler that assumed
+        // otherwise would double-count a donation.
+        if (duplicate) {
+          return { accepted: false, reason: "Already received. Ignored." };
+        }
+
+        state.webhookEvents.push({
+          id: newId("whook"),
+          organisationId: ctx.organisationId,
+          connectionId,
+          providerEventId: input.providerEventId,
+          eventType: input.eventType,
+          receivedAt: stamp(ctx),
+          payloadHash: contentHashOf(input.payload),
+          status: "received",
+        });
+        return { accepted: true };
+      },
+
+      async webhooks(ctx, connectionId) {
+        return scoped(state.webhookEvents, ctx)
+          .filter((event) => event.connectionId === connectionId)
+          .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+      },
+    },
+    fundraising: {
+      async campaigns(ctx) {
+        return scoped(state.campaigns, ctx).filter(isLive);
+      },
+      async getCampaign(ctx, id) {
+        return scopedFind(state.campaigns, ctx, (campaign) => campaign.id === id);
+      },
+      async appeals(ctx, campaignId) {
+        return scoped(state.appeals, ctx).filter(
+          (appeal) => !campaignId || appeal.campaignId === campaignId,
+        );
+      },
+      async donations(ctx, options) {
+        return scoped(state.donations, ctx)
+          .filter(isLive)
+          .filter((donation) => !options?.campaignId || donation.campaignId === options.campaignId)
+          .filter((donation) => !options?.personId || donation.personId === options.personId)
+          .sort((a, b) => b.receivedOn.localeCompare(a.receivedOn));
+      },
+      async getDonation(ctx, id) {
+        return scopedFind(state.donations, ctx, (donation) => donation.id === id);
+      },
+      async recurringCommitments(ctx) {
+        return scoped(state.recurringCommitments, ctx);
+      },
+
+      async recordDonation(ctx, init) {
+        if (init.amountMinorUnits <= 0) {
+          return { ok: false, message: "A donation must be a positive amount." };
+        }
+        if (init.personId && init.externalOrganisationId) {
+          return {
+            ok: false,
+            message: "A gift comes from a person or an organisation, not both.",
+          };
+        }
+        if (init.personId && !entityExists(ctx, { type: "person", id: init.personId })) {
+          return { ok: false, message: "That person is not in this organisation." };
+        }
+        if (
+          init.externalOrganisationId &&
+          !entityExists(ctx, {
+            type: "external_organisation",
+            id: init.externalOrganisationId,
+          })
+        ) {
+          return { ok: false, message: "That organisation is not in this organisation's records." };
+        }
+        const fund = scopedFind(state.funds, ctx, (candidate) => candidate.id === init.fundId);
+        if (!fund) return { ok: false, message: "That fund could not be found." };
+        // A restricted gift whose restriction is unstated cannot be honoured,
+        // and is the same failure the fund constraint guards against.
+        if (init.restricted && !init.restrictionPurpose?.trim()) {
+          return {
+            ok: false,
+            message: "A restricted gift needs its restriction stated. Otherwise it cannot be honoured.",
+          };
+        }
+
+        const now = stamp(ctx);
+
+        // The money first, and only once.
+        const transaction: FinancialTransaction = {
+          id: newId("txn"),
+          organisationId: ctx.organisationId,
+          date: init.receivedOn,
+          description:
+            init.description ??
+            (init.anonymous ? "Anonymous donation" : `Donation (${init.channel})`),
+          amount: { minorUnits: init.amountMinorUnits, currency: init.currency },
+          direction: "income",
+          category: "Donations received",
+          restricted: init.restricted ?? false,
+          fundId: fund.id,
+          source: "manual",
+          // Somebody entered it. Nobody has reconciled it against a bank line.
+          verificationState: "provided",
+        };
+        state.transactions.push(transaction);
+
+        const donation: Donation = {
+          id: newId("don"),
+          organisationId: ctx.organisationId,
+          transactionId: transaction.id,
+          personId: init.personId,
+          externalOrganisationId: init.externalOrganisationId,
+          kind: init.kind ?? "one_off",
+          channel: init.channel,
+          receivedOn: init.receivedOn,
+          campaignId: init.campaignId,
+          appealId: init.appealId,
+          recurringCommitmentId: init.recurringCommitmentId,
+          anonymous: init.anonymous ?? false,
+          restricted: init.restricted ?? false,
+          restrictionPurpose: init.restrictionPurpose,
+          giftAidClaimed: false,
+          benefitValueMinorUnits: init.benefitValueMinorUnits,
+          note: init.note,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.donations.push(donation);
+
+        /**
+         * Attribution, where the gift is restricted to something.
+         *
+         * A restricted gift that nothing attributes is money the organisation
+         * has promised to spend on a thing and cannot show it spent on that
+         * thing. An unrestricted gift is deliberately left unallocated: it is
+         * core income, and forcing it onto a programme would be the
+         * apportionment fiction MG-8 exists to avoid.
+         */
+        let allocationId: string | undefined;
+        if (init.programmeId && init.restricted) {
+          const allocated = await repository.finance.allocate(ctx, {
+            transactionId: transaction.id,
+            fundId: fund.id,
+            programmeId: init.programmeId,
+            amount: transaction.amount,
+            allocationMethod: "direct",
+            allocationBasis: "direct",
+            allocationNote: `Restricted gift: ${init.restrictionPurpose}`,
+            restricted: true,
+            effectiveDate: init.receivedOn,
+            verificationState: "provided",
+            createdBy: ctx.userId,
+          });
+          allocationId = allocated ?? undefined;
+        }
+
+        // A supporter profile, so the gift has somewhere to be stewarded from.
+        // Created rather than required, because a first gift should not need
+        // somebody to set up a record before it can be recorded.
+        let supporterProfileId: string | undefined;
+        const party = init.personId
+          ? { personId: init.personId }
+          : init.externalOrganisationId
+            ? { externalOrganisationId: init.externalOrganisationId }
+            : null;
+        if (party) {
+          const existing = scopedFind(
+            state.supporterProfiles,
+            ctx,
+            (profile) =>
+              (party.personId !== undefined && profile.personId === party.personId) ||
+              (party.externalOrganisationId !== undefined &&
+                profile.externalOrganisationId === party.externalOrganisationId),
+          );
+          if (existing) supporterProfileId = existing.id;
+          else {
+            const profile: SupporterProfile = {
+              id: newId("sup"),
+              organisationId: ctx.organisationId,
+              ...party,
+              stage: init.externalOrganisationId ? "corporate" : "new",
+              doNotSolicit: false,
+              audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+            };
+            state.supporterProfiles.push(profile);
+            supporterProfileId = profile.id;
+          }
+        }
+
+        await recordAudit(ctx, {
+          action: "donation.recorded",
+          entityType: "donation",
+          entityId: donation.id,
+          summary: `Recorded a ${(init.amountMinorUnits / 100).toFixed(2)} donation${init.anonymous ? " (anonymous)" : ""} into ${fund.name}`,
+        });
+
+        return {
+          ok: true,
+          donationId: donation.id,
+          transactionId: transaction.id,
+          allocationId,
+          supporterProfileId,
+        };
+      },
+
+      async markThanked(ctx, donationId) {
+        const donation = scopedFind(state.donations, ctx, (row) => row.id === donationId);
+        if (!donation || donation.thankedAt) return;
+        donation.thankedAt = stamp(ctx);
+        donation.audit.updatedAt = stamp(ctx);
+      },
+
+      async supporterProfiles(ctx) {
+        return scoped(state.supporterProfiles, ctx).filter(isLive);
+      },
+      async getSupporterProfile(ctx, party) {
+        return scopedFind(
+          state.supporterProfiles,
+          ctx,
+          (profile) =>
+            (party.personId !== undefined && profile.personId === party.personId) ||
+            (party.externalOrganisationId !== undefined &&
+              profile.externalOrganisationId === party.externalOrganisationId),
+        );
+      },
+      async saveSupporterProfile(ctx, input) {
+        const now = stamp(ctx);
+        const existing = input.id
+          ? scopedFind(state.supporterProfiles, ctx, (profile) => profile.id === input.id)
+          : null;
+
+        // An override without a reason is not auditable by whoever picks the
+        // relationship up next, which is the same rule the relationship health
+        // override follows.
+        if (input.stageOverride && !input.stageOverride.reason.trim()) return null;
+
+        if (existing) {
+          Object.assign(existing, input, {
+            id: existing.id,
+            organisationId: existing.organisationId,
+            audit: { ...existing.audit, updatedAt: now, updatedBy: ctx.userId },
+          });
+          return existing.id;
+        }
+
+        const profile: SupporterProfile = {
+          ...input,
+          id: newId("sup"),
+          organisationId: ctx.organisationId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.supporterProfiles.push(profile);
+        return profile.id;
+      },
+
+      async giftAidDeclarations(ctx, personId) {
+        return scoped(state.giftAidDeclarations, ctx).filter(
+          (declaration) => !personId || declaration.personId === personId,
+        );
+      },
+      async recordGiftAidDeclaration(ctx, input) {
+        if (!entityExists(ctx, { type: "person", id: input.personId })) return null;
+        // Refused rather than stored incomplete: HMRC matches a claim on these
+        // details, and a declaration missing any of them is one the charity
+        // would have to repay.
+        if (!input.fullName.trim() || !input.addressLine.trim() || !input.postcode.trim()) {
+          return null;
+        }
+        const now = stamp(ctx);
+        const declaration: GiftAidDeclaration = {
+          ...input,
+          id: newId("gad"),
+          organisationId: ctx.organisationId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.giftAidDeclarations.push(declaration);
+        return declaration.id;
+      },
+
+      async assembleGiftAidClaim(ctx, periodStart, periodEnd) {
+        const donations = scoped(state.donations, ctx).filter(
+          (donation) => donation.receivedOn >= periodStart && donation.receivedOn <= periodEnd,
+        );
+        const declarations = scoped(state.giftAidDeclarations, ctx);
+        const transactions = scoped(state.transactions, ctx);
+
+        const assembly = assembleClaim(
+          donations.map((donation) => ({
+            donation,
+            amountMinorUnits:
+              transactions.find((t) => t.id === donation.transactionId)?.amount.minorUnits ?? 0,
+            declaration: declarations.find(
+              (candidate) =>
+                candidate.id === donation.giftAidDeclarationId ||
+                (candidate.scope === "enduring" && candidate.personId === donation.personId),
+            ),
+          })),
+        );
+
+        const claim: GiftAidClaim = {
+          id: newId("gac"),
+          organisationId: ctx.organisationId,
+          periodStart,
+          periodEnd,
+          donationIds: assembly.eligible.map((entry) => entry.donationId),
+          claimableMinorUnits: assembly.totalClaimableMinorUnits,
+          currency: "GBP",
+          // Never `filed`. Pegasus assembles and validates; a person files it
+          // through HMRC's own service and records the reference.
+          status: assembly.eligible.length > 0 ? "ready" : "draft",
+          audit: { createdAt: stamp(ctx), updatedAt: stamp(ctx), createdBy: ctx.userId },
+        };
+        state.giftAidClaims.push(claim);
+
+        await recordAudit(ctx, {
+          action: "giftaid.claim.assembled",
+          entityType: "donation",
+          entityId: claim.id,
+          summary: `Assembled a Gift Aid claim: ${assembly.eligible.length} eligible gifts, ${assembly.refused.length} refused, ${(assembly.totalClaimableMinorUnits / 100).toFixed(2)} claimable. Not filed.`,
+        });
+
+        return {
+          claimId: claim.id,
+          claimableMinorUnits: assembly.totalClaimableMinorUnits,
+          refused: assembly.refused.length,
+        };
+      },
+      async giftAidClaims(ctx) {
+        return scoped(state.giftAidClaims, ctx);
+      },
+    },
+    portals: {
+      async list(ctx) {
+        return scoped(state.portals, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.portals, ctx, (portal) => portal.id === id);
+      },
+      async identities(ctx) {
+        return scoped(state.portalIdentities, ctx).filter(isLive);
+      },
+      async memberships(ctx, portalId) {
+        return scoped(state.portalMemberships, ctx).filter(
+          (membership) => !portalId || membership.portalId === portalId,
+        );
+      },
+      async grantsFor(ctx, membershipId) {
+        return scoped(state.portalGrants, ctx).filter(
+          (grant) => grant.membershipId === membershipId,
+        );
+      },
+
+      async invite(ctx, input) {
+        const portal = scopedFind(state.portals, ctx, (p) => p.id === input.portalId);
+        if (!portal) return null;
+
+        // Refused at the point somebody makes the mistake, rather than
+        // discovered when a beneficiary downloads a board pack.
+        for (const capability of input.capabilities) {
+          if (!capabilityPermitted(portal.audience, capability)) return null;
+        }
+
+        const now = stamp(ctx);
+        const email = input.email.trim().toLowerCase();
+        let identity = scopedFind(
+          state.portalIdentities,
+          ctx,
+          (candidate) => candidate.email.toLowerCase() === email,
+        );
+
+        if (!identity) {
+          identity = {
+            id: newId("pid"),
+            organisationId: ctx.organisationId,
+            email,
+            displayName: input.displayName,
+            personId: input.personId,
+            externalOrganisationId: input.externalOrganisationId,
+            status: "invited",
+            invitedAt: now,
+            audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+          };
+          state.portalIdentities.push(identity);
+        }
+
+        const existing = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (membership) =>
+            membership.portalId === portal.id && membership.identityId === identity!.id,
+        );
+        if (existing) {
+          existing.capabilities = input.capabilities;
+          existing.expiresAt = input.expiresAt;
+          existing.revokedAt = undefined;
+          existing.revokedReason = undefined;
+          existing.audit.updatedAt = now;
+          return { identityId: identity.id, membershipId: existing.id };
+        }
+
+        const membership: PortalMembership = {
+          id: newId("pmem"),
+          organisationId: ctx.organisationId,
+          portalId: portal.id,
+          identityId: identity.id,
+          capabilities: input.capabilities,
+          expiresAt: input.expiresAt,
+          invitedBy: ctx.userId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.portalMemberships.push(membership);
+
+        await recordAudit(ctx, {
+          action: "portal.invited",
+          entityType: "person",
+          entityId: identity.id,
+          summary: `Invited ${input.email} to the ${portal.audience} portal with ${input.capabilities.join(", ")}`,
+        });
+
+        return { identityId: identity.id, membershipId: membership.id };
+      },
+
+      async share(ctx, input) {
+        const membership = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (candidate) => candidate.id === input.membershipId,
+        );
+        if (!membership || membership.revokedAt) return null;
+        const portal = scopedFind(state.portals, ctx, (p) => p.id === membership.portalId);
+        if (!portal) return null;
+
+        // Both endpoints, as `relations` does. A correctly scoped grant row
+        // can still name a record in another tenant.
+        if (!entityExists(ctx, input.entity)) return null;
+
+        // An entity type no view names cannot be shared at all. That is what
+        // makes adding a new entity safe: it is invisible to every portal
+        // until somebody writes a view for it.
+        const view = input.viewKey
+          ? findView(input.viewKey)
+          : viewForEntity(portal.audience, input.entity.type);
+        if (!view || view.audience !== portal.audience || view.entityType !== input.entity.type) {
+          return null;
+        }
+
+        const grant: PortalGrantRecord = {
+          id: newId("pgrant"),
+          organisationId: ctx.organisationId,
+          membershipId: membership.id,
+          entity: { type: input.entity.type, id: input.entity.id, label: input.entity.label },
+          viewKey: view.key,
+          grantedBy: ctx.userId,
+          grantedAt: stamp(ctx),
+          reason: input.reason,
+          expiresAt: input.expiresAt,
+        };
+        state.portalGrants.push(grant);
+
+        await recordAudit(ctx, {
+          action: "portal.shared",
+          entityType: input.entity.type,
+          entityId: input.entity.id,
+          summary: `Shared with the ${portal.audience} portal through view ${view.key}${input.reason ? `: ${input.reason}` : ""}`,
+        });
+
+        return grant.id;
+      },
+
+      async unshare(ctx, grantId) {
+        const grant = scopedFind(state.portalGrants, ctx, (candidate) => candidate.id === grantId);
+        if (!grant || grant.revokedAt) return;
+        // Revoked, never deleted. A deleted grant cannot answer "what did we
+        // share with this funder, and when did we stop?"
+        grant.revokedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "portal.unshared",
+          entityType: grant.entity.type,
+          entityId: grant.entity.id,
+          summary: "Withdrawn from a portal.",
+        });
+      },
+
+      async revokeMembership(ctx, membershipId, reason) {
+        const membership = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (candidate) => candidate.id === membershipId,
+        );
+        if (!membership || !reason.trim()) return;
+        membership.revokedAt = stamp(ctx);
+        membership.revokedReason = reason;
+        membership.audit.updatedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "portal.access_revoked",
+          entityType: "person",
+          entityId: membership.identityId,
+          summary: `Portal access revoked: ${reason}`,
+        });
+      },
+
+      async submissions(ctx, portalId) {
+        return scoped(state.portalSubmissions, ctx)
+          .filter((submission) => !portalId || submission.portalId === portalId)
+          .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+      },
+      async messages(ctx, membershipId) {
+        return scoped(state.portalMessages, ctx)
+          .filter((message) => message.membershipId === membershipId)
+          .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+      },
+      async reply(ctx, membershipId, body) {
+        const membership = scopedFind(
+          state.portalMemberships,
+          ctx,
+          (candidate) => candidate.id === membershipId,
+        );
+        if (!membership || membership.revokedAt || !body.trim()) return null;
+        const message: PortalMessage = {
+          id: newId("pmsg"),
+          organisationId: ctx.organisationId,
+          portalId: membership.portalId,
+          membershipId,
+          direction: "outbound",
+          body,
+          sentAt: stamp(ctx),
+          sentBy: ctx.userId,
+        };
+        state.portalMessages.push(message);
+        return message.id;
+      },
+    },
+
+    /**
+     * The portal user's side.
+     *
+     * Unscoped by necessity: a portal user has no organisation session, and a
+     * slug plus an email is what locates them. Narrowed drastically in
+     * compensation — **every read returns a projection, never a record.**
+     * There is no method here that hands back an entity, so a bug in a caller
+     * cannot leak one.
+     */
+    portalAccess: {
+      async resolvePortal(slug) {
+        return (
+          state.portals.find(
+            (portal) =>
+              portal.slug === slug && portal.status === "open" && !portal.audit.archivedAt,
+          ) ?? null
+        );
+      },
+      async resolveMembership(slug, email) {
+        const portal = await repository.portalAccess.resolvePortal(slug);
+        if (!portal) return null;
+        const normalised = email.trim().toLowerCase();
+        const identity = state.portalIdentities.find(
+          (candidate) =>
+            candidate.organisationId === portal.organisationId &&
+            candidate.email.toLowerCase() === normalised &&
+            !candidate.audit.archivedAt,
+        );
+        if (!identity) return null;
+        const membership = state.portalMemberships.find(
+          (candidate) =>
+            candidate.portalId === portal.id &&
+            candidate.identityId === identity.id &&
+            candidate.organisationId === portal.organisationId,
+        );
+        return membership ? { portal, identity, membership } : null;
+      },
+
+      async index(slug, email) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return [];
+        const now = new Date();
+        const grants = state.portalGrants.filter(
+          (grant) => grant.organisationId === resolved.portal.organisationId,
+        );
+
+        const projections: ProjectedRecord[] = [];
+        for (const grant of reachableRecords(grants, resolved.membership, now)) {
+          const projection = await repository.portalAccess.read(slug, email, grant.entity);
+          if (projection) projections.push(projection);
+        }
+        return projections;
+      },
+
+      async read(slug, email, entity) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return null;
+
+        const decision = decideAccess({
+          portal: resolved.portal,
+          identity: resolved.identity,
+          membership: resolved.membership,
+          grants: state.portalGrants.filter(
+            (grant) => grant.organisationId === resolved.portal.organisationId,
+          ),
+          entity,
+          capability: "portal:view",
+          now: new Date(),
+        });
+        if (!decision.allowed || !decision.viewKey) return null;
+
+        const table = ENTITY_TABLES[entity.type];
+        if (!table) return null;
+        const record = table(state).find(
+          (row) =>
+            row.id === entity.id && row.organisationId === resolved.portal.organisationId,
+        );
+        if (!record) return null;
+
+        // Projected, never returned. Even here, with access correctly granted,
+        // the object that leaves is built field by field from an allowlist.
+        return projectRecord({
+          entity,
+          record: record as unknown as Record<string, unknown>,
+          viewKey: decision.viewKey,
+        });
+      },
+
+      async submit(slug, email, input) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return null;
+        if (!resolved.membership.capabilities.includes("portal:submit")) return null;
+        if (resolved.membership.revokedAt) return null;
+
+        const submission: PortalSubmission = {
+          id: `psub-${globalThis.crypto.randomUUID()}`,
+          organisationId: resolved.portal.organisationId,
+          portalId: resolved.portal.id,
+          membershipId: resolved.membership.id,
+          kind: input.kind,
+          subject: input.subject,
+          body: input.body,
+          // Always. A portal submission changes nothing until a member of the
+          // organisation decides what it means.
+          status: "received",
+          submittedAt: new Date().toISOString(),
+        };
+        state.portalSubmissions.push(submission);
+        return submission.id;
+      },
+
+      async message(slug, email, body) {
+        const resolved = await repository.portalAccess.resolveMembership(slug, email);
+        if (!resolved) return null;
+        if (!resolved.membership.capabilities.includes("portal:message")) return null;
+        if (resolved.membership.revokedAt || !body.trim()) return null;
+
+        const message: PortalMessage = {
+          id: `pmsg-${globalThis.crypto.randomUUID()}`,
+          organisationId: resolved.portal.organisationId,
+          portalId: resolved.portal.id,
+          membershipId: resolved.membership.id,
+          direction: "inbound",
+          body,
+          sentAt: new Date().toISOString(),
+        };
+        state.portalMessages.push(message);
+        return message.id;
+      },
+    },
+    automation: {
+      async list(ctx) {
+        return scoped(state.automations, ctx).filter(isLive);
+      },
+      async get(ctx, id) {
+        return scopedFind(state.automations, ctx, (a) => a.id === id);
+      },
+      async activeFor(ctx, kind) {
+        return scoped(state.automations, ctx)
+          .filter(isLive)
+          .filter((a) => a.status === "active" && a.trigger.kind === kind);
+      },
+      async save(ctx, input) {
+        const now = stamp(ctx);
+        const existing = input.id
+          ? scopedFind(state.automations, ctx, (a) => a.id === input.id)
+          : null;
+
+        if (existing) {
+          Object.assign(existing, input, {
+            id: existing.id,
+            organisationId: existing.organisationId,
+            audit: { ...existing.audit, updatedAt: now, updatedBy: ctx.userId },
+          });
+          return existing.id;
+        }
+
+        const automation: Automation = {
+          ...input,
+          id: input.id ?? newId("auto"),
+          organisationId: ctx.organisationId,
+          audit: { createdAt: now, updatedAt: now, createdBy: ctx.userId, archivedAt: null },
+        };
+        state.automations.push(automation);
+        await recordAudit(ctx, {
+          action: "automation.created",
+          entityType: "task",
+          entityId: automation.id,
+          summary: `Created automation '${automation.name}'`,
+        });
+        return automation.id;
+      },
+      async setStatus(ctx, id, status) {
+        const automation = scopedFind(state.automations, ctx, (a) => a.id === id);
+        if (!automation) return;
+        const previous = automation.status;
+        automation.status = status;
+        automation.audit.updatedAt = stamp(ctx);
+        automation.audit.updatedBy = ctx.userId;
+        await recordAudit(ctx, {
+          action: "automation.status_changed",
+          entityType: "task",
+          entityId: id,
+          summary: `Automation '${automation.name}' moved from ${previous} to ${status}`,
+        });
+      },
+
+      async recordEvent(ctx, event) {
+        const record: DomainEvent = {
+          ...event,
+          id: newId("evt"),
+          organisationId: ctx.organisationId,
+        };
+        state.domainEvents.push(record);
+        return record;
+      },
+      async events(ctx, options) {
+        const rows = scoped(state.domainEvents, ctx);
+        return (options?.unprocessedOnly ? rows.filter((e) => !e.processedAt) : rows).sort((a, b) =>
+          a.occurredAt.localeCompare(b.occurredAt),
+        );
+      },
+      async markEventProcessed(ctx, eventId) {
+        const event = scopedFind(state.domainEvents, ctx, (e) => e.id === eventId);
+        if (!event) return;
+        event.processedAt = stamp(ctx);
+      },
+
+      async runs(ctx, options) {
+        return scoped(state.automationRuns, ctx)
+          .filter((run) => !options?.automationId || run.automationId === options.automationId)
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      },
+      async getRun(ctx, runId) {
+        return scopedFind(state.automationRuns, ctx, (r) => r.id === runId);
+      },
+      async steps(ctx, runId) {
+        return scoped(state.automationSteps, ctx)
+          .filter((step) => step.runId === runId)
+          .sort((a, b) => a.order - b.order);
+      },
+      async failures(ctx, runId) {
+        return scoped(state.automationFailures, ctx).filter((f) => f.runId === runId);
+      },
+      async recordRun(ctx, run, steps) {
+        if (run.organisationId !== ctx.organisationId) return;
+        state.automationRuns.push(run);
+        for (const step of steps) {
+          if (step.organisationId !== ctx.organisationId) continue;
+          state.automationSteps.push(step);
+        }
+        const automation = scopedFind(state.automations, ctx, (a) => a.id === run.automationId);
+        if (automation && !run.simulated) automation.lastRunAt = run.startedAt;
+      },
+      async updateStep(ctx, stepId, patch) {
+        const step = scopedFind(state.automationSteps, ctx, (s) => s.id === stepId);
+        if (!step) return;
+        Object.assign(step, patch);
+      },
+      async completeRun(ctx, runId, outcome, finishedAt) {
+        const run = scopedFind(state.automationRuns, ctx, (r) => r.id === runId);
+        if (!run) return;
+        run.outcome = outcome;
+        run.finishedAt = finishedAt;
+      },
+      async approveRun(ctx, runId) {
+        const run = scopedFind(state.automationRuns, ctx, (r) => r.id === runId);
+        // Approving a run that is not waiting is not a no-op: it would mean a
+        // completed run could be "approved" retrospectively, which makes the
+        // approval record meaningless.
+        if (!run || run.outcome !== "awaiting_approval") return null;
+        run.approvedBy = ctx.userId;
+        run.approvedAt = stamp(ctx);
+        await recordAudit(ctx, {
+          action: "automation.run.approved",
+          entityType: "task",
+          entityId: runId,
+          summary: `Approved an automation run against ${run.subject.type} ${run.subject.id}`,
+        });
+        return run;
+      },
+      async recordFailure(ctx, failure) {
+        state.automationFailures.push({
+          ...failure,
+          id: newId("autofail"),
+          organisationId: ctx.organisationId,
+        });
+      },
+
+      async scheduleJob(ctx, job) {
+        // Deduplicated on write. A scanner that runs twice must not produce two
+        // reminders, and nowhere downstream can undo a duplicate reliably.
+        const existing = state.scheduledJobs.find(
+          (j) => j.organisationId === ctx.organisationId && j.dedupeKey === job.dedupeKey,
+        );
+        if (existing) return null;
+
+        const record: ScheduledJob = {
+          ...job,
+          id: newId("job"),
+          organisationId: ctx.organisationId,
+          status: "pending",
+          attempts: 0,
+          createdAt: stamp(ctx),
+        };
+        state.scheduledJobs.push(record);
+        return record;
+      },
+      async dueJobs(ctx, now) {
+        return scoped(state.scheduledJobs, ctx)
+          .filter((job) => job.status === "pending" && Date.parse(job.runAfter) <= now.getTime())
+          .sort((a, b) => a.runAfter.localeCompare(b.runAfter));
+      },
+      async completeJob(ctx, jobId, status, error) {
+        const job = scopedFind(state.scheduledJobs, ctx, (j) => j.id === jobId);
+        if (!job) return;
+        job.status = status;
+        job.attempts += 1;
+        job.lastError = error;
+        job.finishedAt = stamp(ctx);
       },
     },
 

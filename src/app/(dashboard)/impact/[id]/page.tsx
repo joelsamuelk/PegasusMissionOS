@@ -5,7 +5,10 @@ import { assessReportReadiness } from "@/lib/reporting";
 import { resolveRequestContext } from "@/server/context/request-context";
 import { getRepository } from "@/server/data";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { SectionTitle } from "@/components/shared/ui";
 import { ReportBuilder } from "@/components/impact/ReportBuilder";
+import { ReportWorkspace } from "@/components/reporting/ReportWorkspace";
+import { loadReportWorkspace } from "@/server/actions/reports";
 
 export async function generateMetadata({
   params,
@@ -42,6 +45,8 @@ export default async function ImpactReportPage({
     report.grantId ? repo.grants.deliverables(ctx, report.grantId) : [],
   ]);
 
+  const workspace = await loadReportWorkspace(id);
+
   const readiness = assessReportReadiness({
     report,
     claims,
@@ -59,6 +64,24 @@ export default async function ImpactReportPage({
         title={report.title}
         description={`Reporting period: ${report.reportingPeriod}`}
       />
+      {/*
+        The workspace comes first, deliberately. A drafter who reads what is
+        missing before they start does not write a section they cannot support,
+        which is the whole reason report intelligence runs before drafting
+        rather than as a check afterwards.
+      */}
+      {workspace.ok && workspace.briefing && (
+        <div className="mb-8">
+          <SectionTitle>Before you draft</SectionTitle>
+          <ReportWorkspace
+            briefing={workspace.briefing}
+            versions={workspace.versions ?? []}
+            drift={workspace.drift ?? []}
+          />
+        </div>
+      )}
+
+      <SectionTitle>Draft</SectionTitle>
       <ReportBuilder
         report={report}
         indicators={indicators}

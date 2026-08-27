@@ -1,8 +1,23 @@
 import { expect, test } from "@playwright/test";
 
+/**
+ * These two specs assert the **real** Control Plane, not the demonstration.
+ *
+ * They previously looked for headings that only exist in demo mode. Commit
+ * `8b8cc08` separated the two deliberately — curated example pipeline is
+ * useful in a demonstration and dishonest anywhere else — and demo mode is now
+ * a session cookie that nothing in configuration can switch on. The headings
+ * these tests looked for no longer exist anywhere in the source.
+ *
+ * Rewritten rather than made to pass by setting the cookie: an operator
+ * opening their own Control Plane sees the real surface, and that is the one
+ * worth having a test for. The intent of each test is unchanged.
+ */
 test("Control Plane team changes are reason-bound and appear in audit", async ({ page }) => {
   await page.goto("/control");
-  await expect(page.getByRole("heading", { name: /what needs your attention today/i })).toBeVisible();
+  // The real command centre. The demonstration's version of this page is a
+  // separate component behind a cookie.
+  await expect(page.getByRole("heading", { name: /who matters today/i })).toBeVisible();
   await page.getByRole("link", { name: /^team$/i }).click();
   await expect(page.getByRole("heading", { name: /internal team/i })).toBeVisible();
 
@@ -31,11 +46,22 @@ test("Control Plane qualifies Green Futures deterministically", async ({ page })
 
 test("Control Plane outreach is approval-gated and delivery-fail-closed", async ({ page }) => {
   await page.goto("/control/outreach");
-  await expect(page.getByRole("heading", { name: "Outreach" })).toBeVisible();
-  await expect(page.getByText(/Delivery provider:/)).toContainText("not configured");
-  await expect(page.getByText(/approved requests cannot send/i)).toBeVisible();
-  await expect(page.getByText(/none recorded/i).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Send approval queue" })).toBeVisible();
+
+  // Approval-gated: the form creates a request for somebody to approve. There
+  // is no control on this page that sends anything directly.
+  await expect(page.getByRole("heading", { name: /review, approve and send/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /create approval request/i })).toBeVisible();
+
+  // Fail-closed: with no delivery provider configured, the page says so rather
+  // than presenting a send control that would quietly do nothing.
+  await expect(page.getByText(/delivery not configured/i)).toBeVisible();
+
+  // And the queue is honest about being empty rather than showing a sample.
+  await expect(page.getByText(/no persisted outreach requests yet/i)).toBeVisible();
+
+  // The real page carries no invented account queue: scoring does not run yet,
+  // and it says that instead of ranking nothing.
+  await expect(page.getByRole("heading", { name: /no account queue yet/i })).toBeVisible();
 });
 
 test("Control intelligence returns cited structured metrics", async ({ page }) => {

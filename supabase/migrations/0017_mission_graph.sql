@@ -72,6 +72,7 @@ create unique index if not exists relations_unique_edge_idx
 
 alter table relations enable row level security;
 
+drop trigger if exists relations_set_updated_at on relations;
 create trigger relations_set_updated_at
   before update on relations
   for each row execute function set_updated_at();
@@ -85,9 +86,13 @@ create trigger relations_set_updated_at
 -- output, which is why five of the twelve links in the architectural
 -- acceptance test were unrepresentable.
 -- ---------------------------------------------------------------------------
-create type activity_status as enum (
-  'planned', 'active', 'paused', 'complete', 'cancelled'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'activity_status') then
+    create type activity_status as enum (
+      'planned', 'active', 'paused', 'complete', 'cancelled'
+    );
+  end if;
+end $$;
 
 alter table activities
   add column if not exists start_date date,
@@ -131,6 +136,7 @@ create index if not exists outputs_programme_idx on outputs (organisation_id, pr
 -- asserts it. This is a genuine limitation of the polymorphic design and is
 -- recorded here rather than assumed away.
 -- ---------------------------------------------------------------------------
+drop policy if exists relations_member_all on relations;
 create policy relations_member_all on relations for all
   using (is_org_member(organisation_id))
   with check (is_org_member(organisation_id));

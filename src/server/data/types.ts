@@ -1,14 +1,29 @@
 import type {
   Activity,
   ActivityEvent,
+  Appeal,
+  Campaign,
+  Donation,
+  GiftAidClaim,
+  GiftAidDeclaration,
+  RecurringCommitment,
+  SupporterProfile,
   AIGeneration,
   Application,
   ApplicationAnswer,
   AuditEvent,
+  Automation,
+  AutomationFailure,
+  AutomationRun,
+  AutomationStep,
   Budget,
   BudgetLine,
   Claim,
+  ClaimValue,
+  ConsentRecord,
   Document,
+  DomainEvent,
+  DomainEventKind,
   DocumentSource,
   DocumentVersion,
   ExtractedClaim,
@@ -18,10 +33,24 @@ import type {
   EntityReference,
   EvidenceItem,
   EvidenceType,
+  ExternalIdentity,
   ExternalOrganisation,
+  IntegrationConnection,
+  IntegrationMapping,
+  MigrationMode,
+  SyncConflict,
+  SyncRun,
+  SyncSemantics,
+  WebhookEvent,
   FinancialAllocation,
   FinancialTransaction,
   FitAssessment,
+  Form,
+  FormField,
+  FormMapping,
+  FormSection,
+  FormSubmission,
+  FormVersion,
   Fund,
   Funder,
   FundingOpportunity,
@@ -42,11 +71,29 @@ import type {
   Outcome,
   Output,
   Person,
+  Portal,
+  PortalCapability,
+  PortalGrantRecord,
+  PortalIdentity,
+  PortalMembership,
+  PortalMessage,
+  PortalSubmission,
   Programme,
+  ProjectedRecord,
   Relation,
   RelationKind,
   Relationship,
   RelationshipLink,
+  ScheduledJob,
+  SubmissionAnswer,
+  SubmissionSource,
+  ReportApproval,
+  ReportContributor,
+  ReportDefinition,
+  ReportRequirement,
+  ReportSnapshot,
+  ReportTemplateIngestion,
+  ReportVersion,
   ReportingRequirement,
   StrategicPriority,
   Task,
@@ -202,9 +249,85 @@ export interface EvidenceRepository {
   ): Promise<string>;
 }
 
+export interface CreateReportInit {
+  title: string;
+  type: ImpactReport["type"];
+  reportingPeriod: string;
+  definitionId?: string;
+  programmeId?: string;
+  grantId?: string;
+  includedIndicatorIds?: string[];
+  includedEvidenceIds?: string[];
+}
+
 export interface ReportRepository {
   list(ctx: RequestContext): Promise<ImpactReport[]>;
   get(ctx: RequestContext, id: string): Promise<ImpactReport | null>;
+
+  // --- Templates -------------------------------------------------------
+
+  definitions(ctx: RequestContext): Promise<ReportDefinition[]>;
+  getDefinition(ctx: RequestContext, id: string): Promise<ReportDefinition | null>;
+  /** What a template's sections need before they can be called complete. */
+  requirements(ctx: RequestContext, definitionId: string): Promise<ReportRequirement[]>;
+  saveDefinition(
+    ctx: RequestContext,
+    definition: ReportDefinition,
+    requirements: ReportRequirement[],
+  ): Promise<void>;
+
+  /** Create a report from a definition, or from the built-in template. */
+  create(ctx: RequestContext, init: CreateReportInit): Promise<string>;
+
+  // --- Versions and snapshots ------------------------------------------
+
+  versions(ctx: RequestContext, reportId: string): Promise<ReportVersion[]>;
+  getSnapshot(ctx: RequestContext, snapshotId: string): Promise<ReportSnapshot | null>;
+  /**
+   * Cut an immutable version, pinning every figure it cites.
+   *
+   * The snapshot is taken here rather than by the caller, because a version
+   * without one is exactly the failure this phase exists to prevent and a
+   * caller that forgets would produce a version that silently re-resolves
+   * against live data.
+   */
+  cutVersion(
+    ctx: RequestContext,
+    reportId: string,
+    reason: ReportVersion["reason"],
+    note?: string,
+  ): Promise<ReportVersion | null>;
+
+  // --- People and decisions --------------------------------------------
+
+  contributors(ctx: RequestContext, reportId: string): Promise<ReportContributor[]>;
+  addContributor(
+    ctx: RequestContext,
+    input: Omit<ReportContributor, "id" | "organisationId" | "invitedAt">,
+  ): Promise<string | null>;
+  approvals(ctx: RequestContext, reportId: string): Promise<ReportApproval[]>;
+  /**
+   * Record a decision against a version.
+   *
+   * Returns null when the version does not belong to the report or the tenant.
+   * `changes_requested` without a comment is refused: an unexplained rejection
+   * is not actionable, and the schema enforces the same rule independently.
+   */
+  recordApproval(
+    ctx: RequestContext,
+    input: {
+      reportId: string;
+      versionId: string;
+      decision: ReportApproval["decision"];
+      comment?: string;
+    },
+  ): Promise<string | null>;
+
+  // --- Funder template ingestion ---------------------------------------
+
+  ingestions(ctx: RequestContext): Promise<ReportTemplateIngestion[]>;
+  getIngestion(ctx: RequestContext, id: string): Promise<ReportTemplateIngestion | null>;
+  saveIngestion(ctx: RequestContext, ingestion: ReportTemplateIngestion): Promise<void>;
   saveSection(
     ctx: RequestContext,
     reportId: string,
@@ -225,6 +348,24 @@ export interface WorkspaceRepository {
   notifications(ctx: RequestContext): Promise<Notification[]>;
   activity(ctx: RequestContext): Promise<ActivityEvent[]>;
   toggleTask(ctx: RequestContext, taskId: string): Promise<void>;
+  /**
+   * Create a task.
+   *
+   * Added by MG-6. Automations create tasks and nothing else could, which is
+   * the shape of the safety argument: the set of effects an automation can
+   * have is the set of write methods the executor is given, and that set is
+   * small and deliberate rather than "the repository".
+   */
+  createTask(
+    ctx: RequestContext,
+    input: Omit<Task, "id" | "organisationId" | "audit" | "status"> & {
+      status?: Task["status"];
+    },
+  ): Promise<string>;
+  notify(
+    ctx: RequestContext,
+    input: Omit<Notification, "id" | "organisationId" | "createdAt" | "read">,
+  ): Promise<string>;
 }
 
 export interface AuditRepository {
@@ -260,6 +401,22 @@ export interface RelationshipRepository {
 
   // People
   listPeople(ctx: RequestContext): Promise<Person[]>;
+  /**
+   * Find or create a person from a contact detail.
+   *
+   * Added by MG-7, because a form that collects an email address has nowhere
+   * to put it otherwise. Matching reuses `resolvePersonByEmail`, the same
+   * deterministic identity logic the relationships layer already uses, so a
+   * survey response from an existing funder contact attaches to them rather
+   * than creating a second record with the same address.
+   *
+   * Returns the person and whether one was created, because a reviewer
+   * approving a form submission should be told which of the two happened.
+   */
+  upsertPersonByEmail(
+    ctx: RequestContext,
+    input: { email: string; firstName?: string; lastName?: string },
+  ): Promise<{ person: Person; created: boolean }>;
   getPerson(ctx: RequestContext, id: string): Promise<Person | null>;
   peopleForOrganisation(
     ctx: RequestContext,
@@ -404,6 +561,23 @@ export interface GraphRepository {
     kind: RelationKind,
     options?: { maxDepth?: number; direction?: "forward" | "backward" },
   ): Promise<EntityReference[]>;
+  /**
+   * Everything connected to an entity, from both edge tables.
+   *
+   * SC5's remaining half, on the read path. `RelationshipLink` predates
+   * `Relation` and still has its own table, so "what connects to this entity?"
+   * has had to union two sources — and every caller that forgot has been
+   * quietly answering half the question.
+   *
+   * This unions them behind one method returning `Relation`, which is what
+   * SC5 meant by "`RelationshipLink` becomes a view over it". The **write**
+   * path still has two tables: folding those in means migrating the
+   * relationships UI, actions and services, which is a change with real
+   * regression risk and no capability attached. Doing the read half now means
+   * no new caller has to know, and the remaining half is a migration rather
+   * than a design question.
+   */
+  connectionsFor(ctx: RequestContext, entity: EntityReference): Promise<Relation[]>;
 }
 
 /**
@@ -440,6 +614,113 @@ export interface FinanceRepository {
     ctx: RequestContext,
     input: Omit<FinancialAllocation, "id" | "organisationId">,
   ): Promise<string | null>;
+
+  /**
+   * Apportion one cost across several targets, exactly.
+   *
+   * A shared cost is the case that makes cost-per-outcome defensible or
+   * indefensible. The split is largest-remainder so it reconciles to the
+   * penny, the basis travels with every allocation it produces, and any share
+   * held back as genuinely organisational is recorded rather than forced onto
+   * delivery.
+   *
+   * Delegates to `allocateSharedCost` in the calculation engine. This method
+   * exists so the persisted path runs that arithmetic rather than a second
+   * copy of it.
+   */
+  allocateShared(
+    ctx: RequestContext,
+    input: {
+      transactionId: string;
+      label: string;
+      basis: FinancialAllocation["allocationBasis"];
+      targets: { label: string; weight: number; programmeId?: string; activityId?: string }[];
+      /** 0..1, held back as organisational and attributed to nothing. */
+      unallocatedShare?: number;
+    },
+  ): Promise<{ allocationIds: string[]; unallocatedMinorUnits: number } | null>;
+
+  // --- Statement ingestion (MG-8) ---------------------------------------
+
+  /**
+   * Parse, normalise, classify and hold a statement for review.
+   *
+   * The whole pipeline up to but excluding `post`. Nothing here writes a
+   * transaction: an unreviewed import is not a ledger, and a suggested
+   * category living on a transaction would be indistinguishable from a
+   * confirmed one the moment it was written.
+   */
+  importStatement(
+    ctx: RequestContext,
+    input: { fileName?: string; csv: string; currency?: string },
+  ): Promise<FinancialImport>;
+  imports(ctx: RequestContext): Promise<FinancialImport[]>;
+  getImport(ctx: RequestContext, id: string): Promise<FinancialImport | null>;
+  candidates(ctx: RequestContext, importId: string): Promise<TransactionCandidateRecord[]>;
+
+  /**
+   * Post the rows a reviewer accepted, as transactions.
+   *
+   * Takes explicit row numbers rather than "post everything", so a reviewer
+   * who accepted twenty of twenty-four gets twenty. Returns what was posted
+   * and what was not, with the reason.
+   */
+  postCandidates(
+    ctx: RequestContext,
+    importId: string,
+    acceptedRowNumbers: number[],
+  ): Promise<{ posted: string[]; skipped: { rowNumber: number; reason: string }[] }>;
+}
+
+/**
+ * A statement import, as a record.
+ *
+ * "Where did this transaction come from?" and "did that import run cleanly?"
+ * are both questions with answers, and neither can be reconstructed from the
+ * transactions afterwards.
+ */
+export interface FinancialImport {
+  id: string;
+  organisationId: string;
+  fileName?: string;
+  status: "parsing" | "awaiting_review" | "posted" | "rejected" | "failed";
+  currency: string;
+  detectedColumns: { header: string; detected: string }[];
+  problems: { rowNumber: number; reason: string; raw: string }[];
+  rowCount: number;
+  postedCount: number;
+  duplicateCount: number;
+  dateFormatAmbiguous: boolean;
+  uploadedBy?: string;
+  uploadedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+}
+
+/** A normalised, classified row waiting for a decision. */
+export interface TransactionCandidateRecord {
+  id: string;
+  organisationId: string;
+  importId: string;
+  rowNumber: number;
+  date: string;
+  description: string;
+  amount: { minorUnits: number; currency: string };
+  direction: FinancialTransaction["direction"];
+  counterparty?: string;
+  reference?: string;
+  suggestedCategory?: string;
+  suggestedFundId?: string;
+  suggestedGrantId?: string;
+  suggestedRestricted?: boolean;
+  confidence: "certain" | "probable" | "possible";
+  evidence: { code: string; detail: string }[];
+  requiresApproval: boolean;
+  duplicateOf?: string;
+  duplicateReason?: string;
+  postedTransactionId?: string;
+  decidedBy?: string;
+  decidedAt?: string;
 }
 
 export interface StrategyRepository {
@@ -576,6 +857,488 @@ export interface OnboardingRepository {
   ): Promise<Record<string, { decision: CandidateDecision; at: string; by?: string }>>;
 }
 
+/**
+ * Events, automation and scheduling.
+ *
+ * Two rules make this interface what it is.
+ *
+ * **Runs are inserted, never updated except to approve.** An automation run is
+ * the record of something the system did without a person present. A run that
+ * can be rewritten is not evidence, so there is no `updateRun`; there is
+ * `approveRun`, which is the single mutation a person is entitled to make.
+ *
+ * **The scheduler deduplicates on write.** `scheduleJob` takes a `dedupeKey`
+ * and returns null when one already exists. A reminder scanner that runs twice
+ * must not produce two reminders, and the only place that can be guaranteed is
+ * at insert.
+ */
+export interface AutomationRepository {
+  list(ctx: RequestContext): Promise<Automation[]>;
+  get(ctx: RequestContext, id: string): Promise<Automation | null>;
+  /** Only automations whose trigger could match this event kind. */
+  activeFor(ctx: RequestContext, kind: DomainEventKind): Promise<Automation[]>;
+  save(
+    ctx: RequestContext,
+    input: Omit<Automation, "id" | "organisationId" | "audit"> & { id?: string },
+  ): Promise<string>;
+  setStatus(ctx: RequestContext, id: string, status: Automation["status"]): Promise<void>;
+
+  // Events
+  recordEvent(
+    ctx: RequestContext,
+    event: Omit<DomainEvent, "id" | "organisationId" | "processedAt">,
+  ): Promise<DomainEvent>;
+  events(ctx: RequestContext, options?: { unprocessedOnly?: boolean }): Promise<DomainEvent[]>;
+  markEventProcessed(ctx: RequestContext, eventId: string): Promise<void>;
+
+  // Runs, steps and failures
+  runs(ctx: RequestContext, options?: { automationId?: string }): Promise<AutomationRun[]>;
+  getRun(ctx: RequestContext, runId: string): Promise<AutomationRun | null>;
+  steps(ctx: RequestContext, runId: string): Promise<AutomationStep[]>;
+  failures(ctx: RequestContext, runId: string): Promise<AutomationFailure[]>;
+  recordRun(
+    ctx: RequestContext,
+    run: AutomationRun,
+    steps: AutomationStep[],
+  ): Promise<void>;
+  updateStep(
+    ctx: RequestContext,
+    stepId: string,
+    patch: Partial<Pick<AutomationStep, "status" | "result" | "detail" | "executedAt" | "provenance">>,
+  ): Promise<void>;
+  completeRun(
+    ctx: RequestContext,
+    runId: string,
+    outcome: AutomationRun["outcome"],
+    finishedAt: string,
+  ): Promise<void>;
+  /** The one mutation a person may make to a run. Returns null if not pending. */
+  approveRun(ctx: RequestContext, runId: string): Promise<AutomationRun | null>;
+  recordFailure(
+    ctx: RequestContext,
+    failure: Omit<AutomationFailure, "id" | "organisationId">,
+  ): Promise<void>;
+
+  // Scheduling
+  /** Returns null when a job with the same dedupe key already exists. */
+  scheduleJob(
+    ctx: RequestContext,
+    job: Omit<ScheduledJob, "id" | "organisationId" | "createdAt" | "attempts" | "status">,
+  ): Promise<ScheduledJob | null>;
+  dueJobs(ctx: RequestContext, now: Date): Promise<ScheduledJob[]>;
+  completeJob(
+    ctx: RequestContext,
+    jobId: string,
+    status: ScheduledJob["status"],
+    error?: string,
+  ): Promise<void>;
+}
+
+/**
+ * Forms and data collection.
+ *
+ * Two methods carry the phase's weight and the rest are ordinary reads.
+ *
+ * `submit` is the only public write surface in the whole product. It validates
+ * against the version that was answered, refuses answers to hidden fields,
+ * classifies every answer at the sensitivity its field declared, records
+ * consent verbatim, and stamps a retention date. A caller cannot skip any of
+ * that, because there is no lower-level way in.
+ *
+ * `redactExpired` is the promise being kept. Retention that nothing enforces
+ * is a sentence in a privacy policy.
+ */
+export interface FormSubmissionInit {
+  formId: string;
+  source: SubmissionSource;
+  /** Keyed by field key. Validated against the published version. */
+  values: Record<string, ClaimValue | undefined>;
+  sourceToken?: string;
+  /** Spam signals from the client, where the surface collected them. */
+  honeypotValue?: string;
+  secondsOnPage?: number;
+}
+
+export interface FormSubmissionResult {
+  ok: boolean;
+  submissionId?: string;
+  /** Field-level problems. Present only when the submission was refused. */
+  problems?: { fieldKey: string; message: string }[];
+  /** Set where the submission was accepted but flagged. */
+  spamScore?: number;
+  message?: string;
+}
+
+export interface FormRepository {
+  list(ctx: RequestContext): Promise<Form[]>;
+  get(ctx: RequestContext, id: string): Promise<Form | null>;
+  /** Resolve a public form by its slug. Returns null for a closed form. */
+  getBySlug(ctx: RequestContext, slug: string): Promise<Form | null>;
+  versions(ctx: RequestContext, formId: string): Promise<FormVersion[]>;
+  getVersion(ctx: RequestContext, versionId: string): Promise<FormVersion | null>;
+  fields(ctx: RequestContext, versionId: string): Promise<FormField[]>;
+  mappings(ctx: RequestContext, formId: string): Promise<FormMapping[]>;
+
+  saveDraft(
+    ctx: RequestContext,
+    input: {
+      form: Omit<Form, "organisationId" | "audit"> & { id?: string };
+      sections: FormSection[];
+      fields: Omit<FormField, "id" | "organisationId" | "versionId">[];
+      mappings: Omit<FormMapping, "id" | "organisationId" | "formId" | "audit">[];
+    },
+  ): Promise<{ formId: string; versionId: string }>;
+
+  /**
+   * Publish a version, or refuse with reasons.
+   *
+   * The refusals are not warnings. A form collecting special category data
+   * with no lawful basis and no retention period is not a form with a gap in
+   * its settings; it is a form that should not exist, and the moment to say so
+   * is before anybody is asked to fill it in.
+   */
+  publish(
+    ctx: RequestContext,
+    versionId: string,
+  ): Promise<{ ok: boolean; problems: { code: string; message: string }[] }>;
+
+  submit(ctx: RequestContext, init: FormSubmissionInit): Promise<FormSubmissionResult>;
+
+  submissions(ctx: RequestContext, formId?: string): Promise<FormSubmission[]>;
+  getSubmission(ctx: RequestContext, id: string): Promise<FormSubmission | null>;
+  /**
+   * Answers, filtered by what the caller may read.
+   *
+   * A role without `beneficiary_data:view` receives the submission without its
+   * special category answers, rather than an error. Refusing the whole
+   * submission would make an ordinary review impossible; returning the answers
+   * would defeat the classification.
+   */
+  answers(ctx: RequestContext, submissionId: string): Promise<SubmissionAnswer[]>;
+  consent(ctx: RequestContext, submissionId: string): Promise<ConsentRecord[]>;
+  reviewSubmission(
+    ctx: RequestContext,
+    submissionId: string,
+    status: FormSubmission["status"],
+    note?: string,
+  ): Promise<void>;
+  withdrawConsent(ctx: RequestContext, consentId: string): Promise<void>;
+
+  /** Erase answers whose retention has expired. Returns how many. */
+  redactExpired(ctx: RequestContext): Promise<{ submissions: number; answers: number }>;
+}
+
+/**
+ * The one surface that reads without a tenant context.
+ *
+ * A public form has no session by definition: somebody follows a link and
+ * fills it in. Every other read in this boundary takes a `RequestContext` and
+ * is scoped by it, and that rule cannot hold here — the slug is what
+ * identifies the organisation, and resolving it is necessarily unscoped.
+ *
+ * Rather than weaken `MissionRepository`, that exception is isolated into
+ * three methods with the narrowest possible reach, on the same reasoning that
+ * gives the Control Plane a separate identity model:
+ *
+ * - **It can only see published, open, `public` forms.** A `link` form, a
+ *   draft, or a closed one resolves to null. There is no parameter that widens
+ *   this.
+ * - **It returns no submissions and no answers.** Reading is one form's
+ *   published fields and nothing else.
+ * - **It cannot reach any other table.** Not people, not grants, not other
+ *   forms. A bug here exposes the questions on a form that was deliberately
+ *   published to the internet.
+ */
+export interface PublicFormRepository {
+  /** A published, open, public form. Null for anything else. */
+  resolveBySlug(slug: string): Promise<{ form: Form; version: FormVersion } | null>;
+  /** The fields of that form's published version, in order. */
+  fields(slug: string): Promise<FormField[]>;
+  /**
+   * Accept a submission against a public form.
+   *
+   * Rate limiting happens above this, in the server action, because it needs
+   * the request. Everything else — validation, sensitivity, consent, retention
+   * — is the same code the authenticated path runs, reached with a context
+   * synthesised from the form's own organisation.
+   */
+  submit(
+    slug: string,
+    init: Omit<FormSubmissionInit, "formId" | "source">,
+  ): Promise<FormSubmissionResult>;
+}
+
+/**
+ * Portals, from the organisation's side.
+ *
+ * Everything here is a member of the organisation managing who can see what.
+ * The portal user's own side is `PortalAccessRepository`, which is separate
+ * for the same reason `PublicFormRepository` is: it authenticates differently,
+ * it reaches almost nothing, and mixing the two would mean one careless method
+ * gives an outsider a member's reach.
+ */
+export interface PortalRepository {
+  list(ctx: RequestContext): Promise<Portal[]>;
+  get(ctx: RequestContext, id: string): Promise<Portal | null>;
+  identities(ctx: RequestContext): Promise<PortalIdentity[]>;
+  memberships(ctx: RequestContext, portalId?: string): Promise<PortalMembership[]>;
+  /** Everything currently shared with one membership. The access review. */
+  grantsFor(ctx: RequestContext, membershipId: string): Promise<PortalGrantRecord[]>;
+
+  invite(
+    ctx: RequestContext,
+    input: {
+      portalId: string;
+      email: string;
+      displayName: string;
+      capabilities: PortalCapability[];
+      personId?: string;
+      externalOrganisationId?: string;
+      expiresAt?: string;
+    },
+  ): Promise<{ identityId: string; membershipId: string } | null>;
+
+  /**
+   * Share one record with one membership.
+   *
+   * Returns null when the record is missing, in another tenant, or has no view
+   * for this portal's audience. An entity type no view names cannot be shared
+   * at all, which is what makes adding a new entity safe: it is invisible to
+   * every portal until somebody writes a view for it.
+   */
+  share(
+    ctx: RequestContext,
+    input: {
+      membershipId: string;
+      entity: EntityReference;
+      viewKey?: string;
+      reason?: string;
+      expiresAt?: string;
+    },
+  ): Promise<string | null>;
+  unshare(ctx: RequestContext, grantId: string): Promise<void>;
+  revokeMembership(ctx: RequestContext, membershipId: string, reason: string): Promise<void>;
+
+  submissions(ctx: RequestContext, portalId?: string): Promise<PortalSubmission[]>;
+  messages(ctx: RequestContext, membershipId: string): Promise<PortalMessage[]>;
+  reply(ctx: RequestContext, membershipId: string, body: string): Promise<string | null>;
+}
+
+/**
+ * The portal user's side.
+ *
+ * Unscoped by necessity — a portal user has no organisation session; a slug
+ * and an identity are what locate them — and narrowed to almost nothing in
+ * compensation, exactly as `PublicFormRepository` is.
+ *
+ * `read` returns a **projection**, never a record. There is no method here
+ * that hands back an entity, so a bug in a caller cannot leak one.
+ */
+export interface PortalAccessRepository {
+  /** An open portal, by slug. Null for a draft or closed one. */
+  resolvePortal(slug: string): Promise<Portal | null>;
+  /** The membership for an identity's email at that portal, if it is live. */
+  resolveMembership(
+    slug: string,
+    email: string,
+  ): Promise<{ portal: Portal; identity: PortalIdentity; membership: PortalMembership } | null>;
+  /** Everything the membership may currently see, as projections. */
+  index(slug: string, email: string): Promise<ProjectedRecord[]>;
+  /** One record, projected. Null for any refusal; the reason is audited. */
+  read(slug: string, email: string, entity: EntityReference): Promise<ProjectedRecord | null>;
+  submit(
+    slug: string,
+    email: string,
+    input: {
+      kind: PortalSubmission["kind"];
+      subject?: EntityReference;
+      body?: string;
+    },
+  ): Promise<string | null>;
+  message(slug: string, email: string, body: string): Promise<string | null>;
+}
+
+/**
+ * Fundraising.
+ *
+ * `recordDonation` is the method the phase is judged on. It writes a
+ * `FinancialTransaction` **and** a `Donation` in one call, so a gift is money
+ * and a fundraising fact at the same moment rather than two entries somebody
+ * has to keep in step. There is deliberately no way to create a donation
+ * without creating the transaction underneath it.
+ */
+export interface DonationInit {
+  /** Exactly one, or neither where the gift is genuinely anonymous. */
+  personId?: string;
+  externalOrganisationId?: string;
+  amountMinorUnits: number;
+  currency: string;
+  receivedOn: string;
+  channel: Donation["channel"];
+  kind?: Donation["kind"];
+  /** Which pot it lands in. Required: money has to be somewhere. */
+  fundId: string;
+  campaignId?: string;
+  appealId?: string;
+  recurringCommitmentId?: string;
+  anonymous?: boolean;
+  restricted?: boolean;
+  restrictionPurpose?: string;
+  /** What the gift funds, where it is restricted to one thing. */
+  programmeId?: string;
+  benefitValueMinorUnits?: number;
+  note?: string;
+  description?: string;
+}
+
+export interface DonationResult {
+  ok: boolean;
+  donationId?: string;
+  transactionId?: string;
+  allocationId?: string;
+  /** The supporter profile created or found. */
+  supporterProfileId?: string;
+  message?: string;
+}
+
+export interface FundraisingRepository {
+  campaigns(ctx: RequestContext): Promise<Campaign[]>;
+  getCampaign(ctx: RequestContext, id: string): Promise<Campaign | null>;
+  appeals(ctx: RequestContext, campaignId?: string): Promise<Appeal[]>;
+  donations(ctx: RequestContext, options?: { campaignId?: string; personId?: string }): Promise<Donation[]>;
+  getDonation(ctx: RequestContext, id: string): Promise<Donation | null>;
+  recurringCommitments(ctx: RequestContext): Promise<RecurringCommitment[]>;
+
+  /**
+   * Record a gift.
+   *
+   * Writes the transaction, the donation and the allocation together. A
+   * donation without a transaction would be a pledge, and recording a gift the
+   * bank has not seen as income is how a fundraising total stops matching the
+   * accounts.
+   */
+  recordDonation(ctx: RequestContext, init: DonationInit): Promise<DonationResult>;
+  markThanked(ctx: RequestContext, donationId: string): Promise<void>;
+
+  supporterProfiles(ctx: RequestContext): Promise<SupporterProfile[]>;
+  getSupporterProfile(
+    ctx: RequestContext,
+    party: { personId?: string; externalOrganisationId?: string },
+  ): Promise<SupporterProfile | null>;
+  saveSupporterProfile(
+    ctx: RequestContext,
+    input: Omit<SupporterProfile, "id" | "organisationId" | "audit"> & { id?: string },
+  ): Promise<string | null>;
+
+  giftAidDeclarations(ctx: RequestContext, personId?: string): Promise<GiftAidDeclaration[]>;
+  recordGiftAidDeclaration(
+    ctx: RequestContext,
+    input: Omit<GiftAidDeclaration, "id" | "organisationId" | "audit">,
+  ): Promise<string | null>;
+  /**
+   * Assemble a claim for a period.
+   *
+   * Assembles and validates. It never files: Pegasus does not submit to HMRC,
+   * and a submission that looked as though it had happened and had not would
+   * be discovered by HMRC rather than by the charity.
+   */
+  assembleGiftAidClaim(
+    ctx: RequestContext,
+    periodStart: string,
+    periodEnd: string,
+  ): Promise<{ claimId: string; claimableMinorUnits: number; refused: number }>;
+  giftAidClaims(ctx: RequestContext): Promise<GiftAidClaim[]>;
+}
+
+/**
+ * Integrations.
+ *
+ * `applyIncoming` is the method the phase turns on. It takes a normalised
+ * record from a provider and decides, field by field, whether to write it —
+ * and raises a `SyncConflict` rather than overwriting anything a person stood
+ * behind. There is deliberately no method that writes a synced value directly.
+ */
+export interface IncomingRecord {
+  externalId: string;
+  externalType: string;
+  /** The provider's payload, already normalised to flat string values. */
+  fields: Record<string, string>;
+  /** Set where the provider reports the record as deleted. */
+  deleted?: boolean;
+}
+
+export interface SyncOutcome {
+  run: SyncRun;
+  conflicts: SyncConflict[];
+}
+
+export interface IntegrationRepository {
+  connections(ctx: RequestContext): Promise<IntegrationConnection[]>;
+  getConnection(ctx: RequestContext, id: string): Promise<IntegrationConnection | null>;
+  connect(
+    ctx: RequestContext,
+    input: {
+      integrationId: string;
+      accountLabel: string;
+      mode: MigrationMode;
+      semantics?: SyncSemantics;
+      credentialRef?: string;
+    },
+  ): Promise<string | null>;
+  setSemantics(
+    ctx: RequestContext,
+    connectionId: string,
+    semantics: SyncSemantics,
+  ): Promise<void>;
+  disconnect(ctx: RequestContext, connectionId: string): Promise<void>;
+
+  mappings(ctx: RequestContext, connectionId: string): Promise<IntegrationMapping[]>;
+  saveMapping(
+    ctx: RequestContext,
+    input: Omit<IntegrationMapping, "id" | "organisationId">,
+  ): Promise<string | null>;
+
+  identities(ctx: RequestContext, connectionId: string): Promise<ExternalIdentity[]>;
+  /** Resolve a provider record to a Pegasus entity, if it has been seen. */
+  resolveExternal(
+    ctx: RequestContext,
+    connectionId: string,
+    externalId: string,
+    externalType: string,
+  ): Promise<ExternalIdentity | null>;
+
+  runs(ctx: RequestContext, connectionId?: string): Promise<SyncRun[]>;
+  conflicts(ctx: RequestContext, options?: { openOnly?: boolean }): Promise<SyncConflict[]>;
+  resolveConflict(
+    ctx: RequestContext,
+    conflictId: string,
+    resolution: NonNullable<SyncConflict["resolution"]>,
+    note?: string,
+  ): Promise<void>;
+
+  /**
+   * Take a batch of provider records and decide what to do with each.
+   *
+   * Writes nothing a person stood behind. Returns the run and every conflict
+   * it raised, so a caller can report what did not happen as readily as what
+   * did.
+   */
+  applyIncoming(
+    ctx: RequestContext,
+    connectionId: string,
+    resource: string,
+    records: IncomingRecord[],
+  ): Promise<SyncOutcome>;
+
+  /** Record a webhook, deduplicated on the provider's own event id. */
+  recordWebhook(
+    ctx: RequestContext,
+    connectionId: string,
+    input: { providerEventId: string; eventType: string; payload: Record<string, unknown> },
+  ): Promise<{ accepted: boolean; reason?: string }>;
+  webhooks(ctx: RequestContext, connectionId: string): Promise<WebhookEvent[]>;
+}
+
 export interface MissionRepository {
   readonly name: string;
   organisations: OrganisationRepository;
@@ -595,5 +1358,14 @@ export interface MissionRepository {
   reports: ReportRepository;
   relationships: RelationshipRepository;
   workspace: WorkspaceRepository;
+  forms: FormRepository;
+  /** Unscoped by necessity, and narrowed to almost nothing. See above. */
+  publicForms: PublicFormRepository;
+  fundraising: FundraisingRepository;
+  integrations: IntegrationRepository;
+  portals: PortalRepository;
+  /** The portal user's side. Returns projections, never records. */
+  portalAccess: PortalAccessRepository;
+  automation: AutomationRepository;
   audit: AuditRepository;
 }

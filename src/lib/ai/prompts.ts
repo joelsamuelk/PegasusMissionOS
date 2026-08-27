@@ -30,7 +30,13 @@ export type AiFeature =
   | "review_criteria"
   | "report_section"
   | "summarise_pipeline"
-  | "command";
+  | "command"
+  // Mission Intelligence. Both narrate a brief that was assembled
+  // deterministically before the model was called: the model is given
+  // findings, calculations and unknowns and asked to read them aloud. It is
+  // never asked what the organisation should worry about.
+  | "mission_brief"
+  | "mission_answer";
 
 export const FEATURE_LABELS: Record<AiFeature, string> = {
   draft_answer: "Create first draft",
@@ -42,6 +48,8 @@ export const FEATURE_LABELS: Record<AiFeature, string> = {
   report_section: "Generate report section",
   summarise_pipeline: "Summarise funding pipeline",
   command: "Answer a question",
+  mission_brief: "Narrate the mission brief",
+  mission_answer: "Answer a question about the organisation",
 };
 
 /**
@@ -121,5 +129,17 @@ export const FEATURE_PROMPTS: Record<AiFeature, FeaturePrompt> = {
     feature: "command",
     version: PROMPT_VERSION,
     instruction: "Answer the user's question using the organisation's approved data only.",
+  },
+  mission_brief: {
+    feature: "mission_brief",
+    version: PROMPT_VERSION,
+    instruction:
+      "You are given a brief that has already been assembled from the organisation's records: findings, the signals behind each one, calculations with their workings, and a list of questions the records cannot answer. Read it aloud in plain prose. Do not re-rank the findings, do not add a finding, do not compute a figure, and do not resolve an unknown. Where the brief says something cannot be established, say so.",
+  },
+  mission_answer: {
+    feature: "mission_answer",
+    version: PROMPT_VERSION,
+    instruction:
+      "You are given a deterministic answer to the user's question, assembled from the organisation's records and already carrying its citations. Present it clearly. Every number, date and name must come from the provided answer. If the answer includes unknowns, state them rather than filling them in.",
   },
 };

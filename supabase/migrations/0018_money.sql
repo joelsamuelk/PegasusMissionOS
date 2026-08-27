@@ -20,26 +20,50 @@
 --    beneath it, so the allocation is a first-class reviewable record and
 --    never a join table.
 
-create type fund_restriction as enum (
-  'unrestricted', 'restricted', 'endowment', 'designated'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'fund_restriction') then
+    create type fund_restriction as enum (
+      'unrestricted', 'restricted', 'endowment', 'designated'
+    );
+  end if;
+end $$;
 
-create type transaction_direction as enum ('income', 'expenditure');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'transaction_direction') then
+    create type transaction_direction as enum ('income', 'expenditure');
+  end if;
+end $$;
 
-create type transaction_source as enum (
-  'bank_feed', 'accounting_system', 'manual', 'import'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'transaction_source') then
+    create type transaction_source as enum (
+      'bank_feed', 'accounting_system', 'manual', 'import'
+    );
+  end if;
+end $$;
 
-create type allocation_method as enum (
-  'direct', 'proportional', 'shared_cost', 'manual', 'suggested', 'unknown'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'allocation_method') then
+    create type allocation_method as enum (
+      'direct', 'proportional', 'shared_cost', 'manual', 'suggested', 'unknown'
+    );
+  end if;
+end $$;
 
-create type allocation_basis as enum (
-  'direct', 'headcount', 'programme_expenditure', 'staff_time',
-  'participant_volume', 'equal', 'custom_percentage', 'unallocated'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'allocation_basis') then
+    create type allocation_basis as enum (
+      'direct', 'headcount', 'programme_expenditure', 'staff_time',
+      'participant_volume', 'equal', 'custom_percentage', 'unallocated'
+    );
+  end if;
+end $$;
 
-create type budget_status as enum ('draft', 'approved', 'superseded');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'budget_status') then
+    create type budget_status as enum ('draft', 'approved', 'superseded');
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Funds
@@ -233,6 +257,7 @@ begin
     'financial_allocations'
   ]
   loop
+    execute format('drop policy if exists %I_member_all on %I', t, t);
     execute format(
       'create policy %I_member_all on %I for all
          using (is_org_member(organisation_id))
@@ -242,12 +267,15 @@ begin
   end loop;
 end $$;
 
+drop trigger if exists funds_set_updated_at on funds;
 create trigger funds_set_updated_at
   before update on funds
   for each row execute function set_updated_at();
+drop trigger if exists financial_transactions_set_updated_at on financial_transactions;
 create trigger financial_transactions_set_updated_at
   before update on financial_transactions
   for each row execute function set_updated_at();
+drop trigger if exists budgets_set_updated_at on budgets;
 create trigger budgets_set_updated_at
   before update on budgets
   for each row execute function set_updated_at();

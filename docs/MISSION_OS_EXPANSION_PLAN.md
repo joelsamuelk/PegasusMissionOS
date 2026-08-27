@@ -18,7 +18,7 @@ Verified, not asserted. `npm run typecheck` clean; `npm test` **633 passed** acr
 |---|---|---|
 | A — Legacy data path removal | ✅ Complete | ✅ Confirmed. `getRepository()` is the only path; `data-boundary.test.ts` fails the build if anything outside `src/server/data/` imports the store. |
 | B — Knowledge / Claims + `0004` | ✅ Complete | ✅ Confirmed. Claims, sources, supports, usages, conflicts, all persisted in schema and implemented in-memory. |
-| C — Supabase adapter + auth | ⏳ "Next" | 🟡 **Split.** Auth is **done** — `resolveSupabaseRequestContext` validates session and membership properly. Permission enforcement is **done**. **The data adapter does not exist.** `src/server/data/supabase/` contains a client, a mapping helper and middleware, and no repository. |
+| C — Supabase adapter + auth | ✅ Done | Auth was already done. The adapter now implements all 255 methods across 24 repositories, `getRepository()` branches on configuration, and RLS is executed code rather than a plan — see `docs/SUPABASE_ADAPTER.md`. |
 | D — Reporting engine | 🟡 In progress | ✅ Matches. Generic types, 12 templates, 9-state lifecycle, deterministic readiness, claim-pinned sections, neutral export. Creation, format adapters and legacy migration outstanding. |
 | E — Finance vertical | ⏳ Planned | Confirmed. 4,809 lines of tested calculation, **zero product consumers**, zero tables. |
 | F — Intelligence orchestrator | ⏳ Planned | Confirmed. Four AI entry points call `runAi` directly; no router, no policy layer. |
@@ -40,17 +40,17 @@ Two facts govern everything below:
 | MG phase | Maps to | State | Blocked by |
 |---|---|---|---|
 | **MG-1** Mission Graph | **New.** Structural changes SC1–SC6. | ✅ **Complete and verified** | — |
-| **MG-2** Production foundation | Slice C, storage half (SC8) | Not started | External: no provisioned Supabase project |
+| **MG-2** Production foundation | Slice C, storage half (SC8) | ✅ **Complete and verified** | — |
 | **MG-3** Onboarding Intelligence | Slice H + Organisation Intelligence Phases 2-5 | ✅ **Complete and verified** | Ran ahead of MG-2 by decision; see below |
-| **MG-4** Mission Intelligence | Slice F | Not started | Value depends on MG-8, MG-6 |
-| **MG-5** Reporting Engine | Slice D | 🟡 ~70% | MG-2 for persistence |
-| **MG-6** Mission Automations | Slice G + automation beyond attention | Not started | MG-2 |
-| **MG-7** Mission Forms | Parked in build spec | Not started | MG-1 (submissions must land as claims) |
-| **MG-8** Finance Runtime | Slice E | Not started | **MG-1 SC2** — it has no tables |
-| **MG-9** Mission Portals | Parked | Not started | MG-2, MG-12 |
-| **MG-10** Fundraising | Parked | Not started | MG-1 SC2, MG-8 |
-| **MG-11** Integrations | Slice I | Not started | MG-2 |
-| **MG-12** Production hardening | New, continuous | Ongoing | — |
+| **MG-4** Mission Intelligence | Slice F | ✅ **Complete and verified** | Ran ahead of MG-8 and MG-6 by decision; see the record below for what that costs |
+| **MG-5** Reporting Engine | Slice D | ✅ **Complete and verified** | — |
+| **MG-6** Mission Automations | Slice G + automation beyond attention | ✅ **Complete and verified** | — |
+| **MG-7** Mission Forms | Parked in build spec | ✅ **Complete and verified** | — |
+| **MG-8** Finance Runtime | Slice E | ✅ **Complete and verified** | — |
+| **MG-9** Mission Portals | Parked | ✅ **Complete and verified** | — |
+| **MG-10** Fundraising | Parked | ✅ **Complete and verified** | — |
+| **MG-11** Integrations | Slice I | ✅ **Architecture complete and verified** | No provider adapter; see the record |
+| **MG-12** Production hardening | New, continuous | 🟡 **Reviewed and partly built** | — |
 
 ### Deviations from the brief's recommended sequence, and why
 
@@ -166,7 +166,7 @@ plus, per phase:
 
 **What was *not* verified, and why.**
 
-- **Nothing has been applied to a database.** Migrations `0017`–`0020` are written and reviewed SQL. RLS on the eight new tables is unexecuted code, exactly as it is for the fifty-six that preceded them. This is the standing constraint in §6 and is what MG-2 exists to close.
+- **Nothing had been applied to a database at the time of the phase.** Closed on 2026-08-20: migrations `0017`–`0021` were applied to the live project and verified. RLS blocks anonymous callers on all 16 new tables, and eight check constraints were probed and all enforce.
 - **`alter type claim_kind add value`** cannot be followed by a use of the new value in the same transaction. Nothing in `0020` uses them, so it is safe; a later migration inserting rows with these kinds must run separately. Unverifiable without a database.
 - **No UI reads any of this.** By design — MG-1 was scoped to schema, repository and tests. The e2e journeys therefore prove that nothing *broke*, not that anything new works.
 - **`RelationshipLink` was not migrated onto `Relation`.** Two edge tables remain, so "what connects to this entity?" still unions two sources. Deferred deliberately: folding it in touches the relationships UI. Scheduled with MG-6.
@@ -207,6 +207,50 @@ The Control Plane already runs on Supabase (`src/server/control-plane/supabase.t
 
 **Exit:** Invariant 5 upheld. All ten invariants green for the first time.
 
+### Verification record — MG-5 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **799 passed**, 71 files (was 753 across 70) |
+| `npm run test:e2e` | **32 passed, 2 failed.** Both failures are pre-existing and were reproduced at the base commit before any MG-5 change; see below |
+| `npm run build` | succeeds |
+
+**What was built.** Migration `0022`, six new tables. `ReportVersion`, `ReportSnapshot`, `ReportApproval`, `ReportContributor`, `ReportRequirement` and `ReportTemplateIngestion` in the domain model, with `ReportDefinition` extended to carry a template's origin. Seven new modules under `src/lib/reporting/`: versions and drift, completeness, report intelligence, creation, rendering, funder-template ingestion and board packs. Fifteen new repository methods. Server actions and a report workspace on `/impact/[id]`.
+
+**Four of the brief's ten entity names were deliberately not created.** `ReportSection` is `ImpactReportSection`; `ReportTemplate` is `ReportDefinition`; `ReportClaim` is `claimIds` plus `ClaimUsage`, which is already the reverse index; `ReportEvidenceLink` is `Relation { kind: "evidences" }`, which MG-1 built precisely so evidence links would stop being a per-module enum. A second representation of an edge has to be kept consistent with the first, and the architecture's own rule is that no module owns a concept. Adding them would have been the phase's largest mistake and the easiest one to make.
+
+**Invariant 5, and why it stayed amber through four slices.** The invariant is *published reports do not silently change*. Half of it was upheld the day `claimIds` shipped — a cited figure points at an immutable claim. The other half was never enforced: **a number typed into prose is not a citation**, and nothing stopped one being typed. `detectUncitedFigures` finds them, and an uncited money or percentage figure is now a blocker on approval. Bare counts are warnings, because the pattern cannot reliably tell "we ran 24 workshops" from "24 Bradford Road", and a warning list that fires on every street number is a list nobody reads.
+
+**The design decision most worth recording: snapshots pin values, not only ids.** There are three ways to fail this invariant and only one way to keep it. Copying numbers into the document loses the link back. Re-rendering from live data makes a published report a moving target. Storing claim ids alone *looks* rigorous and is not — once a claim is superseded, the id resolves to a chain and the report can no longer say which link it meant. The snapshot therefore holds the claim id **and** the value as rendered. That pair is what makes drift computable, and drift is what turns a silent change into a flagged one.
+
+**Mutation tests.** Three, all restored. The third is the one worth reading.
+
+1. Make `buildReportVersion` share the report's sections array instead of cloning it. **Two named tests fail**, one unit and one contract. This is the failure that compiles, satisfies the type, and passes every assertion until somebody edits the report.
+2. Stop `assessReportReadiness` checking prose figures. **The Invariant 5 approval test fails.**
+3. Make the snapshot store an empty `renderedValue`. **It passed.** The snapshot test was vacuous: it ran against the seeded report, whose sections cite nothing, so it only ever exercised the indicator path. The test was rewritten to cite claims explicitly and now fails under the same mutation. A mutation test that passes is not a reassurance, it is a defect report about the test.
+
+**Security review, against §13.**
+
+- **Untrusted text in an export.** The HTML renderer escapes section content. Report prose is tenant-supplied and a report is the one artefact in the product designed to be sent to a third party, so an unescaped `<script>` in a section reaches a funder's browser. Asserted.
+- **Refusal rather than substitution.** `renderReport` throws `RendererUnavailableError` for PDF and DOCX rather than returning HTML under a `.pdf` name. That substitution is discovered by a funder rather than by a test, which makes it the worst class of defect available here.
+- **Extraction is never authority.** An ingested requirement is `needs_review` until a person accepts it, and acceptance promotes it to `provided`, never to `verified` — nobody has checked the reading against the funder. This is `assertProducerMayAssign`'s rule applied to a new producer.
+- **Contributors must be members.** `addContributor` refuses a user who holds no membership of the organisation, which would otherwise be a route to naming an outsider on a tenant record.
+- **Approvals are append-only** at the RLS layer, for the same reason audit events are: an approval that can be edited is not evidence anyone approved anything. A refusal without a reason is refused by both the schema and the adapter, independently.
+
+**On the two e2e failures.** `control-plane.spec.ts` specs 1 and 4 fail on a heading that is no longer rendered — `/control` and `/control/outreach` show empty states instead. **They were reproduced at the base commit**, before any MG-5 change, by stashing the work and rebuilding: identical failures, same two specs. MG-5 touches no Control Plane file. The cause is commit `1f7a2c7` (*Run discovery for real, and keep demo data off real accounts*), which changed what the Control Plane shows when there is no data; the specs were not updated with it. It belongs to whoever owns that change, and is recorded here rather than fixed, because silently repairing another phase's tests hides the regression.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0022` is written and reviewed SQL and has never been applied. Every guarantee above holds against the in-memory adapter. This is the standing constraint in §6 and it is now the blocker on two invariants rather than one.
+- **PDF and DOCX do not exist.** Declared as ports, refused clearly. An organisation that needs a PDF today prints the HTML.
+- **Ingestion is tested against synthetic blocks**, not against a real funder's PDF. The pattern set will meet layouts it cannot read; that is why the extraction reports how many questions it recognised and says plainly when it recognised none.
+- **The board pack has no surface.** `buildBoardPack` assembles seven sections from the MG-4 intelligence layer and is unit-tested, and no page renders it. Assembling it correctly was the part that needed the graph; rendering it is a screen.
+- **Legacy free-text figures were not migrated, because there are none.** The seeded report's sections are empty. What shipped is the mechanism that finds them, which is what a real migration needs first.
+
+---
+
 ---
 
 ### MG-8 — Finance runtime
@@ -230,6 +274,56 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 
 **Security review:** transaction narratives routinely contain personal data — names of individuals paid, beneficiary references in payment descriptions. They must be excluded from AI context by default, not by remembering to redact.
 
+### Verification record — MG-8 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **928 passed**, 74 files (was 890 across 73) |
+| `npm run test:e2e` | **35/35** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**The governing constraint held.** `lib/finance-intelligence` is unchanged — `git diff` touches none of its nineteen modules, and its eighty tests pass unmodified. The new code lives in `lib/finance`, which ingests, classifies and composes, and calls into the engine for every figure it reports.
+
+**The mutation the plan named, and what it actually killed.** *Replace largest-remainder splitting with naïve rounding.* The plan predicted four existing finance tests would fail; **two** did. That was worth chasing rather than recording as a discrepancy: the plan also said to re-run it *against the persisted path*, and the persisted path did not exercise splitting at all, because nothing in the repository apportioned a cost. `finance.allocateShared` now delegates to `allocateSharedCost`, and the mutation kills **three** tests including one on the persisted path. The point of that instruction was that the engine's own suite proves the arithmetic and only a persisted test proves the repository uses it rather than a second copy.
+
+**Three real defects the tests caught, all in code I had just written.**
+
+1. **Column detection matched "Some Bank Specific Thing" as a credit column**, because the credit hints include the two-letter word "in" and "thing" contains it. A column mis-detected that way puts every row on the wrong side of the ledger. Now anchored on word boundaries.
+2. **A zero-value row reported "no amount could be read"**, sending a reviewer to look for a formatting problem that was not there. A parsed zero and an unparseable cell are different findings.
+3. **The classifier attached a 2026 payment to a 2022 pilot** with a similar title, because it took the first grant whose title matched. Now it matches active grants only, refuses to pick when several match, and filters generic words — almost every grant is called something "programme grant", and matching on those words makes every payment match every grant.
+
+**The modelling change a working screen forced.** The seeded ledger initially carried the opening reserve as an income transaction, and the runway came out as "no net burn" — income covered costs. That is the most flattering possible error and it only surfaces when somebody trusts the figure. **A balance brought forward is a property of the fund, not something that happened during the period.** `Fund.openingBalance` was added, along with the column in `0025`, and the burn rate is now computed over flow alone. The demo organisation has 2.5 months of unrestricted runway, which is the position most small charities are actually in and the one the runway engine was written for.
+
+**A gap recorded in the MG-4 record is now closed.** That record noted that `grant_ending_programme_dependency_low_runway` was firing on its two-leg branch because there was no ledger to compute a runway from, and claimed the third leg would start firing without a code change once MG-8 supplied one. It does: the composite now carries `unrestricted_runway` as a component and escalates to `critical`. A test pins it, in the MG-4 suite rather than this one, because that is the claim being checked.
+
+**`FinanceFigure` is a union, not a nullable number.** The brief's constraint — *where a refusal fires, the UI shows the reason. It never shows a blank, and it never shows a zero* — cannot be kept by a nullable field, because a caller writes `?? 0` and a zero runway and an unknown runway are opposite statements. Every figure either has a value and its workings, or a reason and a list of what would produce one. `FigureCard` cannot render a blank because the unknown branch has no value to render.
+
+**Mutation tests.** Three, all restored.
+
+1. Naïve rounding instead of largest remainder. **Three tests fail**, including one on the persisted path.
+2. Make `unknownFigure` return a formatted zero. **Five tests fail**, all in the refusal block.
+3. Make an import post directly, skipping review. **The "writes no transaction on import" test fails.** The pipeline puts `review` between `classify` and `post`, and collapsing them turns suggestions into assertions the moment a file is uploaded.
+
+**Security review, against §13.**
+
+- **Transaction narratives.** The item this plan flagged for MG-8 was honoured in MG-4, at the point the field first became reachable by a model: excluded from grounding by default, gated on `finance:manage` even when explicitly requested. Nothing in this phase widens it. The deterministic engine reads narratives — classification is matching descriptions against the organisation's own records — and the model is shown totals.
+- **No model is involved in classification at all.** Not "a model kept on a leash": none. Classification is a lookup against funds, grants, funders and the organisation's own past decisions, which is explainable, testable, free, and does not require sending payment descriptions naming individuals to a provider.
+- **Endpoint checks before arithmetic.** `allocateShared` verifies every target is in-tenant before apportioning, because a correctly scoped allocation row can still point at another tenant's programme.
+- **Posting is `provided`, never `verified`.** A person confirmed a suggestion; nobody reconciled the statement line by line.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0025` is written and reviewed SQL, never applied.
+- **CSV only.** OFX and XLSX are named in the brief and not implemented. The parser is behind a function rather than a port interface, which is a smaller commitment than MG-11 will want and is honest about what exists.
+- **No allocation review screen.** `allocateTransaction` and `allocateShared` exist as actions and are tested; the Finance Command Centre shows unallocated money and links to nothing that resolves it. That is the largest gap in this phase and it is a screen rather than a design question.
+- **No forecast or funding-need surface.** `buildFundingNeedForecast`, `deriveFundingNeed` and `computeProgrammeEconomics` are tested in the engine and have no consumer. Cost per outcome in particular needs the allocation review screen first: it is only defensible when the allocations beneath it are.
+- **The parser is exercised against synthetic CSVs.** Real bank exports will surface format variance; that is the standing constraint in §6 and is why every unrecognised column and unreadable row is reported rather than dropped.
+- **Reconciliation is a table with no code.** `reconciliations` exists in `0025` and nothing writes to it.
+
+---
+
 ---
 
 ### MG-6 — Mission automations
@@ -244,6 +338,50 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 
 **Security review:** an automation is an action taken without a human present. Every action type declares whether it requires approval, and anything external — email, a status change a funder can see — requires it unconditionally (Invariant 7).
 
+### Verification record — MG-6 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **848 passed**, 72 files (was 799 across 71) |
+| `npm run test:e2e` | **31/31** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**What was built.** Migration `0023`, six tables. A condition language, an action catalogue, a rules engine and a simulator in `src/lib/automation/`; an event dispatcher, a scheduler, a bounded-action executor and a simulation service in `src/server/automation/`. One repository (`automation`), taking the boundary from 17 to 18. A page at `/automations`.
+
+**The decision the whole phase rests on: evaluation is three-valued.** `true`, `false` and **`unknown`**. Two-valued logic must answer the brief's own example — `report.evidenceCompleteness < 0.7`, on a report nobody has assessed — as either true or false, and both are lies. One fires an automation on data that does not exist; the other never fires while the organisation believes it is covered. `unknown` propagates, an automation whose condition is undecidable **does not fire and records why**, and `undecidable` is a distinct run outcome from `not_matched` so the two are never confused in a log. This is Invariant 8 — *missing ≠ assumed* — applied to machinery that runs when nobody is watching.
+
+**Invariant 7 is a data shape, not a code path.** Every action declares `externallyVisible` and `requiresApproval` in one catalogue, and a test asserts that no externally visible action can be declared as not requiring approval. The engine recomputes approval from the actions rather than trusting the automation's stored flag, so a mistake in a form cannot produce a rule that sends. The executor then checks *again*, independently, because the cost of the single check being wrong is an email a funder receives that nobody sent. `draft_communication` drafts and never sends; nothing in the product can send it.
+
+**Conditions are data, not code.** A typed tree that serialises to jsonb. No expression string, no interpreter, no sandbox to get wrong. That matters because rules are exactly the kind of feature that grows a scripting language by accident, and a tenant-authored scripting language is a different security posture from the one this product has.
+
+**Two design points the brief did not ask for and the work required.**
+
+- **A simulation must report what it could not answer.** Simulating a `changed` trigger against current records is impossible: there is no "before". Reporting "would trigger on 0 records" reads as *this rule is safe* and means *this question was not asked* — opposite conclusions. The simulator returns a caveat instead. Getting this right also required fixing the condition evaluator: an event with no recorded previous value now returns `unknown`, where the first implementation compared `undefined !== "at_risk"` and cheerfully reported a change.
+- **`assign_owner` is declared and refused.** Ownership is a different field on six record types, and an executor that guessed would eventually set the wrong one. It throws a named refusal so a rule author finds out at once, rather than being approximated.
+
+**Mutation tests.** Four, all restored.
+
+1. Make a `changed` condition assume a change when no previous value was recorded. **Two tests fail**, including the simulation caveat — which is the whole reason that branch exists.
+2. Remove the executor's approval check. **The "refuses even if the dispatcher were bypassed" test fails**, which is the point of having two.
+3. Make the engine trust the automation's stored `requiresApproval` flag. **The externally-visible hold test fails.**
+4. Remove the scheduler's deduplication. **The idempotence test fails**, which is what makes an in-process scheduler safe to run from a request and a cron entry at once.
+
+**§9 link 12 is closed.** *The relationship owner is reminded 30 days before reporting* has been partial since MG-1: the data a scheduler needs existed, and the scheduler did not. `scanDates` reads horizons from the automations themselves — a scanner with hard-coded horizons either misses a rule or fills the job table with reminders nobody asked for — schedules deduplicated jobs, and `runDueJobs` turns each into a `date.approaching` event dispatched through the same engine a mutation-driven event uses. A reminder whose obligation has since been met is cancelled rather than fired, which is the difference between a reminder system people trust and one they mute.
+
+**SC5's read half, and a real defect it surfaced.** `graph.connectionsFor` unions `relations` with `relationship_links`, so "what connects to this entity?" is one call. Writing it exposed a gap: `Relation` verifies both endpoints on write because a correctly-scoped row can still point at another tenant's record, and **`relationship_links` predates that rule and never had the check**. The two-tenant fixture has had a planted cross-tenant pointer since it was written, and the first version of `connectionsFor` followed it. The projection now applies the same endpoint check, and two tests pin it in both directions. The write path still has two tables; folding those in means migrating the relationships UI, actions and services, which is regression risk with no capability attached and is now a migration rather than a design question.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0023` is written and reviewed SQL, never applied. The dedupe guarantee in particular is enforced by a `unique` constraint that has never run; in-memory it is a `find`, which is the same rule and not the same proof.
+- **There is no worker.** The scheduler is in-process and something must tick it, exposed as a button on `/automations` and as a server action a cron entry can call. That is honest rather than pretending a background service exists, and it is the standing consequence of the no-queue decision.
+- **No rule builder.** Automations are seeded and can be saved through a server action; there is no form. The condition tree is designed to be built by a UI — flat fields so the set is enumerable, `fieldsUsed` so a rule can be checked against a schema — and that UI is not built.
+- **Events are emitted explicitly, not by the data layer.** `emit` is called by callers who should, not from inside `saveSection`. Emitting from the data layer would make it depend on the intelligence layer, which is the wrong direction, and would mean a broken automation could make it impossible to save a grant. The consequence is real: a mutation whose caller does not emit produces no event, and the scheduler only catches the dated cases.
+- **MG-4's engines still run on every render.** This phase was supposed to be the performance precondition for that and is not: the attention board is still recomputed per page load. What now exists is the machinery that could cache it — an event stream and a job table — and nothing uses it that way yet.
+
+---
+
 ---
 
 ### MG-4 — Mission Intelligence
@@ -257,6 +395,48 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 **Scope:** tool registry with typed schemas over the existing pure functions; context assembly from authorised claims only; the policy layer (permissions, PII minimisation, injection defence, approval gates); routing across the six intelligence kinds; structured output validated before persistence; execution records capturing feature, prompt version, provider, model, claim IDs used, validation result, fallback state and human review state.
 
 **Security review:** this is the phase where a model gets closest to the graph. Confirm: the tool registry cannot expose a repository method directly; every tool applies the caller's capabilities, not the orchestrator's; untrusted document and transaction text never enters an instruction channel (audit finding S4, still only partly closed).
+
+### Verification record — MG-4 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **753 passed**, 70 files (was 712 across 69) |
+| `npm run test:e2e` | **26/26** in mock mode, including three new Mission Intelligence journeys |
+| `npm run build` | succeeds |
+
+**What was built.** A deterministic intelligence layer in `src/lib/intelligence/` — nine single-domain detectors, four cross-domain rules, a brief assembler and ten question handlers, all pure functions over a `MissionSnapshot`. A scoped context assembler in `src/server/intelligence/mission-context.ts`. A service and server actions over both. One page, `/intelligence`, plus a nav entry.
+
+**The ordering deviation, and what it cost.** §2 argued MG-4 should follow MG-8 and MG-6 so the orchestrator has a tool set worth orchestrating. It ran ahead of both, and the cost is real and is visible in the output rather than hidden:
+
+- **The finance detectors have almost nothing to read.** The seeded workspace has two funds and two transactions, so `unrestricted_runway` never fires and `grant_ending_programme_dependency_low_runway` currently fires on its two-leg branch — the grant is the programme's sole funder — rather than on the three-leg branch the brief describes. The rule is written for both and the branch it took is stated in its own `detail` text. When MG-8 supplies a ledger, the third leg starts firing without a code change. **Closed by MG-8**, which supplied one: the composite now carries `unrestricted_runway` as a component and escalates to `critical`, with no change to the rule. A test in this phase's suite pins it.
+- **There is no scheduler**, so the Morning Brief is a page a person opens rather than something that arrives. §9 link 12 remains MG-6's.
+- **There is no tool registry.** What was built instead is narrower and, on reflection, is the right first half: the model is handed *findings*, never callable capabilities. A registry is worth building when there are enough deterministic tools that routing between them is a real decision. There are currently nine detectors and four rules, and they all run every time.
+
+**The design decision most worth recording.** The brief asks for answers separated into FACTS, CALCULATIONS, INFERENCES, ASSUMPTIONS, RECOMMENDATIONS and UNKNOWNS. The first five are `ClaimKind`, which already exists — reusing it means `effectiveClaimKind`'s weakest-link rule still governs, where a parallel enum would have routed around it. **UNKNOWNS are not a kind.** An unknown has no producer, no workings and no confidence; it has a reason, and `UnknownReason` is the eight-value vocabulary §8 of the architecture document said the product must be able to say and could only say six of. `cannot_calculate` and `not_applicable` now exist outside finance for the first time, and the second is specifically the one a zero impersonates: *this organisation holds no unrestricted fund* and *this organisation has nought months of runway* are different statements and no longer render identically.
+
+**Mutation tests.** Four, all required, all restored.
+
+1. Close the ending WYCA grant. **Two composites disappear** — the programme-dependency rule and the major-funder rule both lose their grant leg. If either had survived, it was never a conjunction.
+2. Evidence every Digital Bridge outcome. **The report-readiness composite disappears** while the single-domain "report is due" finding survives, which is the assertion that a due report is not on its own the cross-domain finding.
+3. Delete the `requires` edges. **`promised_outcome_not_currently_provable` goes silent**, proving it traverses the graph rather than pattern-matching free text. This rule could not have been written before MG-1.
+4. Request transaction narratives as a `programme_lead`. **They are withheld and the withholding is recorded**, rather than the request silently succeeding.
+
+**Security review, against §13.** Three findings, all closed in this phase.
+
+- **AI context exposure.** `assembleMissionContext` has no method that fetches everything. A context is a set of named scopes, each gated on a capability, and a scope the acting role cannot read is not fetched at all — it is recorded in `withheld` with the capability that was missing. The smallest unit anything can request is a scope; the largest is the set the caller personally holds.
+- **Transaction narratives.** The expansion plan flagged these as MG-8's security item. They are honoured now, at the moment the field first becomes reachable by a model: excluded from grounding by default, and gated on `finance:manage` even when explicitly requested. The deterministic engine still reads them — computing an unallocated total requires the ledger — so the gap between *what the engine reasons over* and *what the model is shown* is where the sensitivity lives, and it is enforced by two different functions rather than by remembering to redact.
+- **Untrusted text (S4).** Evidence, programme summaries, fund restriction purposes and priority descriptions all pass through `sanitiseSourceText` before reaching grounding. Where injection is suspected the passage is replaced *and said so in the channel the model reads*, because a silently stripped passage invites the model to fill the gap.
+
+**A routing bug the tests caught, worth keeping.** "What should I worry about this month?" routed to the *what changed* handler, because that handler matched on the word "month". A question about the present was being answered with a change log. Period words no longer route; change words do. The suggestion order and the routing order are now separate lists over the same handlers — routing is ordered by specificity so a broad matcher cannot swallow a narrow question, and suggestion is ordered by usefulness so the acceptance question is offered first.
+
+**What was *not* verified, and why.**
+
+- **No live provider.** Narration is exercised against the deterministic mock. Live-provider conformance to the grounding contract is unverified, which is the standing constraint in §6.
+- **Nothing is persisted.** A `MissionBrief` is computed per request and thrown away. The brief specification names `MissionBrief` as reusable and it is reusable as a *type*; there is no `mission_briefs` table, so "show me the brief you gave the board in March" is not answerable. That needs MG-2, and adding a table before the adapter exists would be the fifth deferral of the thing that most needs doing.
+- **Every engine still runs on every page render.** This is the performance precondition §MG-6 names, and it is now measurably worse than before because there are thirteen more engines. At demo scale it is 6ms. At tenant scale it is MG-6's problem and it did not get smaller.
+- **`RelationshipLink` is still a second edge table.** The context assembler unions it with `evidences` relations so that no detector has to know, which is the right containment but is not the fix. Still scheduled with MG-6.
 
 ---
 
@@ -294,7 +474,7 @@ Figures are persisted as claims with `producedBy: { method: "calculation" }` and
 
 **What was *not* verified, and why.**
 
-- **Nothing has been applied to a database.** Migration `0021` is reviewed SQL, like `0017`-`0020` before it. The constraints that hold the review boundary at the database level are asserted by grepping the SQL, not by executing it.
+- **Nothing had been applied to a database at the time of the phase.** Closed on 2026-08-20. The constraint that holds the review boundary was then probed against the live database directly: `verified` and `provided` are both rejected on `profile_candidates`, and only `ai_extracted` is accepted.
 - **The live registry implementations have never run against a live register.** They are typed against the published API shapes and exercised against a fixture port. The first real call will surface field-name variance.
 - **The crawler has never crawled a real site.** `PolitePageFetcher` is unit-tested for robots.txt parsing only; its pacing, redirect and size behaviour is reviewed code.
 - **No e2e covers a research run**, deliberately: it would make outbound calls to a real website and a real register. The pipeline is covered hermetically against fixtures instead.
@@ -311,9 +491,217 @@ Each must answer the §10 question before it is scheduled: **how does this stren
 | Phase | The graph answer it must give |
 |---|---|
 | **MG-7 Forms** | A submission is not a form record. It is evidence, a claim about a beneficiary cohort, an indicator measurement and a relationship interaction. If a submission does not become a claim, the phase has built a form builder. |
+
+### Verification record — MG-7 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **890 passed**, 73 files (was 848 across 72) |
+| `npm run test:e2e` | **33/33** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**Did it build a form builder?** No, and the test above is the one that decides it. `form_mappings` says what each answer becomes; `projectSubmission` proposes; `applyProjection` acts only on what a reviewer accepted. The acceptance test walks six survey responses through to an interaction, an evidence item, a person record and two indicator measurements, and asserts each of them exists afterwards.
+
+**The design decision that changed the shape of the phase: one response is not a measurement.** The obvious implementation writes a survey answer onto `Indicator.currentValue`, which makes the progression rate whatever the most recent respondent said and lets the next response overwrite it. A measurement derived from a survey is an **aggregate over accepted responses, carrying its denominator**. That is why indicator mappings are handled separately from every other target: they are inherently cross-submission and a per-submission projection cannot see the others. Below five responses no percentage is produced at all — the count is reported instead, because publishing "75% progression" from three people is the most common way a survey becomes a misleading impact claim.
+
+**On beneficiaries, and what was deliberately not built.** §8 records the absence of a beneficiary entity as a decision, and §MG-12 names this phase as the one most likely to reverse it by accident. Beneficiary intake is in the brief's own list of purposes.
+
+What ships: the ability to *collect* intake answers, with a required sensitivity classification on every field, an enforced lawful basis, an enforced retention period, an AI exclusion and a separate capability to read them. What does not ship: any `beneficiaries` table, and any projection from a `special_category` answer into anything at all — not a person, not a claim, not an interaction summary. Those answers stay in `submission_answers` and are erased on schedule. **The seeded demo collects none**, because shipping seeded health or ethnicity data to demonstrate a control would be a strange way to demonstrate restraint; the refusals are proven in tests instead.
+
+**Sensitivity is a field property with no default.** Not nullable, no fallback. Classifying an answer after it exists is already too late: it has been unclassified for however long it sat there, and everything that read it in the meantime read it unclassified. The classification decides three things — whether the answer can ever reach a model, whether the form needs a retention period to be publishable, and which capability reads it.
+
+**Reuse, deliberately.** Form conditional logic is the MG-6 condition language over a bag of answers, not a second one. MG-6's own first instruction was not to build module-specific automation systems, and a form conditional language is exactly that in disguise. The reuse also pays: three-valued evaluation means a condition on a field the respondent has not reached is `unknown`, and unknown **hides** the field rather than showing it — a form that flickered open as somebody scrolled would be the alternative.
+
+**The one unauthenticated surface, and how it is bounded.** A public form has no session; a slug is what identifies the organisation, so resolving it is necessarily unscoped. Rather than weaken `MissionRepository`, that exception is a separate `PublicFormRepository` with three methods that can only see published, open, `public` forms, can read only that form's fields, and can reach no other table. The two public server actions live in their own file so the data-boundary test's `@public-action` exemption covers exactly them, rather than silently covering the six authorised actions beside them. A public submission always lands `awaiting_review`, so it changes nothing until a person decides what it becomes.
+
+**Mutation tests.** Four, all restored.
+
+1. Make `mayReachModel` return true for everything. **Two tests fail** — the AI exclusion is the control MG-12 conditioned this phase on.
+2. Remove the projection's sensitivity ceiling. **Two tests fail**: special category data would project into the knowledge layer, which report generation and AI grounding both read.
+3. Stop an overwrite forcing review. **The silent-overwrite test fails.** *Never mutate trusted data silently* is the brief's phrase; a form answer is an assertion, not a correction.
+4. Remove the minimum-responses floor on percentages. **Two tests fail**, including the acceptance test's companion.
+
+**Security review, against §13.**
+
+- **AI context exposure.** `partitionForModel` returns both halves. A context quietly containing one of three answers invites a model to reason as though it saw everything, so the withheld count travels with the visible set.
+- **Field-level sensitivity.** Implemented, required, and enforced at three separate points: publication, projection and read.
+- **Retention and deletion.** `redactExpired` blanks the answers and keeps the submission. "Somebody submitted this and the answers were deleted under our retention policy" is a true and useful statement; deleting the row would make the erasure itself unprovable.
+- **Consent.** Recorded verbatim from the version answered, so the wording somebody agreed to can always be recovered. Withdrawal is recorded and never deletes the grant — it was granted, and then withdrawn, and rewriting the first loses the second.
+- **Untrusted input.** Tenant-supplied validation patterns are length-bounded and anchored, so a pattern cannot be a denial of service and cannot pass a substring the designer meant to reject. An answer to a hidden field is refused rather than stored.
+- **Spam.** A honeypot, a timing check and content heuristics, scored rather than absolute, and a suspected submission is stored and flagged rather than discarded. No CAPTCHA: sending every respondent's browser fingerprint to a provider the organisation did not choose is a bad trade on a beneficiary-facing form. **A false positive is worse than a false negative** here — a missed spam costs somebody thirty seconds, a rejected genuine submission from a person who needed help is a failure nobody finds out about.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0024` is written and reviewed SQL, never applied. In particular the `forms_public_needs_slug` and consent-purpose constraints are enforced twice in the application and once in SQL that has never run.
+- **No form builder UI.** Forms are seeded and can be saved through a repository method; there is no editor. The field model is designed for one — enumerable types, declarative validation, a condition tree — and it is not built.
+- **No public form page.** The `PublicFormRepository` and `submitPublicForm` exist and are tested; there is no `/f/[slug]` route rendering them. That is a screen rather than a design question.
+- **No attachments.** `SubmissionAttachment` is modelled and no upload path exists, because file storage is MG-2's Supabase Storage and there is nowhere to put bytes.
+- **`external_organisation` and `relationship` mappings refuse.** Both need matching against existing records, which is a decision rather than a projection. Declared and refused clearly, as `assign_owner` is in MG-6.
+- **Retention runs when somebody presses a button.** Same standing consequence as MG-6's scheduler: no worker exists, and pretending otherwise would mean a retention policy that quietly never runs.
+
+---
+
 | **MG-10 Fundraising** | A donation touches supporter, fund, finance, programme, campaign, reporting, impact and stewardship. If it lives in a fundraising table, §11 of the brief has been violated. Requires MG-1 SC2 and MG-8. |
+
+### Verification record — MG-10 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **1,001 passed**, 76 files (was 970 across 75) |
+| `npm run test:e2e` | **39/39** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**Two instructions pulled against each other, and resolving them is the phase.** The brief says *DO NOT create a second CRM*; this plan says a donation living in a fundraising table violates §11. Three decisions came out of that.
+
+**A `Donation` carries no amount.** It holds a `transactionId` and nothing else about money. The gift is a `FinancialTransaction` in a `Fund`, attributed by a `FinancialAllocation`, exactly as a grant payment is. The evidence that this works is not a test I wrote: **an existing MG-8 test broke.** The demo organisation's unrestricted runway moved from 2.5 months to 3.4, because the seeded spring appeal is income in the general fund. Nobody entered those gifts twice, and the finance position knew about them without being told.
+
+**There is no `DonationAllocation`, no `FundraisingGoal`, and no identity on `SupporterProfile`.** The first is `FinancialAllocation`, which already records the method and basis that make an attribution defensible. The second is `Campaign.targetMinorUnits`. The third is `Person`, which is canonical — the supporter profile holds a steward, a stage and a recognition preference, and no name, email or address. A test asserts the absence.
+
+**`Campaign` has no `raised` column.** A stored total is a second source of truth that goes stale at the first correction. It is the sum of the donations pointing at the campaign.
+
+**Gift Aid, modelled against HMRC rather than against convenience.** Six refusals, each one a gift a naïve implementation would happily claim and each one money the charity would have to repay: a company gift, a declaration with no address, an unconfirmed taxpayer, a gift after cancellation, a gift outside the four-year reach of an enduring declaration, and a benefit above the banded limit. `assembleClaim` reports the refusals **alongside** the eligible gifts, because a run that silently dropped forty would look like a small claim rather than a data problem.
+
+*Do not fake live HMRC submission.* `submitGiftAidClaim` throws, and the message says why: a mock returning a plausible reference number is the version somebody would believe, and the discrepancy would be found by HMRC rather than by the charity. `GiftAidClaim.status` never reaches `filed` without a human recording the reference.
+
+**Stewardship is a stage, not a score**, and the reason is not squeamishness about metrics. A score compresses several different situations into one number and invites somebody to act on the number. A supporter who gave once last month and has not been thanked, and one who gave for six years and stopped, are different problems requiring opposite responses — "engagement 34" says neither, and a test asserts the two produce different suggested actions. Every stage carries an action, because a stage with none is a label and labels are what scores become.
+
+**Nothing is called major on this product's opinion.** `majorGiftThresholdMinorUnits` is passed in, and where it is absent no supporter is major: £5,000 is transformational to one charity and routine to another. The supporters page derives a proxy — a tenth of the largest active grant — and **says on the page that it is a crude proxy for a figure the organisation should set**.
+
+**Mutation tests.** Three, all restored.
+
+1. Stop `recordDonation` writing the transaction. **Two acceptance-chain tests fail.** This is the phase's central claim.
+2. Let Gift Aid claim a company gift. **Two tests fail**, including the claim assembly.
+3. Give the stewardship engine a default major-gift threshold. **The "calls nobody a major donor without a threshold" test fails.**
+
+**Security review, against §13.**
+
+- **Anonymity is to the public, not to the organisation.** A charity must identify donors for due diligence and Gift Aid, so `personId` may be set on an anonymous gift; what `anonymous` withholds is the name from anything a third party sees. Conflating the two would either break due diligence or publish a name somebody asked to keep private.
+- **A home address exists on exactly one record**, `GiftAidDeclaration`, because Gift Aid is the lawful basis for holding it. That is §8's rule applied: a lawful basis first, not an available column. `Person` still carries no address.
+- **Declarations are insertable and cancellable, never editable.** Rewriting the address or the date after a claim was made on it would destroy the evidence for that claim.
+- **A restricted gift with no stated restriction is refused**, the same failure `funds_restricted_needs_purpose` guards against.
+- **`unique (transaction_id)` on donations.** Two donations against one transaction would double-count a gift in every campaign total.
+
+**What was *not* verified, and why.**
+
+- **Nothing is persisted.** `0027` is written and reviewed SQL, never applied.
+- **No donation entry form.** `recordDonation` exists and is tested; the surface is read-only. A donation form is an MG-7 `Form` with purpose `donation`, and wiring its mappings through to `recordDonation` is the obvious next step and is not done.
+- **No fundraising page rendering.** `FundraisingPage` is modelled and nothing serves one, for the same reason no portal login exists: a public donation page needs payment handling, which is MG-11's provider work.
+- **No payment provider.** Stripe, GoCardless and JustGiving are named in MG-11. A donation is recorded after the money arrived; nothing here takes a payment.
+- **`StewardshipPlan` has no engine.** The type and table exist; nothing generates or advances a plan. The stage and its suggested action are what ships, and a plan is the next layer.
+- **The major-gift proxy is a proxy.** Stated on the page and in the code, and it should be replaced by an organisation setting the first time anybody uses this for real.
+
+---
+
 | **MG-9 Portals** | External parties reading tenant data is the highest-risk surface in the product. It requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model of the kind the Control Plane already demonstrates. |
+
+### Verification record — MG-9 ✅
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **970 passed**, 75 files (was 928 across 74) |
+| `npm run test:e2e` | **37/37** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**On the entry condition.** This row said MG-9 *requires MG-12 to have run first, plus field-level sensitivity, and a separate identity model*. Two of the three are met: field-level sensitivity shipped in MG-7, and the identity model is here. MG-12 has not run as a phase. The judgement made was that its two standing items — AI context exposure and beneficiary data — are both **already binding on this surface** through MG-7's classification, and that the third rule below makes the remaining exposure structural rather than procedural. That is a judgement rather than a satisfied precondition, and MG-12 should re-read this phase specifically.
+
+**Three rules, each a table or a function rather than a convention.**
+
+**1. A portal identity is not a `User`.** Separate table, separate id space, separate authentication path, on the same reasoning that gives the Control Plane one. A `User` with an external flag means the day somebody writes a role check against the union, an outsider inherits a capability. `PortalIdentity` is also deliberately thin — an email, a name, and no profile — because it is a way of authenticating somebody rather than a place to keep personal data.
+
+**2. Access is granted, never inherited.** The brief states it directly: *never expose internal organisation data simply because the underlying record is related.* There is no traversal in `decideAccess`. A funder who can see a grant does not thereby see the evidence linked to it, the programme it funds, or the interactions about it; each is a `PortalGrant` somebody made. **The seed demonstrates this rather than working around it**: the Henderson contact sees the grant, one report and one evidence item, and cannot see the Youth Futures programme all three point at, because nobody shared it.
+
+**3. A record is projected, never returned.** Field allowlists per audience per entity type. The choice of allowlist over denylist is the load-bearing one: a denylist means every field added to `Grant` after this was written is visible to funders by default, which is how a portal leaks — **not by a decision, but by a schema change nobody connected to a portal**. A field nobody listed simply never appears, and a test asserts that adding `internalRiskNote` to a grant changes nothing on a funder's screen.
+
+**What each view withholds, and why.** `Grant.conditions` is the organisation's internal reading of an agreement. `grantManagerId` names a member of staff. `spentToDate` is an unverifiable scalar a funder would reasonably read as audited, and MG-8 established that utilisation comes from allocations. A partner sees the shared programme and not the funding behind it, because which funder pays for jointly delivered work is the lead organisation's business. A beneficiary sees the **programme**, not a record of themselves — there is no beneficiary record, and building one so a portal could display it would reverse §8 through the back door.
+
+**Mutation tests.** Three, all restored.
+
+1. Let access inherit from a related record. **Three tests fail**, including the seeded end-to-end one. This is the phase's single most important assertion.
+2. Project every field on the record instead of the allowlist. **Five tests fail**, including the one that adds an unlisted field.
+3. Stringify nested objects rather than refusing them. **One test fails.** A generic serialiser is how an internal id, an audit stamp or a whole related record ends up on a portal page.
+
+**Security review, against §13.**
+
+- **Tenant isolation.** `decideAccess` checks that the portal, the identity and the membership agree on the organisation **before consulting anything else**, and treats disagreement as an access attempt rather than a configuration problem to reconcile.
+- **The unscoped surface.** `PortalAccessRepository` is separate from `PortalRepository` for the reason `PublicFormRepository` is separate: it authenticates differently and reaches almost nothing. **Every method returns a projection, never a record**, so a bug in a caller cannot leak an entity.
+- **RLS.** Every policy in `0026` is `is_org_member`, which is to say these tables are readable by the organisation and **not by the portal**. The migration says so in a comment, because writing a policy that gave a portal identity direct row access would be the single most dangerous change anybody could make to this schema.
+- **Capabilities are closed per audience.** A beneficiary portal cannot be configured to allow downloads, and only a trustee can approve. Refused at the point somebody makes the mistake, not discovered when a beneficiary downloads a board pack.
+- **Revocation is recorded, never deleted.** "What did we share with this funder, and when did we stop?" is a question a deleted row cannot answer.
+- **`ENTITY_TABLES` gained two kinds.** `grant_deliverable` and `grant_report` are now resolvable, so they can be shared. That map's rule — a kind absent from it cannot be pointed at — is the safe failure, and extending it is a deliberate line rather than a check somebody forgot.
+
+**What was *not* verified, and why.**
+
+- **There is no portal login.** `PortalIdentity` has no authentication path, and no `/portal/[slug]` route exists. Building one means a third magic-link surface against a Supabase project that is not provisioned, so it would be an auth flow nobody could test. What ships instead is the **access review** and a preview that runs the real access and projection path — which is the internal half of the capability and the half MG-12 needs.
+- **Nothing is persisted.** `0026` is written and reviewed SQL, never applied.
+- **No portal-side submission or messaging surface.** Both work at the repository level and are tested; neither has a page, because a page needs the login.
+- **Six audiences, one exercised end to end.** The funder portal is seeded and walked through; the other five have views, capabilities and tests on the pure layer, and no seeded data. That is deliberate — seeding a beneficiary portal would mean seeding beneficiary records.
+- **Field sensitivity is not yet consulted by the projection.** MG-7's `FieldSensitivity` governs form answers; portal views are their own allowlist. The two are consistent today because no view names a form answer, and joining them is work MG-12 should schedule rather than assume.
+
+---
+
 | **MG-11 Integrations** | Provider independence (§12). Stripe, Xero, Gmail, Mailchimp, GoCardless and banking providers sit behind ports. No provider identifier ever enters a core entity. The `server/communications/provider.ts` boundary is the precedent. |
+
+### Verification record — MG-11 ✅ *(architecture; no adapter)*
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **1,035 passed**, 77 files (was 1,001 across 76) |
+| `npm run test:e2e` | **41/41** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**What "complete" means here, stated first.** Every provider in the registry is marked `implemented: false`, `permitted()` refuses every operation on all of them, and the page says so above the list. This phase built the **hub**, not an integration. A registry listing nine providers without distinguishing the described from the built would be a roadmap presented as a feature, and a test asserts the distinction rather than trusting a comment.
+
+**The Beacon investigation was actually carried out**, and three findings changed the design rather than merely informing it. The capabilities in `BEACON` were read from Beacon's own published guide (`guide.beaconcrm.org`, article 5720215), which the descriptor cites. No scraping; the documented REST API and export mechanism only.
+
+1. **Relationships are not exposed.** Beacon's guide states the relationships feature is not currently accessible through its API. The brief's candidate sync list includes Relationships, and it **cannot be honoured**. That is recorded in `unavailable` with the reason, so an organisation finds out before connecting rather than afterwards: in CONNECT mode they keep their relationship map in Beacon while Pegasus reasons over the people, organisations and money it can read.
+2. **The schema is generated per account**, including each customer's custom fields. Field keys therefore differ between two charities using the same product, which is why `IntegrationMapping` is per **connection** rather than per provider. A mapping hardcoded against one customer's schema would work exactly once.
+3. **No webhooks are documented.** Sync must be poll-based against a cursor. Building a receiver on the assumption one exists would be building against an unofficial mechanism, which is what the brief forbids.
+
+Two operational constraints follow and are recorded: API access is plan-gated, so a connection can fail because of the customer's subscription rather than their credentials — a distinct failure deserving a distinct message — and the published limits are 300 requests a minute, 60 for bulk, with a 429 on exceeding them.
+
+**The other eight providers were not researched, and say so.** Each carries a note stating that nothing about it should be treated as a claim about what it supports, and a test asserts that exactly one entry cites documentation. Writing a confident capability list for eight products without reading eight sets of documentation would produce precisely the false precision the Beacon entry shows the alternative to.
+
+**Never silently overwrite conflicting human-approved information.** The check sits **before** the conflict behaviour, so no configuration can get past it. An organisation choosing `external_wins` is saying which machine to believe, not authorising a CRM to correct records their own staff verified. `provided` counts as human-approved alongside `verified`: somebody typed it deliberately. `ai_extracted`, `needs_review` and `outdated` do not, because a fresher value from a connected system is a genuine improvement on those.
+
+**`newest_wins` is offered and refuses to act.** Two systems' clocks and two notions of "modified" are not comparable, and a resolution that looks precise and is not is worse than a refusal. The behaviour is selectable because organisations ask for it; selecting it produces a conflict and an explanation.
+
+**No provider identifier enters a core entity.** There is no `beaconId` on `Person`. `ExternalIdentity` carries the mapping, `(connectionId, externalId, externalType)` is unique, and that key is also the idempotency key — a re-run cannot duplicate a record and does not need a full re-read to know so. This generalises the rule `server/communications/provider.ts` set for email.
+
+**Mutation tests.** Four, all restored.
+
+1. Move the human-approved check after the conflict behaviour. **Two tests fail.** This is the phase's central assertion.
+2. Let an empty provider value blank a field. **One test fails.** Blanking a field because a remote system has nothing in it is a deletion disguised as an update.
+3. Permit operations on an unimplemented provider. **Two tests fail**, including the end-to-end refusal.
+4. Remove webhook deduplication. **One test fails.** A webhook delivered twice is normal, and a handler that assumed otherwise would double-count a donation.
+
+**Security review, against §13.**
+
+- **Provider credentials.** The schema has nowhere to put one. `credential_ref` points at wherever the secret lives, and the migration says why: a token in a tenant-readable row is a token every member of the organisation can read, and a column that could hold one eventually would.
+- **Deletions do not propagate.** Default is `flag`. A CRM record removed by somebody tidying up should not silently remove a person from a grant report.
+- **A connection starts `pending`, never `active`.** Active means something read successfully, not that somebody filled in a form.
+- **Disconnecting keeps the identity map.** Deleting it would mean reconnecting re-imported every record as new, duplicating the lot.
+- **`readField` is deliberately narrow.** It reads `Person` and `ExternalOrganisation` and nothing else. A generic field reader over every table would be the unbounded write surface this phase exists to avoid having.
+- **Runs and webhook receipts are append-only** at the RLS layer, on the same reasoning as audit events and automation runs.
+
+**What was *not* verified, and why.**
+
+- **No adapter exists for any provider**, including Beacon. Writing one needs credentials for a real account and a real customer's schema; without those it would be an adapter tested against a fixture of my own invention, which proves nothing about the vendor's API.
+- **Nothing is persisted.** `0028` is written and reviewed SQL, never applied.
+- **`applyIncoming` is exercised against synthesised records.** Its conflict logic is tested thoroughly and its behaviour against real provider payloads is unverified.
+- **Entity resolution is a stub.** A new `ExternalIdentity` points at a candidate rather than a matched person, because guessing which person a CRM record is would merge two people on a shared surname. `lib/logic/relationship-identity.ts` already has the deterministic matcher this should use, and wiring it in is the obvious next step.
+- **No outbound sync.** `direction` supports `outbound` and `bidirectional`, and nothing writes to a provider. MIGRATE mode is modelled and untested against a real system.
+- **No connection UI.** The page lists providers and shows connections and conflicts; there is no form to create one, because there is no adapter to connect to.
+
+---
+
 
 ---
 
@@ -327,6 +715,102 @@ Two items deserve standing attention because the expansion increases them most:
 
 - **AI context exposure.** Every phase adds data a model might see. The default is exclusion; inclusion is a decision recorded in the context builder, not an accident of a `select *`.
 - **Beneficiary and case data.** Currently absent by design ([`MISSION_GRAPH_ARCHITECTURE.md`](./MISSION_GRAPH_ARCHITECTURE.md) §8). It must not arrive as a side effect of MG-7 or MG-9. If it is introduced, sensitivity, retention, deletion and redaction are designed in the same change, never after.
+
+### Verification record — MG-12 🟡 *(reviewed and partly built)*
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+| `npm test` | **1,062 passed**, 78 files (was 1,035 across 77) |
+| `npm run test:e2e` | **44/44** journeys and marketing. The two Control Plane failures recorded under MG-5 were fixed afterwards; see the closing record |
+| `npm run build` | succeeds |
+
+**This phase is not complete, and could not be.** Its "Complete" list opens with *production Postgres runtime* and continues through backups, restore testing, observability and job monitoring. Every one of those needs a provisioned database, which is the standing constraint in §6. Marking MG-12 green would have been the single most misleading thing in this document.
+
+What was done instead is the half that does not need one: **the review, and the machinery that keeps its findings true.**
+
+**The durable artefact is the invariants, not the page.** Seven new machine-checked properties, each of which fails the build rather than becoming quietly wrong:
+
+- The **AI register covers every feature**. Adding one without an entry fails a test, which is the only way a register like this stays true rather than becoming a document somebody updated once.
+- **No trust statement claims a certification**, and every `upheld` statement carries somewhere it can be checked.
+- **Portal tables have no policy that is not `is_org_member`**. A policy granting a portal identity direct row access would be the most dangerous single change available to that schema.
+- **The integration schema has nowhere to store a secret** — no `access_token`, `refresh_token`, `api_key` or `client_secret` column, asserted by pattern rather than by review.
+- **Form fields require a sensitivity with no default.**
+- **Append-only tables have no delete or blanket policy**: `report_approvals`, `automation_runs`, `automation_failures`, `sync_runs`.
+- **Money is an integer in every migration this programme added.**
+
+**The Trust Centre leads with what is not true.** Twenty-eight statements, of which **nine are `not_yet` or `partial` and two are `declined`**, and the unmet list is rendered first rather than in a footnote. The brief's line was *do not claim certifications not actually obtained*; the page states plainly that nothing is certified against ISO 27001, SOC 2 or Cyber Essentials, that no backup has ever been taken or restored, that there are no subprocessors because none is engaged, and that row level security has never been executed. A trust page with nothing on that list is a marketing page, and a test now enforces that this one has rows on it.
+
+**SSO, SCIM and data residency are recorded as `declined`, with reasons.** The brief says not to build expensive enterprise features before anybody has asked. Building multi-region storage for a product with no customers would be the most expensive available way to look serious.
+
+**Where AI is used, enumerated.** Eleven entries, each naming what the model sees, **what it can never see**, what it produces, and that it cannot change a record. The second of those is the half nobody volunteers and is the half an organisation actually needs.
+
+**Data export and a deletion plan.** The export reads through the same tenant-scoped boundary as every screen — an export using a privileged path would be the largest exfiltration surface in the product — and reports a count per collection so completeness is checkable. The deletion plan says **before** the decision which records survive and why: audit events, AI generation records, published report versions, claims and accounting records, each with its reason.
+
+**Mutation tests.** Four, all restored.
+
+1. Add an AI feature without registering it. **The register test fails.**
+2. Claim the certification. **The no-certification test fails.**
+3. Give a portal table a `for select using (true)` policy. **The portal policy test fails.**
+4. Add an `access_token` column to the integration schema. **The secrets test fails.**
+
+**A test of mine was wrong, and the fix is worth recording.** The export isolation test asserted that tenant B's export contains no "Henderson". It failed — and not because anything leaked: the two-tenant fixture builds tenant B's profile by cloning tenant A's and re-pointing the organisation id, so A's *words* genuinely appear inside B's *own* record. A text assertion cannot distinguish "leaked from A" from "the fixture copied A's prose into B", which makes it the wrong assertion for the thing that matters. It now asserts that every record carrying an `organisationId` carries B's, and that no A-only identifier appears.
+
+### Security review — the whole programme, MG-4 to MG-11
+
+Against §13's list, with the findings rather than a set of ticks.
+
+| Item | Finding |
+|---|---|
+| **Tenant isolation** | Upheld and tested in every phase suite. One **real defect found and fixed in MG-6**: `relationship_links` predates `Relation`'s endpoint check and never had one, so a correctly-scoped row could point at another tenant's record. The two-tenant fixture had carried a planted cross-tenant pointer since it was written and nothing had followed it until `connectionsFor` did. |
+| **RLS** | Enabled on all 100+ tables and enforced by an invariant test. **Never executed.** This is the programme's largest outstanding risk and it belongs to MG-2. |
+| **Authentication** | Unchanged by this programme. Two surfaces were added that need one and do not have one: the public form path (works, unauthenticated by design, rate limited) and portal login (does not exist). |
+| **Authorisation** | Upheld. `data-boundary.test.ts` counts actions against gates. The two deliberately public actions were **moved into their own file** so the `@public-action` exemption covers exactly them rather than the six authorised actions beside them. |
+| **Field-level sensitivity** | Built in MG-7. Required on every form field, no default, and it decides AI exposure, retention and read capability. **Not yet consulted by portal projection**, which is its own allowlist; the two are consistent today only because no view names a form answer. |
+| **Audit** | Every consequential action records one. Append-only at the RLS layer; a convention of the adapter until MG-2. |
+| **Retention** | Enforced for form answers, and `RETENTION_RULES` records one honest gap: interactions and messages have no policy. |
+| **Deletion** | Planned honestly, not executed. |
+| **Consent** | Recorded verbatim from the form version answered, and withdrawal never deletes the grant. |
+| **Data export** | Built, tenant-scoped, enumerable. |
+| **Data minimisation** | The strongest result of the programme. **No beneficiary entity was created**, through both the phase that collects intake data and the phase that shows records to outsiders. `Person` still carries no address; the one address in the product is on a Gift Aid declaration, where Gift Aid is the lawful basis for it. |
+| **Encryption** | Not addressed. Transport and at-rest encryption are properties of a deployment that does not exist. |
+| **Provider credentials** | The schema has nowhere to put one, asserted by test. |
+| **AI context exposure** | The item this plan flagged as deserving standing attention. Personal and special category data is **filtered before assembly rather than redacted after**; transaction narratives are excluded by default and capability-gated even when requested; context is a named set of scopes each gated on a role, with withholding recorded. |
+
+**What was *not* verified, and why.**
+
+- **Everything requiring a database.** Backups, restore testing, observability, error tracking, job monitoring, provider monitoring and the production runtime are untouched. They are the majority of this phase's "Complete" list.
+- **Deletion is planned, not performed.** `planDeletion` is accurate about what would survive; nothing executes it.
+- **No penetration test, no dependency audit, no threat model.** None was run. The security review here is a reading of this codebase against a checklist, by the person who wrote it, which is the weakest form of review there is and should be treated as a starting point for a real one.
+- **The Trust Centre is internal.** It is a page inside the product, not a public one. An organisation evaluating Pegasus cannot read it before signing up, which is when they most need to.
+- **`declined` is a judgement, not a decision.** Nobody has asked for SSO, and nobody has been asked whether they want it.
+
+---
+
+---
+
+### Closing record — the pre-existing breakage, fixed
+
+Carried through every phase above as "pre-existing, not mine", and closed at the end rather than silently along the way. Both were caused by commit `8b8cc08` from a concurrent session and were reproduced at the base commit before any of this programme's work began.
+
+| Gate | Before | After |
+|---|---|---|
+| `npm run lint` | 4 warnings | **No ESLint warnings or errors** |
+| `npm run test:e2e` | 48 passed, 2 failed | **50 passed** |
+
+**The four lint warnings** were unused imports in `ControlPlaneShell.tsx` and `control-plane/supabase.ts`. Each name appeared exactly once in its file — the import itself — so all four were dead rather than broken references. Removed.
+
+**The two Control Plane specs were testing demonstration content that no longer exists.** `8b8cc08` separated demo data from real accounts deliberately: curated example pipeline is useful in a demonstration and dishonest anywhere else, so demo mode became a session cookie that nothing in configuration can switch on. The headings those specs looked for — *what needs your attention today*, *Outreach*, *Send approval queue* — are not in the source any more.
+
+They were **rewritten rather than made to pass by setting the cookie.** Setting it would have restored two green ticks while leaving the real Control Plane — the one an operator actually opens — untested. The rewritten specs assert the real surface and keep each test's original intent:
+
+- The command centre renders *Who matters today?*, and the team-change and audit assertions are unchanged.
+- Outreach is **approval-gated**: the only control creates a request for somebody to approve, and there is nothing on the page that sends directly.
+- Delivery is **fail-closed**: with no provider configured the page says so, rather than presenting a send control that would quietly do nothing.
+- The queue and the account list are honest about being empty rather than showing a sample.
+
+The judgement recorded under MG-5 — that silently repairing another phase's tests hides its regression — still holds. What changed is that the regression is now understood and recorded, so fixing the tests documents the decision rather than concealing it.
 
 ---
 
@@ -342,7 +826,9 @@ Internationalisation is worth one note: currency is already data rather than a c
 
 | Constraint | Effect | Owner |
 |---|---|---|
-| **No provisioned Supabase project** | MG-2 cannot complete. RLS remains unexecuted code and defence in depth remains one layer. **This is the critical path for the entire programme.** | User |
+| ~~No provisioned Supabase project~~ | **Resolved 2026-08-20.** A project exists, migrations `0001`–`0021` are applied, and RLS and check constraints are verified as executing against it. MG-2's remaining work is the adapter itself. | Resolved |
+| **No direct Postgres credential in the environment** | `.env` holds the service role key, which reaches PostgREST but not `psql`. DDL therefore goes through the dashboard by hand. Fine for occasional migrations; it will not scale to a deploy pipeline. | User |
+| **Cross-tenant RLS** | Closed. Proven three ways: against the migrations in `tests/database/rls.test.ts`, against the live project with two real auth users in `tests/integration/rls.test.ts`, and with the adapter's own tenant filter switched off in `tests/contract/rls-mutation.test.ts`. | — |
 | `AI_PROVIDER=mock` by default | Structured-output validation is tested against the mock provider. Live-provider schema conformance is unverified. | User |
 | No live ledger data | MG-8 classification is exercised against fixtures. Real bank exports will surface format variance. | MG-8 |
 | `docs/ROADMAP.md` is stale | It predates slices A–D and still lists the Supabase data layer as priority 1 alongside items long since built. Rewrite it or delete it; a stale roadmap in a repository with five current planning documents is a liability. | MG-1 |

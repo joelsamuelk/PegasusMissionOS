@@ -1,6 +1,8 @@
 import { appConfig } from "@/lib/config";
 import { store } from "@/features/store";
 import { createInMemoryRepository } from "./in-memory/adapter";
+import { createSupabaseRepository } from "./supabase/adapter";
+import { createAnonClient } from "./supabase/client";
 import type { MissionRepository } from "./types";
 
 export type { MissionRepository } from "./types";
@@ -11,12 +13,27 @@ export type { MissionRepository } from "./types";
  * This is the only place in the application that knows which storage
  * implementation is in use. Everything else depends on the `MissionRepository`
  * interface.
+ *
+ * The choice is made from configuration, not from a caller: with a Supabase
+ * project configured, every request is served by Postgres with row level
+ * security; without one, by the seeded in-memory workspace. There is no flag
+ * and no override, because "which database is this reading?" must not be
+ * answerable differently in two places.
+ *
+ * The Supabase repository is memoised like the in-memory one, which is safe
+ * because it holds a client *factory* rather than a client: the session lives
+ * in the client, the client is built per request from that request's cookies,
+ * and nothing request-scoped is captured here.
  */
 
 let cached: MissionRepository | null = null;
 
 export function getRepository(): MissionRepository {
-  if (!cached) cached = createInMemoryRepository(store);
+  if (!cached) {
+    cached = appConfig.isMockData
+      ? createInMemoryRepository(store)
+      : createSupabaseRepository(createAnonClient);
+  }
   return cached;
 }
 
@@ -79,8 +96,6 @@ export function describeRuntime(): RuntimeDescriptor {
   return {
     source,
     label: "In-memory demo data",
-    detail: appConfig.isMockData
-      ? "Seeded workspace held in the server process. Changes persist until restart."
-      : "Supabase credentials are configured, but the Supabase adapter is not yet implemented, so the seeded in-memory workspace is still serving every request.",
+    detail: "Seeded workspace held in the server process. Changes persist until restart.",
   };
 }
