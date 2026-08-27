@@ -30,6 +30,61 @@ export type ProcessOrganisation = {
   campaignCount: number;
   processCount: number;
 };
+export type CapturedProcess = {
+  id: string;
+  organisationId: string;
+  name: string;
+  department?: string;
+  team?: string;
+  participantName?: string;
+  frequency: string;
+  durationMinutes: number;
+  peopleCount: number;
+  annualHours: number;
+  systems: string[];
+  analysisStatus: "queued" | "processing" | "complete" | "failed";
+  submittedAt: string;
+  narrative: string;
+  friction?: string;
+  humanJudgement?: string;
+  sensitiveData: string[];
+  magicRemoval?: string;
+};
+export type ProcessSummary = {
+  organisation: { id: string; name: string; legalName: string; type: string };
+  campaigns: number;
+  activeCampaigns: number;
+  participants: number;
+  contributors: number;
+  processes: number;
+  annualHours: number;
+  departments: number;
+  awaitingAnalysis: number;
+  opportunities: number;
+};
+export type CapturedProcessDetail = CapturedProcess & {
+  effortAssumptions: Record<string, unknown>;
+  steps: Array<{
+    id: string;
+    order: number;
+    title: string;
+    description?: string;
+    actor?: string;
+    system?: string;
+    classification: string;
+    reasoning?: string;
+    confidence?: number;
+  }>;
+  opportunities: Array<{
+    id: string;
+    title: string;
+    type: string;
+    score: number;
+    confidence?: number;
+    benefit?: string;
+    components: unknown;
+  }>;
+};
 
 export async function listProcessOrganisations(): Promise<ProcessOrganisation[]> {
   await authoriseControl("organisation:view_metadata");
@@ -44,6 +99,82 @@ export async function listProcessOrganisations(): Promise<ProcessOrganisation[]>
     campaignCount: Number(r.campaign_count),
     processCount: Number(r.process_count),
   }));
+}
+const mapProcess = (r: Record<string, unknown>): CapturedProcess => ({
+  id: String(r.id),
+  organisationId: String(r.organisation_id ?? r.organisationId),
+  name: String(r.process_name ?? r.name),
+  department: r.department ? String(r.department) : undefined,
+  team: r.team ? String(r.team) : undefined,
+  participantName: r.participant_name
+    ? String(r.participant_name)
+    : r.participantName
+      ? String(r.participantName)
+      : undefined,
+  frequency: String(r.frequency),
+  durationMinutes: Number(r.duration_minutes ?? r.durationMinutes),
+  peopleCount: Number(r.people_count ?? r.peopleCount),
+  annualHours: Number(r.annual_hours ?? r.annualHours),
+  systems: (r.systems as string[]) ?? [],
+  analysisStatus: (r.analysis_status ??
+    r.analysisStatus) as CapturedProcess["analysisStatus"],
+  submittedAt: String(r.submitted_at ?? r.submittedAt),
+  narrative: String(r.narrative),
+  friction: r.friction_text
+    ? String(r.friction_text)
+    : r.friction
+      ? String(r.friction)
+      : undefined,
+  humanJudgement: r.human_judgement_text
+    ? String(r.human_judgement_text)
+    : r.humanJudgement
+      ? String(r.humanJudgement)
+      : undefined,
+  sensitiveData: (r.sensitive_data ?? r.sensitiveData ?? []) as string[],
+  magicRemoval: r.magic_removal
+    ? String(r.magic_removal)
+    : r.magicRemoval
+      ? String(r.magicRemoval)
+      : undefined,
+});
+export async function getProcessSummary(
+  organisationId: string,
+): Promise<ProcessSummary | null> {
+  await authoriseControl("organisation:view_metadata");
+  const client = await createAnonClient();
+  const { data, error } = await client.rpc("control_process_intelligence_summary", {
+    p_organisation_id: organisationId,
+  });
+  if (error) throw new Error(error.message);
+  return data as ProcessSummary | null;
+}
+export async function listCapturedProcesses(
+  organisationId: string,
+): Promise<CapturedProcess[]> {
+  await authoriseControl("organisation:view_metadata");
+  const client = await createAnonClient();
+  const { data, error } = await client.rpc("control_list_process_submissions", {
+    p_organisation_id: organisationId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row: Record<string, unknown>) => mapProcess(row));
+}
+export async function getCapturedProcess(
+  processId: string,
+): Promise<CapturedProcessDetail | null> {
+  await authoriseControl("organisation:view_metadata");
+  const client = await createAnonClient();
+  const { data, error } = await client.rpc("control_get_process_submission", {
+    p_submission_id: processId,
+  });
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return {
+    ...mapProcess(data as Record<string, unknown>),
+    effortAssumptions: (data.effortAssumptions ?? {}) as Record<string, unknown>,
+    steps: (data.steps ?? []) as CapturedProcessDetail["steps"],
+    opportunities: (data.opportunities ?? []) as CapturedProcessDetail["opportunities"],
+  };
 }
 export async function createProcessOrganisationAction(formData: FormData) {
   const ctx = await authoriseControl("organisation:create");
