@@ -1,0 +1,11 @@
+import { describe, expect, it } from "vitest";
+import { createOpaqueToken, estimateAnnualEffort, scoreOpportunity, tokenDigest, type OpportunitySignals } from "@/lib/process-intelligence";
+
+const base:OpportunitySignals={frequency:0,annualHumanHours:0,repetitiveWork:false,manualDataTransfer:false,ruleBasedDecisions:false,documentOrTextWork:false,errorProne:false,waiting:false,frustration:0,peopleCount:1,sensitivity:0,regulatoryRisk:false,safeguardingRisk:false,irreversibleAction:false,financialAuthority:false,humanJudgement:0,unclearProcess:false,poorInputData:false,unavailableIntegration:false,implementationComplexity:0};
+describe("process intelligence",()=>{
+ it("normalises annual human effort and preserves its assumption",()=>{expect(estimateAnnualEffort({frequency:"weekly",durationMinutes:30,peopleCount:2})).toEqual({occurrencesPerYear:52,annualHours:52,approximate:true,assumption:"52 occurrences/year × 30 minutes × 2 people"})});
+ it("uses custom occurrence estimates",()=>{expect(estimateAnnualEffort({frequency:"custom",customOccurrencesPerYear:10,durationMinutes:45,peopleCount:1}).annualHours).toBe(7.5)});
+ it("is deterministic and bounded",()=>{const high={...base,frequency:1000,annualHumanHours:10000,repetitiveWork:true,manualDataTransfer:true,ruleBasedDecisions:true,documentOrTextWork:true,errorProne:true,waiting:true,frustration:10,peopleCount:20};expect(scoreOpportunity(high)).toEqual(scoreOpportunity(high));expect(scoreOpportunity(high).score).toBeLessThanOrEqual(100);expect(scoreOpportunity({...base,sensitivity:100,safeguardingRisk:true,humanJudgement:100,implementationComplexity:100}).score).toBe(0)});
+ it("records positive and negative explanations",()=>{const result=scoreOpportunity({...base,manualDataTransfer:true,financialAuthority:true});expect(result.components).toEqual(expect.arrayContaining([expect.objectContaining({signal:"manual_transfer",points:12}),expect.objectContaining({signal:"financial_authority",points:-8})]))});
+ it("creates opaque non-sequential bearer tokens and stable digests",async()=>{const a=createOpaqueToken(),b=createOpaqueToken();expect(a).toHaveLength(64);expect(a).not.toBe(b);expect(await tokenDigest(a)).toBe(await tokenDigest(a));expect(await tokenDigest(a)).not.toBe(a)});
+});
