@@ -22,6 +22,18 @@ export type IntakeCampaign = {
     jobTitle?: string;
   } | null;
 };
+/**
+ * Why an intake link could not be opened. Carried separately from the campaign
+ * because a participant holding a closed link needs the closing date and the
+ * organisation to ask, not a generic refusal.
+ */
+export type IntakeUnavailable = {
+  reason: "invalid" | "revoked" | "expired" | "closed" | "not_open" | "unavailable";
+  campaignName?: string;
+  organisationName?: string;
+  opensAt?: string;
+  closesAt?: string;
+};
 export type ProcessOrganisation = {
   id: string;
   name: string;
@@ -224,15 +236,32 @@ export async function createProcessCampaignAction(formData: FormData) {
 // @public-action Token resolution exposes an intentionally narrow projection.
 export async function loadProcessIntake(
   token: string,
-): Promise<{ ok: true; campaign: IntakeCampaign } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; campaign: IntakeCampaign } | { ok: false; unavailable: IntakeUnavailable }
+> {
   if (!/^[a-f0-9]{64}$/i.test(token))
-    return { ok: false, error: "This intake link is invalid." };
+    return { ok: false, unavailable: { reason: "invalid" } };
   const client = await createAnonClient();
-  const { data, error } = await client.rpc("resolve_process_intake_token", {
+  const { data, error } = await client.rpc("resolve_process_intake_link", {
     p_token: token,
   });
-  if (error || !data)
-    return { ok: false, error: "This intake link is invalid, expired, or closed." };
+  // A transport or permission failure is not a verdict on the link. Telling a
+  // participant their link is invalid when the database was unreachable sends
+  // them to chase a replacement that was never the problem.
+  if (error || !data) return { ok: false, unavailable: { reason: "unavailable" } };
+  if (data.reason !== "ok")
+    return {
+      ok: false,
+      unavailable: {
+        reason: data.reason as IntakeUnavailable["reason"],
+        campaignName: data.campaignName ? String(data.campaignName) : undefined,
+        organisationName: data.organisationName
+          ? String(data.organisationName)
+          : undefined,
+        opensAt: data.opensAt ? String(data.opensAt) : undefined,
+        closesAt: data.closesAt ? String(data.closesAt) : undefined,
+      },
+    };
   return {
     ok: true,
     campaign: {
