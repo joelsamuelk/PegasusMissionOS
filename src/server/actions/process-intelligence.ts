@@ -6,7 +6,12 @@ import { z } from "zod";
 import { authoriseControl } from "./authorise";
 import { createAnonClient } from "@/server/data/supabase/client";
 import { rateLimit } from "@/server/rate-limit";
-import { estimateAnnualEffort, type ProcessFrequency } from "@/lib/process-intelligence";
+import {
+  estimateAnnualEffort,
+  type ProcessFrequency,
+  type ScoreComponent,
+} from "@/lib/process-intelligence";
+import { analyseSubmission, processAnalysisAvailable } from "@/server/services/process-analysis";
 
 export type IntakeCampaign = {
   campaignId: string;
@@ -76,6 +81,18 @@ export type ProcessSummary = {
 };
 export type CapturedProcessDetail = CapturedProcess & {
   effortAssumptions: Record<string, unknown>;
+  analysisErrorCode?: string;
+  analysis: {
+    id: string;
+    model: string;
+    analysisVersion: string;
+    promptVersion: string;
+    createdAt: string;
+    confidence?: number;
+    summary?: string;
+    evidenceGaps: string[];
+    clarifyingQuestions: string[];
+  } | null;
   steps: Array<{
     id: string;
     order: number;
@@ -86,6 +103,7 @@ export type CapturedProcessDetail = CapturedProcess & {
     classification: string;
     reasoning?: string;
     confidence?: number;
+    humanJudgementRequired?: boolean;
   }>;
   opportunities: Array<{
     id: string;
@@ -94,8 +112,36 @@ export type CapturedProcessDetail = CapturedProcess & {
     score: number;
     confidence?: number;
     benefit?: string;
-    components: unknown;
+    components: { components?: ScoreComponent[]; methodologyVersion?: string } | null;
+    problem: string;
+    currentState?: string;
+    proposedState?: string;
+    recoverableHours?: number;
+    complexity?: string;
+    systems: string[];
+    integrationRequirements: string[];
+    dataRequirements: string[];
+    oversightRequirements: string[];
+    risks: string[];
+    controls: string[];
+    stepOrders: number[];
+    evidenceFields: string[];
   }>;
+};
+export type ProcessOpportunity = {
+  id: string;
+  submissionId: string;
+  processName: string;
+  department?: string;
+  title: string;
+  problem: string;
+  proposedState?: string;
+  type: string;
+  score: number;
+  recoverableHours?: number;
+  complexity?: string;
+  confidence?: number;
+  reviewDecision?: string;
 };
 
 export async function listProcessOrganisations(): Promise<ProcessOrganisation[]> {
@@ -184,9 +230,74 @@ export async function getCapturedProcess(
   return {
     ...mapProcess(data as Record<string, unknown>),
     effortAssumptions: (data.effortAssumptions ?? {}) as Record<string, unknown>,
+    analysisErrorCode: data.analysisErrorCode ? String(data.analysisErrorCode) : undefined,
+    analysis: (data.analysis ?? null) as CapturedProcessDetail["analysis"],
     steps: (data.steps ?? []) as CapturedProcessDetail["steps"],
     opportunities: (data.opportunities ?? []) as CapturedProcessDetail["opportunities"],
   };
+}
+export async function listProcessOpportunities(
+  organisationId: string,
+): Promise<ProcessOpportunity[]> {
+  await authoriseControl("organisation:view_metadata");
+  const client = await createAnonClient();
+  const { data, error } = await client.rpc("control_list_process_opportunities", {
+    p_organisation_id: organisationId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r: Record<string, unknown>) => ({
+    id: String(r.id),
+    submissionId: String(r.submission_id),
+    processName: String(r.process_name),
+    department: r.department ? String(r.department) : undefined,
+    title: String(r.title),
+    problem: String(r.problem),
+    proposedState: r.proposed_state ? String(r.proposed_state) : undefined,
+    type: String(r.opportunity_type),
+    score: Number(r.opportunity_score),
+    recoverableHours:
+      r.estimated_recoverable_hours == null ? undefined : Number(r.estimated_recoverable_hours),
+    complexity: r.complexity ? String(r.complexity) : undefined,
+    confidence: r.confidence == null ? undefined : Number(r.confidence),
+    reviewDecision: r.review_decision ? String(r.review_decision) : undefined,
+  }));
+}
+export async function isProcessAnalysisAvailable(): Promise<boolean> {
+  await authoriseControl("organisation:view_metadata");
+  return processAnalysisAvailable();
+}
+// Analysis writes are gated like campaign creation: the database functions
+// accept super_admin and operations, which is exactly organisation:create.
+export async function analyseProcessAction(formData: FormData) {
+  const ctx = await authoriseControl("organisation:create");
+  const processId = z.string().uuid().parse(formData.get("processId"));
+  const outcome = await analyseSubmission(processId, ctx.requestId);
+  revalidatePath(`/control/processes/${processId}`);
+  const flag =
+    outcome.status === "complete"
+      ? "complete"
+      : outcome.status === "skipped"
+        ? outcome.reason
+        : `failed:${outcome.errorCode}`;
+  redirect(`/control/processes/${processId}?analysis=${encodeURIComponent(flag)}`);
+}
+export async function analyseQueuedProcessesAction(formData: FormData) {
+  const ctx = await authoriseControl("organisation:create");
+  const organisationId = z.string().uuid().parse(formData.get("organisationId"));
+  const pending = (await listCapturedProcesses(organisationId)).filter(
+    (p) => p.analysisStatus === "queued" || p.analysisStatus === "failed",
+  );
+  // In parallel: each call is independent and the slowest one bounds the
+  // request, which keeps a batch of this size inside the function limit.
+  const outcomes = await Promise.all(
+    pending.map((p) => analyseSubmission(p.id, ctx.requestId)),
+  );
+  const done = outcomes.filter((o) => o.status === "complete").length;
+  const failed = outcomes.filter((o) => o.status === "failed").length;
+  revalidatePath(`/control/organisations/${organisationId}/process-intelligence`);
+  redirect(
+    `/control/organisations/${organisationId}/process-intelligence?analysed=${done}&failed=${failed}`,
+  );
 }
 export async function createProcessOrganisationAction(formData: FormData) {
   const ctx = await authoriseControl("organisation:create");

@@ -1,8 +1,8 @@
 /**
  * Which tables carry which audit columns.
  *
- * Audit stamping is not uniform: of 160 tables, 30 have `created_by`,
- * 4 have `updated_by` and 63 have `updated_at`. Join tables,
+ * Audit stamping is not uniform: of 171 tables, 31 have `created_by`,
+ * 4 have `updated_by` and 65 have `updated_at`. Join tables,
  * append-only event tables and projections mostly have none. A write layer
  * that stamps every insert unconditionally fails on the majority of them, so
  * it has to ask.
@@ -39,6 +39,7 @@ export const HAS_CREATED_BY: ReadonlySet<string> = new Set([
   "outreach_templates",
   "people",
   "portals",
+  "process_intake_campaigns",
   "relations",
   "relationships",
   "report_definitions",
@@ -102,6 +103,7 @@ export const HAS_UPDATED_AT: ReadonlySet<string> = new Set([
   "portal_identities",
   "portal_memberships",
   "portals",
+  "process_intake_campaigns",
   "programmes",
   "prospect_organisations",
   "prospect_people",
@@ -118,4 +120,5 @@ export const HAS_UPDATED_AT: ReadonlySet<string> = new Set([
   "supporter_profiles",
   "sync_cursors",
   "tasks",
+  "transformation_initiatives",
 ]);
