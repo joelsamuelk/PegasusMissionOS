@@ -63,6 +63,15 @@ export const appConfig = {
      */
     routineModel: process.env.AI_MODEL_ROUTINE ?? "claude-haiku-4-5",
     fundingFacingModel: process.env.AI_MODEL_FUNDER_FACING ?? "claude-sonnet-5",
+    /**
+     * Process analysis reads free-text evidence and decomposes it, which is
+     * interpretation rather than phrasing, and its output becomes a client
+     * recommendation. It uses the high tier for the same reason.
+     */
+    processAnalysisModel:
+      process.env.AI_MODEL_PROCESS_ANALYSIS ??
+      process.env.AI_MODEL_FUNDER_FACING ??
+      "claude-sonnet-5",
   },
 } as const;
 

@@ -27,7 +27,7 @@ function explain(u: IntakeUnavailable): { title: string; detail: string } {
     case "expired":
       return {
         title: "This campaign has closed",
-        detail: `${campaign} stopped accepting responses${onDate(u.closesAt)}. Contact ${owner} if you still need to submit — they can reopen it.`,
+        detail: `${campaign} stopped accepting responses${onDate(u.closesAt)}. Contact ${owner} if you still need to submit. They can reopen it.`,
       };
     case "not_open":
       return {

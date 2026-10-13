@@ -123,69 +123,95 @@ interface ToolResult {
   could_not_verify?: string[];
 }
 
+export interface AnthropicToolCall {
+  apiKey: string;
+  model: string;
+  system: string;
+  userMessage: string;
+  tool: { name: string; description: string; strict?: boolean; input_schema: object };
+  maxTokens?: number;
+  timeoutMs?: number;
+}
+
+/**
+ * One forced tool call against the Messages API, retried on 5xx, 429 and
+ * timeouts. Returns the tool input unvalidated: callers own their schema and
+ * must check it before persisting anything.
+ */
+export async function callAnthropicTool(request: AnthropicToolCall): Promise<unknown> {
+  const timeoutMs = request.timeoutMs ?? TIMEOUT_MS;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": request.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: request.model,
+          max_tokens: request.maxTokens ?? MAX_TOKENS,
+          system: request.system,
+          tools: [request.tool],
+          tool_choice: { type: "tool", name: request.tool.name },
+          messages: [{ role: "user", content: request.userMessage }],
+        }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        const error = new Error(
+          `Anthropic request failed (${response.status}): ${detail.slice(0, 200)}`,
+        );
+        // 4xx other than rate limiting will not succeed on retry.
+        if (response.status < 500 && response.status !== 429) throw error;
+        lastError = error;
+        continue;
+      }
+
+      const data = (await response.json()) as {
+        content?: { type: string; name?: string; input?: unknown }[];
+      };
+      const toolUse = (data.content ?? []).find(
+        (b) => b.type === "tool_use" && b.name === request.tool.name,
+      );
+      if (!toolUse?.input) {
+        throw new Error("Anthropic response did not include the required structured output.");
+      }
+      return toolUse.input;
+    } catch (error) {
+      lastError = error as Error;
+      if ((error as Error).name === "AbortError") {
+        lastError = new Error(`Anthropic request timed out after ${timeoutMs}ms`);
+      }
+      if (attempt === MAX_ATTEMPTS) break;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw lastError ?? new Error("Anthropic request failed");
+}
+
 export class AnthropicAiProvider implements AiProvider {
   readonly name = "anthropic";
 
   constructor(private apiKey: string) {}
 
   private async call(model: string, system: string, userMessage: string): Promise<ToolResult> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": this.apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            model,
-            max_tokens: MAX_TOKENS,
-            system,
-            tools: [OUTPUT_TOOL],
-            tool_choice: { type: "tool", name: OUTPUT_TOOL.name },
-            messages: [{ role: "user", content: userMessage }],
-          }),
-        });
-
-        if (!response.ok) {
-          const detail = await response.text().catch(() => "");
-          const error = new Error(
-            `Anthropic request failed (${response.status}): ${detail.slice(0, 200)}`,
-          );
-          // 4xx other than rate limiting will not succeed on retry.
-          if (response.status < 500 && response.status !== 429) throw error;
-          lastError = error;
-          continue;
-        }
-
-        const data = (await response.json()) as {
-          content?: { type: string; name?: string; input?: unknown }[];
-        };
-        const toolUse = (data.content ?? []).find(
-          (b) => b.type === "tool_use" && b.name === OUTPUT_TOOL.name,
-        );
-        if (!toolUse?.input) {
-          throw new Error("Anthropic response did not include the required structured output.");
-        }
-        return toolUse.input as ToolResult;
-      } catch (error) {
-        lastError = error as Error;
-        if ((error as Error).name === "AbortError") {
-          lastError = new Error(`Anthropic request timed out after ${TIMEOUT_MS}ms`);
-        }
-        if (attempt === MAX_ATTEMPTS) break;
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-
-    throw lastError ?? new Error("Anthropic request failed");
+    return (await callAnthropicTool({
+      apiKey: this.apiKey,
+      model,
+      system,
+      userMessage,
+      tool: OUTPUT_TOOL,
+    })) as ToolResult;
   }
 
   async generate(feature: AiFeature, context: AiContext): Promise<AiResult> {
