@@ -1,12 +1,26 @@
 import Link from "next/link";
-import { listCapturedProcesses } from "@/server/actions/process-intelligence";
+import { AnalyseQueuedPanel } from "@/components/process-intelligence/AnalyseQueuedPanel";
+import {
+  isProcessAnalysisAvailable,
+  listCapturedProcesses,
+} from "@/server/actions/process-intelligence";
+
+// The batch analysis action runs from this route too.
+export const maxDuration = 300;
+
 export default async function ProcessesPage({
   params,
 }: {
   params: Promise<{ organisationId: string }>;
 }) {
   const { organisationId } = await params;
-  const processes = await listCapturedProcesses(organisationId);
+  const [processes, analysisAvailable] = await Promise.all([
+    listCapturedProcesses(organisationId),
+    isProcessAnalysisAvailable(),
+  ]);
+  const pending = processes.filter(
+    (p) => p.analysisStatus === "queued" || p.analysisStatus === "failed",
+  ).length;
   return (
     <div className="space-y-6">
       <header>
@@ -16,6 +30,11 @@ export default async function ProcessesPage({
           Live participant submissions. AI fields remain empty until analysis completes.
         </p>
       </header>
+      <AnalyseQueuedPanel
+        organisationId={organisationId}
+        pending={pending}
+        available={analysisAvailable}
+      />
       <form className="surface-card grid gap-3 p-4 sm:grid-cols-3 lg:grid-cols-6">
         {[
           "Department",
